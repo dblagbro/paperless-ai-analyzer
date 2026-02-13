@@ -1,0 +1,40 @@
+# Core dependencies
+requests==2.31.0
+PyYAML==6.0.1
+python-dateutil==2.8.2
+
+# PDF and image processing
+PyPDF2==3.0.1
+pdf2image==1.16.3
+Pillow==10.2.0
+pypdfium2==4.26.0
+
+# Unstructured for document extraction
+# Pin onnxruntime before unstructured to avoid Docker stack issues
+onnxruntime==1.15.1
+unstructured[pdf]==0.12.4
+unstructured-inference==0.7.23
+pytesseract==0.3.10
+
+# Image forensics
+opencv-python==4.9.0.80
+numpy==1.26.3
+scikit-image==0.22.0
+scipy==1.12.0
+
+# Optional LLM support
+anthropic>=0.40.0
+openai>=1.12.0
+cohere>=5.0.0
+
+# Vector database for RAG
+chromadb>=0.4.22
+
+# Utilities
+tenacity==8.2.3
+pydantic==2.6.1
+
+# Web UI
+Flask==3.0.0
+Werkzeug==3.0.1
+waitress==3.0.0  # Production WSGI server

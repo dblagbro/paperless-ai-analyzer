@@ -1,0 +1,118 @@
+profile_id: bank_statement_generic
+display_name: Bank Statement (Generic)
+version: 1
+description: Generic profile for bank statements with transaction tables
+
+# Document type matching rules
+match:
+  # Keyword matching
+  keywords:
+    any:
+      - "statement period"
+      - "beginning balance"
+      - "ending balance"
+      - "account summary"
+      - "previous balance"
+    all: []
+
+  # Regex patterns
+  regex:
+    any:
+      - "\\bending balance\\b"
+      - "\\bbeginning balance\\b"
+      - "\\baccount number\\b"
+      - "statement\\s+period"
+
+  # MIME type
+  mime_types:
+    - "application/pdf"
+
+  # Minimum score to match (0-1)
+  min_score: 0.6
+
+# Extraction configuration
+extraction:
+  engine: unstructured
+  mode: elements  # elements, hi_res, or fast
+
+  # Table extraction hints
+  table_hints:
+    column_keywords:
+      - "date"
+      - "description"
+      - "debit"
+      - "credit"
+      - "balance"
+      - "amount"
+      - "withdrawals"
+      - "deposits"
+
+    date_formats:
+      - "%m/%d/%Y"
+      - "%m/%d/%y"
+      - "%Y-%m-%d"
+      - "%m-%d-%Y"
+
+    # Regex for date detection
+    date_regex: "\\b\\d{1,2}[/-]\\d{1,2}[/-]\\d{2,4}\\b"
+
+    # Currency symbols
+    currency_symbols: ["$", "USD"]
+
+  # Page handling
+  page_handling:
+    skip_first: false
+    skip_last: false
+    max_pages: null
+
+# Validation and tolerance settings
+validation:
+  currency: "USD"
+  decimal_places: 2
+
+  # Balance check tolerance
+  running_balance_tolerance: 0.01  # $0.01
+
+  # Date validation
+  allow_future_dates: false
+  max_date_gap_days: 90
+
+# Enabled checks
+checks_enabled:
+  - running_balance
+  - page_totals
+  - continuity
+  - duplicates
+  - date_order
+  - image_forensics
+
+# Image forensics configuration
+forensics:
+  enabled: true
+  dpi: 300
+  analyze_numeric_regions: true
+  compression_analysis: true
+  noise_analysis: true
+
+  # Risk thresholds
+  high_risk_threshold: 70.0
+  medium_risk_threshold: 40.0
+
+# Tagging rules
+tagging:
+  deterministic_prefix: "anomaly:"
+  ai_prefix: "aianomaly:"
+
+  # Auto-apply tags
+  auto_tags:
+    - "analyzed:deterministic:v1"
+
+  # Tag mappings for anomalies
+  anomaly_tags:
+    balance_mismatch: "anomaly:balance_mismatch"
+    page_total_mismatch: "anomaly:page_total_mismatch"
+    continuity_mismatch: "anomaly:continuity_mismatch"
+    duplicate_transactions: "anomaly:duplicate_transactions"
+    date_order_violation: "anomaly:date_order_violation"
+    high_forensic_risk: "anomaly:forensic_risk_high"
+    medium_forensic_risk: "anomaly:forensic_risk_medium"
