@@ -1,0 +1,44 @@
+# Environment and secrets
+.env
+*.env
+!.env.example
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# Data and logs
+*.log
+logs/
+data/
+*.db
+*.sqlite
+
+# Profiles with potentially sensitive data
+profiles/active/
+profiles/staging/
+profiles/*.json
+!profiles/examples/
+!profiles/README.md
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test output
+test-results/
+coverage/
