@@ -180,6 +180,422 @@ Please provide your analysis in this JSON format:
 
         return prompt
 
+    def generate_document_summary(self, document_info: Dict[str, Any], content_preview: str = "") -> Dict[str, str]:
+        """
+        Generate brief and full summaries of a document.
+
+        Args:
+            document_info: Document metadata (title, type, etc.)
+            content_preview: First ~500 chars of document content for context
+
+        Returns:
+            Dict with 'brief' (1 sentence) and 'full' (3-4 sentences) summaries
+        """
+        if not self.client:
+            # Fallback to title-based summary
+            title = document_info.get('title', 'Unknown Document')
+            return {
+                'brief': f"Financial document: {title}",
+                'full': f"This is a financial document titled '{title}'. No AI summary available - LLM client not initialized."
+            }
+
+        try:
+            doc_title = document_info.get('title', 'Unknown')
+            doc_type = document_info.get('document_type', 'financial document')
+
+            # Build prompt for summarization
+            prompt = f"""Analyze this document and provide two summaries:
+
+Document Title: {doc_title}
+Document Type: {doc_type}
+{f"Content Preview: {content_preview[:500]}..." if content_preview else ""}
+
+Provide:
+1. BRIEF (1 sentence): A concise description of what this document is
+2. FULL (3-4 sentences): A detailed summary including purpose, key details, and context
+
+Respond in JSON format:
+{{
+  "brief": "One sentence description",
+  "full": "Three to four sentence detailed summary"
+}}
+
+Important: Base your summary on the title and any content provided. If content is limited, describe what the document type and title suggest about its purpose."""
+
+            # Call LLM
+            response = self._call_llm(prompt)
+
+            # Parse JSON response
+            import json
+            try:
+                result = json.loads(response)
+                return {
+                    'brief': result.get('brief', f"{doc_type}: {doc_title}"),
+                    'full': result.get('full', f"Financial document titled '{doc_title}'.")
+                }
+            except json.JSONDecodeError:
+                # If not valid JSON, try to extract summaries from text
+                lines = response.strip().split('\n')
+                brief = next((l.split(':', 1)[1].strip() for l in lines if 'brief' in l.lower()), f"{doc_type}: {doc_title}")
+                full = next((l.split(':', 1)[1].strip() for l in lines if 'full' in l.lower()), brief)
+                return {'brief': brief, 'full': full}
+
+        except Exception as e:
+            logger.warning(f"Failed to generate summary: {e}")
+            title = document_info.get('title', 'Unknown Document')
+            return {
+                'brief': f"Financial document: {title}",
+                'full': f"Document titled '{title}'. Summary generation failed."
+            }
+
+    def extract_rich_metadata(self, document_info: Dict[str, Any], content_preview: str = "") -> Dict[str, Any]:
+        """
+        Extract comprehensive metadata from document for optimal RAG performance.
+
+        This extracts structured data once, stores it in vector DB, enabling:
+        - Faster queries (pre-computed answers)
+        - Lower token usage (no need to re-analyze)
+        - Better search (rich metadata)
+        - Smaller context windows
+
+        Args:
+            document_info: Document metadata (title, type, etc.)
+            content_preview: First ~1000 chars of document content
+
+        Returns:
+            Dict with rich structured metadata
+        """
+        if not self.client:
+            return self._fallback_metadata(document_info)
+
+        try:
+            doc_title = document_info.get('title', 'Unknown')
+            doc_type = document_info.get('document_type', 'financial document')
+
+            # Build comprehensive extraction prompt
+            prompt = f"""Analyze this document and extract ALL useful metadata in structured JSON format.
+
+Document Title: {doc_title}
+Document Type: {doc_type}
+Content Preview (first 1000 chars):
+{content_preview[:1000]}
+
+Extract the following metadata (return "null" or empty array if not applicable):
+
+{{
+  "classification": {{
+    "primary_category": "legal|financial|correspondence|administrative|other",
+    "sub_type": "specific type like 'bank_statement', 'court_order', 'invoice', etc.",
+    "confidence": "high|medium|low",
+    "industry_context": "brief context"
+  }},
+  "entities": {{
+    "people": ["list of person names with roles if clear"],
+    "organizations": ["companies, courts, banks, etc."],
+    "locations": ["addresses, jurisdictions"],
+    "identifiers": ["account numbers, case numbers, etc."],
+    "financial_figures": ["key dollar amounts with context"]
+  }},
+  "temporal": {{
+    "document_date": "YYYY-MM-DD or null",
+    "period_start": "YYYY-MM-DD or null",
+    "period_end": "YYYY-MM-DD or null",
+    "deadlines": ["important dates with descriptions"],
+    "time_context": "brief temporal context"
+  }},
+  "financial_summary": {{
+    "beginning_balance": "amount or null",
+    "ending_balance": "amount or null",
+    "total_amount": "amount or null",
+    "key_figures": ["list of important amounts with labels"],
+    "account_summary": "brief financial summary"
+  }},
+  "content_analysis": {{
+    "main_topics": ["3-5 key topics"],
+    "keywords": ["8-12 searchable keywords"],
+    "purpose": "what this document is for",
+    "importance_level": "critical|high|medium|low",
+    "sentiment": "neutral|positive|negative|urgent|formal"
+  }},
+  "actionable_intelligence": {{
+    "action_items": ["things that need to be done"],
+    "deadlines_urgent": ["any urgent deadlines"],
+    "red_flags": ["concerns or issues"],
+    "follow_up": ["follow-up actions needed"]
+  }},
+  "relationships": {{
+    "references_documents": ["mentioned document names/numbers"],
+    "related_parties": ["connected people/orgs"],
+    "part_of_series": "yes/no - is this part of a sequence",
+    "context": "how this relates to other documents"
+  }},
+  "qa_pairs": [
+    {{"question": "What is this document?", "answer": "concise answer"}},
+    {{"question": "Who is involved?", "answer": "key parties"}},
+    {{"question": "What are the key amounts?", "answer": "financial figures"}},
+    {{"question": "Any important dates?", "answer": "key dates"}},
+    {{"question": "What action is required?", "answer": "actions needed"}}
+  ],
+  "search_tags": ["8-12 tags optimized for search - include topics, entities, types"],
+  "one_line_summary": "Ultra-concise 1-line summary for quick scanning"
+}}
+
+IMPORTANT:
+- Extract only what's evident from the content
+- Use null/empty arrays for missing data
+- Be precise with dates and amounts
+- Focus on searchable, reusable information
+- The goal is to make future queries fast by pre-extracting everything useful
+
+Return ONLY valid JSON."""
+
+            # Call LLM with longer max tokens for rich extraction
+            response_text = self._call_llm(prompt)
+
+            # Parse JSON response with safe parser
+            metadata = self._safe_json_parse(response_text)
+            if metadata:
+                logger.info(f"Extracted rich metadata: {len(str(metadata))} chars, {len(metadata.get('keywords', []))} keywords")
+                return metadata
+            else:
+                logger.error("Could not extract valid JSON from response")
+                return self._fallback_metadata(document_info)
+
+        except Exception as e:
+            logger.warning(f"Rich metadata extraction failed: {e}")
+            return self._fallback_metadata(document_info)
+
+    def analyze_document_integrity(self, document_info: Dict[str, Any], content_preview: str = "",
+                                   related_docs: List[Dict] = None) -> Dict[str, Any]:
+        """
+        Analyze document for conflicts, inconsistencies, and quality issues.
+        Critical for legal document review - finds problems that could affect case.
+
+        Args:
+            document_info: Document metadata
+            content_preview: First ~1500 chars of document
+            related_docs: Optional list of related documents for cross-doc checking
+
+        Returns:
+            Dict with integrity findings, each with detailed evidence
+        """
+        if not self.client:
+            return {'enabled': False, 'findings': []}
+
+        try:
+            doc_title = document_info.get('title', 'Unknown')
+            doc_type = document_info.get('document_type', 'document')
+
+            prompt = f"""Analyze this document for integrity issues, conflicts, and quality problems.
+This is for LEGAL REVIEW - be thorough and precise.
+
+Document: {doc_title}
+Type: {doc_type}
+Content Preview (first 1500 chars):
+{content_preview[:1500]}
+
+Analyze for these issues:
+
+1. SELF-CONFLICTS (internal contradictions)
+   - Conflicting statements or facts
+   - Same item with different values
+   - Contradictory dates or timelines
+   - Math that doesn't add up
+   - Logic inconsistencies
+
+2. SENSE CHECKING (things that don't make sense)
+   - Impossible timelines (effect before cause)
+   - Unreasonable amounts or values
+   - Missing required information
+   - Illogical sequences
+   - Unexplained gaps
+
+3. QUALITY ISSUES
+   - Missing signatures or dates
+   - Incomplete information
+   - Formatting problems
+   - Unclear or ambiguous language
+   - Potential redaction needs (PII, SSN, etc.)
+
+4. LEGAL COMPLIANCE
+   - Improper citations (if any)
+   - Missing exhibit references
+   - Date stamp issues
+   - Party identification problems
+
+For EACH issue found, provide:
+- Severity: critical|high|medium|low
+- Category: conflict|logic_error|missing_info|quality|legal_compliance
+- Description: What's wrong
+- Evidence: EXACT quote or values that show the problem
+- Location: Page number or section if identifiable
+- Impact: Why this matters
+- Suggested_action: What to do about it
+
+Return JSON:
+{{
+  "has_issues": true/false,
+  "issue_count": number,
+  "critical_count": number,
+  "findings": [
+    {{
+      "severity": "critical|high|medium|low",
+      "category": "conflict|logic_error|missing_info|quality|legal_compliance",
+      "issue_type": "specific type like 'date_conflict', 'math_error', etc.",
+      "description": "Clear description of the problem",
+      "evidence": {{
+        "quotes": ["exact quote 1", "exact quote 2"],
+        "values": ["conflicting value 1", "conflicting value 2"],
+        "context": "surrounding context",
+        "location": "page/section reference"
+      }},
+      "impact": "Why this matters for legal review",
+      "suggested_action": "What to do",
+      "confidence": "high|medium|low"
+    }}
+  ],
+  "summary": "Brief summary of integrity analysis"
+}}
+
+IMPORTANT:
+- Only flag real issues, not minor stylistic choices
+- Provide EXACT evidence with quotes
+- Be specific about location when possible
+- Consider legal context and implications
+- If no issues found, return empty findings array"""
+
+            response = self._call_llm(prompt)
+
+            # Parse response with safe JSON parser
+            integrity_result = self._safe_json_parse(response)
+            if integrity_result:
+                logger.info(f"Integrity analysis: {integrity_result.get('issue_count', 0)} issues found, {integrity_result.get('critical_count', 0)} critical")
+                return integrity_result
+            else:
+                logger.warning("Could not parse integrity analysis response")
+                return {
+                    'has_issues': False,
+                    'issue_count': 0,
+                    'critical_count': 0,
+                    'findings': [],
+                    'summary': 'Analysis failed to parse'
+                }
+
+        except Exception as e:
+            logger.warning(f"Integrity analysis failed: {e}")
+            return {
+                'has_issues': False,
+                'issue_count': 0,
+                'critical_count': 0,
+                'findings': [],
+                'summary': f'Analysis error: {str(e)}'
+            }
+
+    def _fallback_metadata(self, document_info: Dict[str, Any]) -> Dict[str, Any]:
+        """Generate minimal metadata when LLM extraction fails."""
+        title = document_info.get('title', 'Unknown Document')
+        doc_type = document_info.get('document_type', 'unknown')
+
+        return {
+            "classification": {
+                "primary_category": "financial",
+                "sub_type": doc_type,
+                "confidence": "low",
+                "industry_context": "financial document"
+            },
+            "entities": {"people": [], "organizations": [], "locations": [], "identifiers": [], "financial_figures": []},
+            "temporal": {"document_date": None, "period_start": None, "period_end": None, "deadlines": [], "time_context": ""},
+            "financial_summary": {"beginning_balance": None, "ending_balance": None, "total_amount": None, "key_figures": [], "account_summary": ""},
+            "content_analysis": {
+                "main_topics": [title],
+                "keywords": [doc_type, "financial"],
+                "purpose": "Financial document",
+                "importance_level": "medium",
+                "sentiment": "neutral"
+            },
+            "actionable_intelligence": {"action_items": [], "deadlines_urgent": [], "red_flags": [], "follow_up": []},
+            "relationships": {"references_documents": [], "related_parties": [], "part_of_series": "no", "context": ""},
+            "qa_pairs": [
+                {"question": "What is this document?", "answer": title},
+                {"question": "What type?", "answer": doc_type}
+            ],
+            "search_tags": [doc_type, "financial", "document"],
+            "one_line_summary": f"{doc_type}: {title}"
+        }
+
+    def _repair_json(self, json_str: str) -> str:
+        """
+        Attempt to repair common JSON issues from LLM responses.
+
+        Args:
+            json_str: Potentially malformed JSON string
+
+        Returns:
+            Repaired JSON string
+        """
+        import re
+
+        # Remove trailing commas before closing braces/brackets
+        json_str = re.sub(r',\s*}', '}', json_str)
+        json_str = re.sub(r',\s*]', ']', json_str)
+
+        # Remove comments (sometimes LLMs add them)
+        json_str = re.sub(r'//.*?\n', '\n', json_str)
+        json_str = re.sub(r'/\*.*?\*/', '', json_str, flags=re.DOTALL)
+
+        # Fix common quote issues
+        json_str = json_str.replace("'", '"')  # Replace single quotes with double quotes
+
+        # Remove control characters that break JSON
+        json_str = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', json_str)
+
+        return json_str.strip()
+
+    def _safe_json_parse(self, response: str) -> Optional[Dict]:
+        """
+        Safely parse JSON with multiple fallback strategies.
+
+        Args:
+            response: LLM response that should contain JSON
+
+        Returns:
+            Parsed dict or None if all attempts fail
+        """
+        import re
+
+        # Strategy 1: Try parsing response directly
+        try:
+            return json.loads(response)
+        except json.JSONDecodeError:
+            pass
+
+        # Strategy 2: Try repairing and parsing
+        try:
+            repaired = self._repair_json(response)
+            return json.loads(repaired)
+        except json.JSONDecodeError:
+            pass
+
+        # Strategy 3: Extract JSON object from response
+        try:
+            json_match = re.search(r'\{.*\}', response, re.DOTALL)
+            if json_match:
+                return json.loads(json_match.group())
+        except json.JSONDecodeError:
+            pass
+
+        # Strategy 4: Try repairing extracted JSON
+        try:
+            json_match = re.search(r'\{.*\}', response, re.DOTALL)
+            if json_match:
+                repaired = self._repair_json(json_match.group())
+                return json.loads(repaired)
+        except json.JSONDecodeError:
+            pass
+
+        logger.error(f"All JSON parse strategies failed for response: {response[:200]}...")
+        return None
+
     def _call_llm(self, prompt: str) -> str:
         """Call the LLM API with multi-provider fallback."""
         # Load AI configuration for document analysis
