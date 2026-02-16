@@ -773,6 +773,217 @@
             color: #999;
             font-family: monospace;
         }
+
+        /* Modal Styles */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.6);
+            z-index: 1000;
+            overflow: auto;
+        }
+
+        .modal-overlay.active {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .modal-content {
+            background: white;
+            border-radius: 12px;
+            max-width: 800px;
+            width: 100%;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+        }
+
+        .modal-header {
+            padding: 20px 24px;
+            border-bottom: 1px solid #e0e0e0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-header h2 {
+            font-size: 20px;
+            color: #2c3e50;
+            margin: 0;
+        }
+
+        .modal-close {
+            background: none;
+            border: none;
+            font-size: 28px;
+            color: #999;
+            cursor: pointer;
+            padding: 0;
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 4px;
+            transition: all 0.2s;
+        }
+
+        .modal-close:hover {
+            background: #f5f5f5;
+            color: #333;
+        }
+
+        .modal-body {
+            padding: 24px;
+        }
+
+        .evidence-item {
+            margin-bottom: 20px;
+            padding: 16px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border-left: 4px solid #3498db;
+        }
+
+        .evidence-item.severity-critical {
+            border-left-color: #e74c3c;
+            background: #fef5f5;
+        }
+
+        .evidence-item.severity-high {
+            border-left-color: #f39c12;
+            background: #fef9f3;
+        }
+
+        .evidence-item.severity-medium {
+            border-left-color: #f39c12;
+            background: #fffef8;
+        }
+
+        .evidence-item.severity-low {
+            border-left-color: #95a5a6;
+            background: #f8f9fa;
+        }
+
+        .evidence-tag-name {
+            font-size: 14px;
+            font-weight: 600;
+            color: #2c3e50;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .evidence-severity {
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            text-transform: uppercase;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+        }
+
+        .evidence-severity.critical {
+            background: #e74c3c;
+            color: white;
+        }
+
+        .evidence-severity.high {
+            background: #f39c12;
+            color: white;
+        }
+
+        .evidence-severity.medium {
+            background: #f39c12;
+            color: white;
+        }
+
+        .evidence-severity.low {
+            background: #95a5a6;
+            color: white;
+        }
+
+        .evidence-description {
+            font-size: 14px;
+            color: #555;
+            margin: 8px 0;
+            line-height: 1.6;
+        }
+
+        .evidence-quotes {
+            background: white;
+            padding: 12px;
+            border-radius: 6px;
+            margin: 8px 0;
+            border: 1px solid #e0e0e0;
+        }
+
+        .evidence-quotes h4 {
+            font-size: 12px;
+            text-transform: uppercase;
+            color: #666;
+            margin-bottom: 8px;
+            font-weight: 600;
+        }
+
+        .evidence-quote {
+            font-style: italic;
+            color: #444;
+            padding: 8px;
+            border-left: 3px solid #3498db;
+            margin: 6px 0;
+            background: #f8f9fa;
+        }
+
+        .evidence-location {
+            font-size: 12px;
+            color: #999;
+            font-family: monospace;
+            margin-top: 4px;
+        }
+
+        .evidence-impact {
+            margin-top: 8px;
+            padding: 8px;
+            background: white;
+            border-radius: 4px;
+            font-size: 13px;
+            color: #555;
+        }
+
+        .evidence-impact strong {
+            color: #2c3e50;
+        }
+
+        .tag.clickable {
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .tag.clickable:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+            opacity: 0.9;
+        }
+
+        .no-evidence {
+            text-align: center;
+            padding: 40px;
+            color: #999;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
     </style>
 </head>
 <body>
@@ -1114,10 +1325,43 @@
 
                     let tags = '';
                     if (analysis.anomalies_found) {
-                        tags = analysis.anomalies_found.map(a =>
-                            `<span class="tag anomaly">${a}</span>`
-                        ).join('');
+                        // Check if this document has enhanced tags (issue count > 0 indicates detailed evidence)
+                        const hasEvidence = analysis.issue_count > 0 || analysis.enhanced_tags;
+
+                        tags = analysis.anomalies_found.map(a => {
+                            // Tags starting with "issue:" have detailed evidence
+                            const isIssueTag = a.startsWith('issue:');
+                            if (hasEvidence && isIssueTag) {
+                                return `<span class="tag anomaly clickable" onclick="event.stopPropagation(); showTagEvidence(${analysis.doc_id}, '${analysis.title.replace(/'/g, "\\'")}');" title="Click for detailed evidence">🔍 ${a}</span>`;
+                            } else {
+                                return `<span class="tag anomaly">${a}</span>`;
+                            }
+                        }).join('');
+
+                        // Add "View Evidence" button if document has integrity issues
+                        if (hasEvidence) {
+                            tags += ` <span class="tag clickable" style="background: #3498db; color: white;" onclick="event.stopPropagation(); showTagEvidence(${analysis.doc_id}, '${analysis.title.replace(/'/g, "\\'")}');" title="Click to view all evidence">📋 View Evidence</span>`;
+                        }
                     }
+
+                    // Format summaries if available
+                    const briefSummary = analysis.brief_summary || '';
+                    const fullSummary = analysis.full_summary || '';
+                    const summaryHtml = briefSummary ? `
+                        <div style="margin-top: 8px; padding: 8px; background: rgba(52, 152, 219, 0.1); border-radius: 4px; font-size: 0.9em;">
+                            <div style="color: #555; font-style: italic;">
+                                💡 ${briefSummary}
+                            </div>
+                            ${fullSummary && fullSummary !== briefSummary ? `
+                                <details style="margin-top: 4px;">
+                                    <summary style="cursor: pointer; color: #3498db; font-size: 0.85em;">Show full summary</summary>
+                                    <div style="margin-top: 6px; color: #666; line-height: 1.4;">
+                                        ${fullSummary}
+                                    </div>
+                                </details>
+                            ` : ''}
+                        </div>
+                    ` : '';
 
                     return `
                         <div class="${classes.join(' ')}">
@@ -1128,6 +1372,7 @@
                                 ${analysis.profile_matched ? `<span>📋 ${analysis.profile_matched}</span>` : '<span>❓ No profile</span>'}
                                 <span>⏱️ ${new Date(analysis.timestamp).toLocaleString()}</span>
                             </div>
+                            ${summaryHtml}
                             ${tags ? `<div style="margin-top: 8px;">${tags}</div>` : ''}
                         </div>
                     `;
@@ -1563,10 +1808,43 @@
 
                         let tags = '';
                         if (analysis.anomalies_found) {
-                            tags = analysis.anomalies_found.map(a =>
-                                `<span class="tag anomaly">${a}</span>`
-                            ).join('');
+                            // Check if this document has enhanced tags (issue count > 0 indicates detailed evidence)
+                            const hasEvidence = analysis.issue_count > 0 || analysis.enhanced_tags;
+
+                            tags = analysis.anomalies_found.map(a => {
+                                // Tags starting with "issue:" have detailed evidence
+                                const isIssueTag = a.startsWith('issue:');
+                                if (hasEvidence && isIssueTag) {
+                                    return `<span class="tag anomaly clickable" onclick="event.stopPropagation(); showTagEvidence(${analysis.doc_id}, '${analysis.title.replace(/'/g, "\\'")}');" title="Click for detailed evidence">🔍 ${a}</span>`;
+                                } else {
+                                    return `<span class="tag anomaly">${a}</span>`;
+                                }
+                            }).join('');
+
+                            // Add "View Evidence" button if document has integrity issues
+                            if (hasEvidence) {
+                                tags += ` <span class="tag clickable" style="background: #3498db; color: white;" onclick="event.stopPropagation(); showTagEvidence(${analysis.doc_id}, '${analysis.title.replace(/'/g, "\\'")}');" title="Click to view all evidence">📋 View Evidence</span>`;
+                            }
                         }
+
+                        // Format summaries if available
+                        const briefSummary = analysis.brief_summary || '';
+                        const fullSummary = analysis.full_summary || '';
+                        const summaryHtml = briefSummary ? `
+                            <div style="margin-top: 8px; padding: 8px; background: rgba(52, 152, 219, 0.1); border-radius: 4px; font-size: 0.9em;">
+                                <div style="color: #555; font-style: italic;">
+                                    💡 ${briefSummary}
+                                </div>
+                                ${fullSummary && fullSummary !== briefSummary ? `
+                                    <details style="margin-top: 4px;">
+                                        <summary style="cursor: pointer; color: #3498db; font-size: 0.85em;">Show full summary</summary>
+                                        <div style="margin-top: 6px; color: #666; line-height: 1.4;">
+                                            ${fullSummary}
+                                        </div>
+                                    </details>
+                                ` : ''}
+                            </div>
+                        ` : '';
 
                         return `
                             <div class="${classes.join(' ')}">
@@ -1577,6 +1855,7 @@
                                     ${analysis.profile_matched ? `<span>📋 ${analysis.profile_matched}</span>` : '<span>❓ No profile</span>'}
                                     <span>⏱️ ${new Date(analysis.timestamp).toLocaleString()}</span>
                                 </div>
+                                ${summaryHtml}
                                 ${tags ? `<div style="margin-top: 8px;">${tags}</div>` : ''}
                             </div>
                         `;
@@ -2281,6 +2560,122 @@
 
         // Auto-refresh logs every 15 seconds
         setInterval(refreshLogs, 15000);
+
+        // Tag Evidence Modal Functions
+        async function showTagEvidence(docId, docTitle) {
+            const modal = document.getElementById('tag-evidence-modal');
+            const modalTitle = document.getElementById('modal-doc-title');
+            const modalBody = document.getElementById('modal-evidence-body');
+
+            // Show modal and loading state
+            modal.classList.add('active');
+            modalTitle.textContent = `Document #${docId}: ${docTitle}`;
+            modalBody.innerHTML = '<div class="loading">Loading evidence...</div>';
+
+            try {
+                const response = await fetch(`api/tag-evidence/${docId}`);
+                const data = await response.json();
+
+                if (data.error) {
+                    modalBody.innerHTML = `<div class="no-evidence">${data.error}</div>`;
+                    return;
+                }
+
+                if (!data.tags || data.tags.length === 0) {
+                    modalBody.innerHTML = '<div class="no-evidence">No detailed evidence available for this document.</div>';
+                    return;
+                }
+
+                // Render evidence items
+                let html = '';
+                if (data.integrity_summary) {
+                    html += `<div style="margin-bottom: 20px; padding: 12px; background: #e8f4f8; border-radius: 6px;">
+                        <strong>Integrity Summary:</strong> ${data.integrity_summary}
+                        ${data.critical_count > 0 ? `<span style="color: #e74c3c; margin-left: 12px;">⚠️ ${data.critical_count} critical issue(s)</span>` : ''}
+                    </div>`;
+                }
+
+                for (const tag of data.tags) {
+                    const severityClass = `severity-${tag.severity || 'low'}`;
+                    const evidence = tag.evidence || {};
+
+                    html += `
+                        <div class="evidence-item ${severityClass}">
+                            <div class="evidence-tag-name">
+                                <span>${tag.tag}</span>
+                                <span class="evidence-severity ${tag.severity || 'low'}">${tag.severity || 'low'}</span>
+                            </div>
+                            <div class="evidence-description">
+                                <strong>${tag.category || 'Issue'}:</strong> ${tag.description || 'No description'}
+                            </div>
+                    `;
+
+                    // Add quotes if available
+                    if (evidence.quotes && evidence.quotes.length > 0) {
+                        html += '<div class="evidence-quotes"><h4>📄 Evidence from document:</h4>';
+                        for (const quote of evidence.quotes.slice(0, 3)) {
+                            html += `<div class="evidence-quote">"${quote}"</div>`;
+                        }
+                        html += '</div>';
+                    }
+
+                    // Add conflicting values if available
+                    if (evidence.conflicting_values && evidence.conflicting_values.length > 0) {
+                        html += '<div class="evidence-quotes"><h4>⚠️ Conflicting values:</h4>';
+                        for (const conflict of evidence.conflicting_values) {
+                            html += `<div class="evidence-quote">${conflict}</div>`;
+                        }
+                        html += '</div>';
+                    }
+
+                    // Add location if available
+                    if (evidence.location) {
+                        html += `<div class="evidence-location">📍 Found: ${evidence.location}</div>`;
+                    }
+
+                    // Add impact
+                    if (tag.impact) {
+                        html += `<div class="evidence-impact"><strong>Impact:</strong> ${tag.impact}</div>`;
+                    }
+
+                    // Add suggested action if available
+                    if (tag.suggested_action) {
+                        html += `<div class="evidence-impact" style="background: #e8f8f5;"><strong>Suggested Action:</strong> ${tag.suggested_action}</div>`;
+                    }
+
+                    html += '</div>';
+                }
+
+                modalBody.innerHTML = html;
+            } catch (error) {
+                modalBody.innerHTML = `<div class="no-evidence">Error loading evidence: ${error.message}</div>`;
+            }
+        }
+
+        function closeTagModal() {
+            document.getElementById('tag-evidence-modal').classList.remove('active');
+        }
+
+        // Close modal when clicking outside
+        document.addEventListener('click', (e) => {
+            const modal = document.getElementById('tag-evidence-modal');
+            if (e.target === modal) {
+                closeTagModal();
+            }
+        });
     </script>
+
+    <!-- Tag Evidence Modal -->
+    <div id="tag-evidence-modal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modal-doc-title">Tag Evidence</h2>
+                <button class="modal-close" onclick="closeTagModal()">&times;</button>
+            </div>
+            <div class="modal-body" id="modal-evidence-body">
+                <div class="loading">Loading...</div>
+            </div>
+        </div>
+    </div>
 </body>
 </html>
