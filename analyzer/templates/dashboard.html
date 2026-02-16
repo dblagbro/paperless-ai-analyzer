@@ -1123,7 +1123,7 @@
                         <div class="${classes.join(' ')}">
                             <div class="title">${analysis.title}</div>
                             <div class="meta">
-                                <span>📄 Doc #${analysis.doc_id}</span>
+                                <span>📄 <a href="https://www.voipguru.org/paperless/documents/${analysis.doc_id}" target="_blank" style="color: #3498db; text-decoration: none;">Doc #${analysis.doc_id}</a></span>
                                 <span>⚠️ Risk: ${analysis.risk_score}%</span>
                                 ${analysis.profile_matched ? `<span>📋 ${analysis.profile_matched}</span>` : '<span>❓ No profile</span>'}
                                 <span>⏱️ ${new Date(analysis.timestamp).toLocaleString()}</span>
@@ -1572,7 +1572,7 @@
                             <div class="${classes.join(' ')}">
                                 <div class="title">${analysis.title}</div>
                                 <div class="meta">
-                                    <span>📄 Doc #${analysis.doc_id}</span>
+                                    <span>📄 <a href="https://www.voipguru.org/paperless/documents/${analysis.doc_id}" target="_blank" style="color: #3498db; text-decoration: none;">Doc #${analysis.doc_id}</a></span>
                                     <span>⚠️ Risk: ${analysis.risk_score}%</span>
                                     ${analysis.profile_matched ? `<span>📋 ${analysis.profile_matched}</span>` : '<span>❓ No profile</span>'}
                                     <span>⏱️ ${new Date(analysis.timestamp).toLocaleString()}</span>
