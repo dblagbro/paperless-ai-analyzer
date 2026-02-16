@@ -440,7 +440,74 @@ Format the output as structured text that preserves the layout and relationships
                 logger.info(f"Adding tags to document {doc_id}: {tags_to_add}")
                 self.paperless.update_document_tags(doc_id, tags_to_add)
 
-            # Update UI stats
+            # Generate document summaries and extract rich metadata for UI & RAG optimization
+            doc_summary = {'brief': '', 'full': ''}
+            rich_metadata = {}
+            if self.llm_enabled and self.llm_client:
+                try:
+                    content_preview = document.get('content', '')[:1000]  # First 1000 chars for better extraction
+
+                    # Extract rich metadata (single LLM call gets everything)
+                    rich_metadata = self.llm_client.extract_rich_metadata(
+                        document_info={
+                            'title': doc_title,
+                            'document_type': profile.profile_id if profile else 'financial document'
+                        },
+                        content_preview=content_preview
+                    )
+
+                    # Use the one-line summary from rich metadata as brief summary
+                    doc_summary['brief'] = rich_metadata.get('one_line_summary', f"Financial document: {doc_title}")
+
+                    # Create full summary from classification and content analysis
+                    classification = rich_metadata.get('classification', {})
+                    content_analysis = rich_metadata.get('content_analysis', {})
+                    doc_summary['full'] = f"{classification.get('sub_type', 'Document')} - {content_analysis.get('purpose', '')}. Topics: {', '.join(content_analysis.get('main_topics', [])[:3])}"
+
+                    logger.info(f"Extracted metadata: {len(rich_metadata.get('keywords', []))} keywords, {len(rich_metadata.get('qa_pairs', []))} Q&A pairs")
+                except Exception as e:
+                    logger.warning(f"Failed to extract metadata for doc {doc_id}: {e}")
+
+            # Analyze document integrity (conflicts, errors, quality issues)
+            integrity_analysis = {}
+            enhanced_tags = []  # Tags with evidence
+            if self.llm_enabled and self.llm_client:
+                try:
+                    content_preview = document.get('content', '')[:1500]  # Longer preview for integrity check
+                    integrity_analysis = self.llm_client.analyze_document_integrity(
+                        document_info={
+                            'title': doc_title,
+                            'document_type': profile.profile_id if profile else 'financial document'
+                        },
+                        content_preview=content_preview
+                    )
+
+                    # Generate enhanced tags with evidence for each finding
+                    if integrity_analysis.get('has_issues') and integrity_analysis.get('findings'):
+                        for finding in integrity_analysis['findings']:
+                            # Create tag with embedded evidence
+                            tag_name = f"issue:{finding['issue_type']}"
+                            tag_evidence = {
+                                'tag': tag_name,
+                                'severity': finding['severity'],
+                                'category': finding['category'],
+                                'description': finding['description'],
+                                'evidence': finding['evidence'],
+                                'impact': finding['impact'],
+                                'suggested_action': finding.get('suggested_action', ''),
+                                'confidence': finding.get('confidence', 'medium')
+                            }
+                            enhanced_tags.append(tag_evidence)
+
+                            # Add to tags_to_add for Paperless
+                            if tag_name not in tags_to_add:
+                                tags_to_add.append(tag_name)
+
+                        logger.info(f"Integrity check: {integrity_analysis['issue_count']} issues ({integrity_analysis.get('critical_count', 0)} critical)")
+                except Exception as e:
+                    logger.warning(f"Failed integrity analysis for doc {doc_id}: {e}")
+
+            # Update UI stats with enhanced tag evidence
             update_ui_stats({
                 'doc_id': doc_id,
                 'title': doc_title,
@@ -448,7 +515,13 @@ Format the output as structured text that preserves the layout and relationships
                 'profile_matched': profile.profile_id if profile else None,
                 'anomalies_found': deterministic_results.get('anomalies_found', []),
                 'risk_score': risk_score,
-                'tags_added': tags_to_add
+                'tags_added': tags_to_add,
+                'brief_summary': doc_summary.get('brief', ''),
+                'full_summary': doc_summary.get('full', ''),
+                'enhanced_tags': enhanced_tags,  # Tags with evidence and context
+                'integrity_summary': integrity_analysis.get('summary', ''),
+                'issue_count': integrity_analysis.get('issue_count', 0),
+                'critical_count': integrity_analysis.get('critical_count', 0)
             })
 
             logger.info(f"Successfully analyzed document {doc_id}")
@@ -505,6 +578,71 @@ Format the output as structured text that preserves the layout and relationships
                     if metadata_parts:
                         content_parts.append(f"\nDocument Metadata: {', '.join(metadata_parts)}")
 
+                    # Add AI-generated summaries for better searchability
+                    if doc_summary.get('brief'):
+                        content_parts.append(f"\nDocument Summary: {doc_summary['brief']}")
+                    if doc_summary.get('full') and doc_summary['full'] != doc_summary.get('brief'):
+                        content_parts.append(f"\nDetailed Summary: {doc_summary['full']}")
+
+                    # Add rich metadata for optimal RAG (pre-computed structured data)
+                    if rich_metadata:
+                        # Add classification
+                        classification = rich_metadata.get('classification', {})
+                        if classification:
+                            content_parts.append(f"\nDocument Type: {classification.get('sub_type', '')}, Category: {classification.get('primary_category', '')}")
+
+                        # Add entities for searchability
+                        entities = rich_metadata.get('entities', {})
+                        if entities.get('people'):
+                            content_parts.append(f"\nPeople: {', '.join(entities['people'][:10])}")
+                        if entities.get('organizations'):
+                            content_parts.append(f"\nOrganizations: {', '.join(entities['organizations'][:10])}")
+                        if entities.get('identifiers'):
+                            content_parts.append(f"\nIdentifiers: {', '.join(entities['identifiers'][:5])}")
+
+                        # Add temporal info
+                        temporal = rich_metadata.get('temporal', {})
+                        if temporal.get('document_date'):
+                            content_parts.append(f"\nDocument Date: {temporal['document_date']}")
+                        if temporal.get('deadlines'):
+                            content_parts.append(f"\nDeadlines: {', '.join(temporal['deadlines'][:3])}")
+
+                        # Add financial summary
+                        financial = rich_metadata.get('financial_summary', {})
+                        if financial.get('account_summary'):
+                            content_parts.append(f"\nFinancial Summary: {financial['account_summary']}")
+
+                        # Add keywords and topics for search optimization
+                        content_analysis = rich_metadata.get('content_analysis', {})
+                        if content_analysis.get('keywords'):
+                            content_parts.append(f"\nKeywords: {', '.join(content_analysis['keywords'])}")
+                        if content_analysis.get('main_topics'):
+                            content_parts.append(f"\nMain Topics: {', '.join(content_analysis['main_topics'])}")
+
+                        # Add pre-generated Q&A pairs for fast RAG responses
+                        qa_pairs = rich_metadata.get('qa_pairs', [])
+                        if qa_pairs:
+                            qa_text = "\n".join([f"Q: {qa['question']} A: {qa['answer']}" for qa in qa_pairs[:5]])
+                            content_parts.append(f"\nCommon Questions:\n{qa_text}")
+
+                        # Add actionable intelligence
+                        actionable = rich_metadata.get('actionable_intelligence', {})
+                        if actionable.get('action_items'):
+                            content_parts.append(f"\nAction Items: {', '.join(actionable['action_items'][:3])}")
+                        if actionable.get('red_flags'):
+                            content_parts.append(f"\nRed Flags: {', '.join(actionable['red_flags'][:3])}")
+
+                    # Add integrity analysis findings (critical for legal review)
+                    if integrity_analysis.get('has_issues') and integrity_analysis.get('findings'):
+                        findings_text = []
+                        for finding in integrity_analysis['findings'][:5]:  # Top 5 issues
+                            issue_desc = f"{finding['severity'].upper()}: {finding['description']}"
+                            if finding.get('evidence', {}).get('quotes'):
+                                issue_desc += f" | Evidence: {finding['evidence']['quotes'][0][:100]}"
+                            findings_text.append(issue_desc)
+                        content_parts.append(f"\nDocument Integrity Issues:\n" + "\n".join(findings_text))
+                        content_parts.append(f"\nIntegrity Summary: {integrity_analysis.get('summary', '')}")
+
                     # Add AI analysis if available
                     if llm_results and llm_results.get('narrative'):
                         content_parts.append(f"\nAI Analysis: {llm_results['narrative']}")
@@ -528,17 +666,49 @@ Format the output as structured text that preserves the layout and relationships
                     else:
                         document_type = 'unknown'
 
-                    # Embed and store
+                    # Prepare comprehensive metadata for vector store
+                    vector_metadata = {
+                        'risk_score': risk_score,
+                        'anomalies': deterministic_results.get('anomalies_found', []),
+                        'timestamp': datetime.utcnow().isoformat(),
+                        'document_type': document_type,
+                        'brief_summary': doc_summary.get('brief', ''),
+                        'full_summary': doc_summary.get('full', '')
+                    }
+
+                    # Add rich metadata for fast retrieval (no need to re-analyze)
+                    if rich_metadata:
+                        vector_metadata.update({
+                            'keywords': rich_metadata.get('content_analysis', {}).get('keywords', []),
+                            'main_topics': rich_metadata.get('content_analysis', {}).get('main_topics', []),
+                            'importance_level': rich_metadata.get('content_analysis', {}).get('importance_level', 'medium'),
+                            'entities_people': rich_metadata.get('entities', {}).get('people', [])[:10],
+                            'entities_orgs': rich_metadata.get('entities', {}).get('organizations', [])[:10],
+                            'document_date': rich_metadata.get('temporal', {}).get('document_date'),
+                            'has_deadlines': len(rich_metadata.get('temporal', {}).get('deadlines', [])) > 0,
+                            'action_items_count': len(rich_metadata.get('actionable_intelligence', {}).get('action_items', [])),
+                            'search_tags': rich_metadata.get('search_tags', []),
+                            'classification': rich_metadata.get('classification', {}).get('sub_type', ''),
+                            'purpose': rich_metadata.get('content_analysis', {}).get('purpose', '')
+                        })
+
+                    # Add integrity analysis for legal review (critical quality metadata)
+                    if integrity_analysis:
+                        vector_metadata.update({
+                            'has_integrity_issues': integrity_analysis.get('has_issues', False),
+                            'issue_count': integrity_analysis.get('issue_count', 0),
+                            'critical_issues': integrity_analysis.get('critical_count', 0),
+                            'integrity_summary': integrity_analysis.get('summary', ''),
+                            'issue_categories': list(set([f['category'] for f in integrity_analysis.get('findings', [])])),
+                            'max_severity': self._get_max_severity(integrity_analysis.get('findings', []))
+                        })
+
+                    # Embed and store with rich metadata
                     self.vector_store.embed_document(
                         document_id=doc_id,
                         title=doc_title,
                         content=content_text,
-                        metadata={
-                            'risk_score': risk_score,
-                            'anomalies': deterministic_results.get('anomalies_found', []),
-                            'timestamp': datetime.utcnow().isoformat(),
-                            'document_type': document_type
-                        }
+                        metadata=vector_metadata
                     )
             except Exception as embed_error:
                 logger.warning(f"Failed to embed document {doc_id}: {embed_error}")
@@ -558,6 +728,22 @@ Format the output as structured text that preserves the layout and relationships
 
         pdf_path = Path(self.archive_path) / pdf_filename
         return str(pdf_path) if pdf_path.exists() else None
+
+    def _get_max_severity(self, findings: List[Dict]) -> str:
+        """
+        Determine highest severity level from integrity findings.
+
+        Args:
+            findings: List of integrity finding dictionaries
+
+        Returns:
+            String representing max severity: 'critical', 'high', 'medium', 'low', or 'none'
+        """
+        severity_order = {'critical': 4, 'high': 3, 'medium': 2, 'low': 1}
+        if not findings:
+            return 'none'
+        max_finding = max(findings, key=lambda f: severity_order.get(f.get('severity', 'low'), 1))
+        return max_finding.get('severity', 'low')
 
     def _format_ai_note(self,
                        llm_results: Dict[str, Any],
