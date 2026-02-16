@@ -1559,11 +1559,13 @@ def api_search():
     with ui_state['lock']:
         results = ui_state['recent_analyses']
 
-        # Filter by query
+        # Filter by query (search title, doc_id, anomalies, and summaries)
         if query:
             results = [r for r in results if
                       query in r.get('title', '').lower() or
                       query in str(r.get('doc_id', '')).lower() or
+                      query in r.get('brief_summary', '').lower() or
+                      query in r.get('full_summary', '').lower() or
                       any(query in a.lower() for a in r.get('anomalies_found', []))]
 
         # Filter by risk score
@@ -1579,6 +1581,36 @@ def api_search():
         return jsonify({
             'results': results,
             'count': len(results)
+        })
+
+
+@app.route('/api/tag-evidence/<int:doc_id>')
+def api_tag_evidence(doc_id):
+    """
+    Get enhanced tag evidence for a specific document.
+    Returns detailed information about why each tag was flagged.
+    """
+    with ui_state['lock']:
+        # Find the analysis for this document
+        analysis = None
+        for result in ui_state['recent_analyses']:
+            if result.get('doc_id') == doc_id:
+                analysis = result
+                break
+
+        if not analysis:
+            return jsonify({'error': 'Document not found'}), 404
+
+        # Return enhanced tags with evidence
+        enhanced_tags = analysis.get('enhanced_tags', [])
+
+        return jsonify({
+            'document_id': doc_id,
+            'document_title': analysis.get('title', 'Unknown'),
+            'tags': enhanced_tags,
+            'integrity_summary': analysis.get('integrity_summary', ''),
+            'issue_count': analysis.get('issue_count', 0),
+            'critical_count': analysis.get('critical_count', 0)
         })
 
 
