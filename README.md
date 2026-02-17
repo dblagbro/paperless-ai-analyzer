@@ -8,13 +8,30 @@ Advanced AI-powered anomaly detection and risk analysis microservice for [Paperl
 
 ## 🌟 Key Features
 
+### Core Analysis (v1.0+)
 - **🔍 Deterministic Anomaly Detection**: Balance verification, duplicate detection, date validation
 - **🖼️ Image Forensics**: PDF tampering detection with risk scoring (0-100%)
 - **🤖 AI-Assisted Analysis**: Optional Claude/GPT integration for narrative summaries
 - **📊 Profile-Based Processing**: YAML-configured document type matching
 - **🎯 Automated Tagging**: Adds structured tags to Paperless documents
-- **📈 Web Dashboard**: Real-time monitoring and manual triggers
 - **🔄 Idempotent Processing**: Safe to re-run on same documents
+
+### Multi-Tenant & Management (v1.5+)
+- **📁 Multi-Project Support**: Isolated document collections with project-based tagging
+- **🔀 Document Migration**: Move documents between projects with automatic tag management
+- **📊 Project Analytics**: Per-project statistics, storage usage, and activity tracking
+- **💰 LLM Usage Tracking**: Token counting, cost calculation, and usage analytics
+
+### Smart Ingestion (v1.5+)
+- **📤 Smart Upload**: Drag-and-drop upload with AI-powered tagging and project assignment
+- **🌐 URL Downloads**: Fetch documents from web URLs, Google Drive, Dropbox, OneDrive
+- **☁️ Cloud Integrations**: Direct integration with major cloud storage providers
+- **🔗 Automated Polling**: Monitor URLs for new documents and auto-import
+
+### Interface & Experience
+- **📈 Web Dashboard**: Real-time monitoring with tabbed interface
+- **💬 AI Chat**: Natural language queries over your document corpus
+- **🔍 Advanced Search**: Vector similarity search with semantic understanding
 - **🚀 Plug-and-Play**: Integrates seamlessly with existing Paperless-ngx installations
 
 ## 📋 Table of Contents
