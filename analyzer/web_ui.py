@@ -46,8 +46,12 @@ ui_state = {
 
 app = Flask(__name__, template_folder='/app/analyzer/templates', static_folder='/app/analyzer/static')
 
+# Configure session secret key (v1.5.0 for project tracking)
+app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'dev-secret-key-change-in-production')
 
-def create_app(state_manager, profile_loader, paperless_client):
+
+def create_app(state_manager, profile_loader, paperless_client,
+               project_manager=None, llm_client=None, smart_uploader=None, document_analyzer=None):
     """
     Create and configure Flask app.
 
@@ -55,6 +59,10 @@ def create_app(state_manager, profile_loader, paperless_client):
         state_manager: StateManager instance
         profile_loader: ProfileLoader instance
         paperless_client: PaperlessClient instance
+        project_manager: ProjectManager instance (v1.5.0)
+        llm_client: LLM client instance (v1.5.0)
+        smart_uploader: SmartUploader instance (v1.5.0)
+        document_analyzer: DocumentAnalyzer instance (v1.5.0 - for re-analysis)
 
     Returns:
         Flask app
@@ -62,6 +70,12 @@ def create_app(state_manager, profile_loader, paperless_client):
     app.state_manager = state_manager
     app.profile_loader = profile_loader
     app.paperless_client = paperless_client
+    app.document_analyzer = document_analyzer
+
+    # v1.5.0: Project management
+    app.project_manager = project_manager
+    app.llm_client = llm_client
+    app.smart_uploader = smart_uploader
 
     return app
 
@@ -1614,6 +1628,686 @@ def api_tag_evidence(doc_id):
         })
 
 
+# ==================== Project Management API (v1.5.0) ====================
+
+@app.route('/api/projects', methods=['GET'])
+def api_list_projects():
+    """List all projects."""
+    if not app.project_manager:
+        return jsonify({'error': 'Project management not enabled'}), 503
+
+    try:
+        include_archived = request.args.get('archived', type=bool, default=False)
+        projects = app.project_manager.list_projects(include_archived=include_archived)
+
+        # Add statistics to each project
+        for project in projects:
+            try:
+                stats = app.project_manager.get_statistics(project['slug'])
+                project.update(stats)
+            except Exception:
+                pass  # Skip stats if unavailable
+
+        return jsonify({'projects': projects, 'count': len(projects)})
+
+    except Exception as e:
+        logger.error(f"Failed to list projects: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/projects', methods=['POST'])
+def api_create_project():
+    """Create new project."""
+    if not app.project_manager:
+        return jsonify({'error': 'Project management not enabled'}), 503
+
+    try:
+        data = request.json
+
+        if not data.get('name'):
+            return jsonify({'error': 'Project name is required'}), 400
+
+        # Generate slug if not provided
+        slug = data.get('slug')
+        if not slug:
+            slug = app.project_manager.suggest_slug(data['name'])
+
+        # Create project
+        project = app.project_manager.create_project(
+            slug=slug,
+            name=data['name'],
+            description=data.get('description', ''),
+            color=data.get('color'),
+            metadata=data.get('metadata')
+        )
+
+        # Create Paperless tag
+        if app.paperless_client:
+            app.paperless_client.get_or_create_tag(
+                f"project:{slug}",
+                color=project.get('color', '#3498db')
+            )
+
+        logger.info(f"Created project: {slug}")
+        return jsonify(project), 201
+
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        logger.error(f"Failed to create project: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/projects/<slug>', methods=['GET'])
+def api_get_project(slug):
+    """Get project details."""
+    if not app.project_manager:
+        return jsonify({'error': 'Project management not enabled'}), 503
+
+    try:
+        project = app.project_manager.get_project(slug)
+        if not project:
+            return jsonify({'error': 'Project not found'}), 404
+
+        # Add statistics
+        stats = app.project_manager.get_statistics(slug)
+        project.update(stats)
+
+        return jsonify(project)
+
+    except Exception as e:
+        logger.error(f"Failed to get project: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/projects/<slug>', methods=['PUT'])
+def api_update_project(slug):
+    """Update project metadata."""
+    if not app.project_manager:
+        return jsonify({'error': 'Project management not enabled'}), 503
+
+    try:
+        data = request.json
+        project = app.project_manager.update_project(slug, **data)
+
+        logger.info(f"Updated project: {slug}")
+        return jsonify(project)
+
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 404
+    except Exception as e:
+        logger.error(f"Failed to update project: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/projects/<slug>', methods=['DELETE'])
+def api_delete_project(slug):
+    """Delete project."""
+    if not app.project_manager:
+        return jsonify({'error': 'Project management not enabled'}), 503
+
+    try:
+        delete_data = request.args.get('delete_data', type=bool, default=True)
+
+        # Delete vector store collection if requested
+        if delete_data:
+            from analyzer.vector_store import VectorStore
+            vs = VectorStore(project_slug=slug)
+            if vs.enabled:
+                vs.delete_collection()
+
+        # Delete project
+        success = app.project_manager.delete_project(slug, delete_data=delete_data)
+
+        if success:
+            logger.info(f"Deleted project: {slug}")
+            return jsonify({'success': True, 'message': f'Project {slug} deleted'})
+        else:
+            return jsonify({'error': 'Failed to delete project'}), 500
+
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        logger.error(f"Failed to delete project: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/projects/<slug>/archive', methods=['POST'])
+def api_archive_project(slug):
+    """Archive project."""
+    if not app.project_manager:
+        return jsonify({'error': 'Project management not enabled'}), 503
+
+    try:
+        project = app.project_manager.archive_project(slug)
+        logger.info(f"Archived project: {slug}")
+        return jsonify(project)
+
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 404
+    except Exception as e:
+        logger.error(f"Failed to archive project: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/projects/<slug>/unarchive', methods=['POST'])
+def api_unarchive_project(slug):
+    """Unarchive project."""
+    if not app.project_manager:
+        return jsonify({'error': 'Project management not enabled'}), 503
+
+    try:
+        project = app.project_manager.unarchive_project(slug)
+        logger.info(f"Unarchived project: {slug}")
+        return jsonify(project)
+
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 404
+    except Exception as e:
+        logger.error(f"Failed to unarchive project: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/current-project', methods=['GET'])
+def api_get_current_project():
+    """Get currently selected project from session."""
+    if not app.project_manager:
+        return jsonify({'error': 'Project management not enabled'}), 503
+
+    try:
+        from flask import session
+        project_slug = session.get('current_project', 'default')
+        project = app.project_manager.get_project(project_slug)
+
+        if not project:
+            # Fallback to default
+            project = app.project_manager.get_project('default')
+            session['current_project'] = 'default'
+
+        return jsonify(project)
+
+    except Exception as e:
+        logger.error(f"Failed to get current project: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/current-project', methods=['POST'])
+def api_set_current_project():
+    """Set current project in session."""
+    if not app.project_manager:
+        return jsonify({'error': 'Project management not enabled'}), 503
+
+    try:
+        from flask import session
+        data = request.json
+        project_slug = data.get('project_slug')
+
+        if not project_slug:
+            return jsonify({'error': 'project_slug is required'}), 400
+
+        # Validate project exists
+        project = app.project_manager.get_project(project_slug)
+        if not project:
+            return jsonify({'error': 'Project not found'}), 404
+
+        session['current_project'] = project_slug
+        logger.info(f"Switched to project: {project_slug}")
+
+        return jsonify(project)
+
+    except Exception as e:
+        logger.error(f"Failed to set current project: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/orphan-documents', methods=['GET'])
+def api_list_orphan_documents():
+    """List documents without project tag."""
+    if not app.paperless_client:
+        return jsonify({'error': 'Paperless client not available'}), 503
+
+    try:
+        orphans = app.paperless_client.get_documents_without_project()
+
+        # Format for UI
+        orphan_list = []
+        for doc in orphans[:100]:  # Limit to 100 for performance
+            orphan_list.append({
+                'id': doc['id'],
+                'title': doc['title'],
+                'created': doc.get('created'),
+                'correspondent': doc.get('correspondent'),
+                'tags': [t['name'] for t in doc.get('tags', [])]
+            })
+
+        return jsonify({'orphans': orphan_list, 'count': len(orphan_list)})
+
+    except Exception as e:
+        logger.error(f"Failed to get orphan documents: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/assign-project', methods=['POST'])
+def api_assign_project_to_documents():
+    """Assign project to one or more documents."""
+    if not app.paperless_client or not app.project_manager:
+        return jsonify({'error': 'Required services not available'}), 503
+
+    try:
+        data = request.json
+        document_ids = data.get('document_ids', [])
+        project_slug = data.get('project_slug')
+
+        if not document_ids or not project_slug:
+            return jsonify({'error': 'document_ids and project_slug are required'}), 400
+
+        # Validate project
+        project = app.project_manager.get_project(project_slug)
+        if not project:
+            return jsonify({'error': 'Project not found'}), 404
+
+        # Add project tag to each document
+        success_count = 0
+        failed = []
+
+        for doc_id in document_ids:
+            if app.paperless_client.add_project_tag(doc_id, project_slug, color=project.get('color')):
+                success_count += 1
+            else:
+                failed.append(doc_id)
+
+        # Update project document count
+        if success_count > 0:
+            app.project_manager.increment_document_count(project_slug, delta=success_count)
+
+        result = {
+            'success': True,
+            'assigned': success_count,
+            'total': len(document_ids)
+        }
+
+        if failed:
+            result['failed'] = failed
+
+        logger.info(f"Assigned {success_count}/{len(document_ids)} documents to project '{project_slug}'")
+        return jsonify(result)
+
+    except Exception as e:
+        logger.error(f"Failed to assign documents: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/projects/<slug>/reanalyze', methods=['POST'])
+def api_reanalyze_project(slug):
+    """Manually trigger re-analysis of all documents in a project with full context."""
+    if not app.project_manager or not app.document_analyzer:
+        return jsonify({'error': 'Required services not available'}), 503
+
+    try:
+        # Validate project exists
+        project = app.project_manager.get_project(slug)
+        if not project:
+            return jsonify({'error': 'Project not found'}), 404
+
+        logger.info(f"Manual re-analysis requested for project '{slug}'")
+
+        # Trigger re-analysis in background thread to avoid blocking
+        from threading import Thread
+        def run_reanalysis():
+            try:
+                app.document_analyzer.re_analyze_project(slug)
+            except Exception as e:
+                logger.error(f"Background re-analysis failed: {e}")
+
+        thread = Thread(target=run_reanalysis, daemon=True)
+        thread.start()
+
+        # Return immediately
+        return jsonify({
+            'success': True,
+            'message': f'Re-analysis started for project: {slug}',
+            'note': 'This runs in background and may take several minutes. Check logs for progress.'
+        })
+
+    except Exception as e:
+        logger.error(f"Failed to trigger re-analysis: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/projects/migrate-documents', methods=['POST'])
+def api_migrate_documents():
+    """Migrate documents from one project to another."""
+    if not app.project_manager or not app.paperless_client:
+        return jsonify({'error': 'Required services not available'}), 503
+
+    try:
+        data = request.json
+        source_slug = data.get('source_project')
+        dest_slug = data.get('destination_project')
+        document_ids = data.get('document_ids', [])  # Optional: specific documents, or all if empty
+
+        if not source_slug or not dest_slug:
+            return jsonify({'error': 'Both source_project and destination_project are required'}), 400
+
+        if source_slug == dest_slug:
+            return jsonify({'error': 'Source and destination projects must be different'}), 400
+
+        # Validate both projects exist
+        source_project = app.project_manager.get_project(source_slug)
+        dest_project = app.project_manager.get_project(dest_slug)
+
+        if not source_project:
+            return jsonify({'error': f'Source project not found: {source_slug}'}), 404
+        if not dest_project:
+            return jsonify({'error': f'Destination project not found: {dest_slug}'}), 404
+
+        logger.info(f"Migration requested: {source_slug} → {dest_slug} ({len(document_ids) if document_ids else 'all'} docs)")
+
+        # Run migration in background thread
+        from threading import Thread
+        migration_result = {'status': 'running', 'migrated': 0, 'errors': 0}
+
+        def run_migration():
+            try:
+                # Get or create project tags
+                source_tag = f"project:{source_slug}"
+                dest_tag = f"project:{dest_slug}"
+
+                # Get source tag ID
+                source_tag_id = app.paperless_client.get_or_create_tag(source_tag, color='#95a5a6')
+                dest_tag_id = app.paperless_client.get_or_create_tag(dest_tag, color='#e74c3c')
+
+                if not source_tag_id or not dest_tag_id:
+                    raise Exception("Failed to get/create project tags")
+
+                # Get documents to migrate
+                if document_ids:
+                    # Specific documents
+                    docs_to_migrate = document_ids
+                else:
+                    # All documents with source project tag
+                    all_docs = app.paperless_client.get_documents_by_tag(source_tag_id)
+                    docs_to_migrate = [doc['id'] for doc in all_docs]
+
+                migrated_count = 0
+                error_count = 0
+
+                for doc_id in docs_to_migrate:
+                    try:
+                        # Get current document
+                        doc = app.paperless_client.get_document(doc_id)
+                        if not doc:
+                            error_count += 1
+                            continue
+
+                        current_tags = doc.get('tags', [])
+
+                        # Remove source tag, add dest tag
+                        updated_tags = [t for t in current_tags if t != source_tag_id]
+                        if dest_tag_id not in updated_tags:
+                            updated_tags.append(dest_tag_id)
+
+                        # Update document tags
+                        success = app.paperless_client.update_document(doc_id, {'tags': updated_tags})
+                        if success:
+                            migrated_count += 1
+                        else:
+                            error_count += 1
+
+                    except Exception as e:
+                        logger.error(f"Failed to migrate document {doc_id}: {e}")
+                        error_count += 1
+
+                # Update project counts
+                app.project_manager.increment_document_count(source_slug, delta=-migrated_count)
+                app.project_manager.increment_document_count(dest_slug, delta=migrated_count)
+
+                migration_result['status'] = 'completed'
+                migration_result['migrated'] = migrated_count
+                migration_result['errors'] = error_count
+
+                logger.info(f"Migration completed: {migrated_count} docs migrated, {error_count} errors")
+
+            except Exception as e:
+                logger.error(f"Migration failed: {e}")
+                migration_result['status'] = 'failed'
+                migration_result['error'] = str(e)
+
+        thread = Thread(target=run_migration, daemon=True)
+        thread.start()
+
+        return jsonify({
+            'success': True,
+            'message': f'Migration started: {source_slug} → {dest_slug}',
+            'note': 'Migration runs in background. Check logs for progress.'
+        })
+
+    except Exception as e:
+        logger.error(f"Failed to start migration: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/upload/from-url', methods=['POST'])
+def api_upload_from_url():
+    """Download file from URL and analyze with AI."""
+    if not app.smart_uploader:
+        return jsonify({'error': 'Smart upload not available (LLM disabled)'}), 503
+
+    try:
+        data = request.json
+        url = data.get('url')
+        auth_type = data.get('auth_type', 'none')
+        username = data.get('username')
+        password = data.get('password')
+        token = data.get('token')
+        custom_headers = data.get('custom_headers', {})
+
+        if not url:
+            return jsonify({'error': 'URL is required'}), 400
+
+        # Initialize downloader
+        from analyzer.remote_downloader import RemoteFileDownloader
+        downloader = RemoteFileDownloader()
+
+        # Download file
+        try:
+            file_path, download_metadata = downloader.download_from_url(
+                url=url,
+                auth_type=auth_type,
+                username=username,
+                password=password,
+                token=token,
+                custom_headers=custom_headers
+            )
+        except Exception as e:
+            return jsonify({'error': f'Download failed: {str(e)}'}), 400
+
+        # Analyze document with AI
+        import asyncio
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            metadata = loop.run_until_complete(app.smart_uploader.analyze_document(file_path))
+        finally:
+            loop.close()
+
+        # Add download metadata
+        metadata['download_info'] = download_metadata
+
+        # Clean up downloaded file
+        downloader.cleanup(file_path)
+
+        logger.info(f"Analyzed document from URL: {download_metadata['filename']}")
+        return jsonify(metadata)
+
+    except Exception as e:
+        logger.error(f"Failed to upload from URL: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/upload/analyze', methods=['POST'])
+def api_analyze_upload():
+    """Analyze uploaded file and extract metadata."""
+    if not app.smart_uploader:
+        return jsonify({'error': 'Smart upload not available (LLM disabled)'}), 503
+
+    try:
+        # Check if file was uploaded
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file uploaded'}), 400
+
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
+
+        # Save file temporarily
+        import tempfile
+        import os
+        temp_dir = tempfile.mkdtemp()
+        file_path = os.path.join(temp_dir, file.filename)
+        file.save(file_path)
+
+        # Analyze document
+        import asyncio
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            metadata = loop.run_until_complete(app.smart_uploader.analyze_document(file_path))
+        finally:
+            loop.close()
+
+        # Clean up temp file
+        os.remove(file_path)
+        os.rmdir(temp_dir)
+
+        logger.info(f"Analyzed upload: {file.filename}")
+        return jsonify(metadata)
+
+    except Exception as e:
+        logger.error(f"Failed to analyze upload: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/upload/submit', methods=['POST'])
+def api_submit_upload():
+    """Submit analyzed file to Paperless with metadata."""
+    if not app.smart_uploader:
+        return jsonify({'error': 'Smart upload not available (LLM disabled)'}), 503
+
+    try:
+        # Check if file was uploaded
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file uploaded'}), 400
+
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
+
+        # Get metadata from form data
+        project_slug = request.form.get('project_slug')
+        if not project_slug:
+            return jsonify({'error': 'project_slug is required'}), 400
+
+        # Parse metadata JSON from form
+        import json
+        metadata_json = request.form.get('metadata', '{}')
+        metadata = json.loads(metadata_json)
+
+        # Save file temporarily
+        import tempfile
+        import os
+        temp_dir = tempfile.mkdtemp()
+        file_path = os.path.join(temp_dir, file.filename)
+        file.save(file_path)
+
+        # Upload to Paperless
+        import asyncio
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            result = loop.run_until_complete(
+                app.smart_uploader.upload_to_paperless(file_path, project_slug, metadata)
+            )
+        finally:
+            loop.close()
+
+        # Clean up temp file
+        os.remove(file_path)
+        os.rmdir(temp_dir)
+
+        if result:
+            logger.info(f"Uploaded {file.filename} to project '{project_slug}'")
+            return jsonify({
+                'success': True,
+                'document_id': result.get('id'),
+                'title': metadata.get('suggested_title')
+            })
+        else:
+            return jsonify({'error': 'Upload failed'}), 500
+
+    except Exception as e:
+        logger.error(f"Failed to submit upload: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/llm-usage/stats', methods=['GET'])
+def api_get_llm_usage_stats():
+    """Get LLM usage statistics."""
+    try:
+        days = request.args.get('days', 30, type=int)
+
+        if not hasattr(app, 'document_analyzer') or not app.document_analyzer:
+            return jsonify({'error': 'Document analyzer not available'}), 503
+
+        if not hasattr(app.document_analyzer, 'usage_tracker') or not app.document_analyzer.usage_tracker:
+            return jsonify({'error': 'Usage tracker not available'}), 503
+
+        stats = app.document_analyzer.usage_tracker.get_usage_stats(days=days)
+        return jsonify(stats)
+
+    except Exception as e:
+        logger.error(f"Failed to get usage stats: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/llm-usage/recent', methods=['GET'])
+def api_get_recent_llm_calls():
+    """Get recent LLM API calls."""
+    try:
+        limit = request.args.get('limit', 50, type=int)
+
+        if not hasattr(app, 'document_analyzer') or not app.document_analyzer:
+            return jsonify({'error': 'Document analyzer not available'}), 503
+
+        if not hasattr(app.document_analyzer, 'usage_tracker') or not app.document_analyzer.usage_tracker:
+            return jsonify({'error': 'Usage tracker not available'}), 503
+
+        calls = app.document_analyzer.usage_tracker.get_recent_calls(limit=limit)
+        return jsonify({'calls': calls})
+
+    except Exception as e:
+        logger.error(f"Failed to get recent calls: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/llm-usage/pricing', methods=['GET'])
+def api_get_llm_pricing():
+    """Get current LLM pricing information."""
+    try:
+        if not hasattr(app, 'document_analyzer') or not app.document_analyzer:
+            return jsonify({'error': 'Document analyzer not available'}), 503
+
+        if not hasattr(app.document_analyzer, 'usage_tracker') or not app.document_analyzer.usage_tracker:
+            return jsonify({'error': 'Usage tracker not available'}), 503
+
+        pricing = app.document_analyzer.usage_tracker.get_pricing()
+        return jsonify({'pricing': pricing})
+
+    except Exception as e:
+        logger.error(f"Failed to get pricing: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/health')
 def health():
     """Health check endpoint."""
@@ -1671,7 +2365,8 @@ def _get_uptime() -> int:
         return 0
 
 
-def run_web_server(state_manager, profile_loader, paperless_client, host='0.0.0.0', port=8051):
+def run_web_server(state_manager, profile_loader, paperless_client, host='0.0.0.0', port=8051,
+                  project_manager=None, llm_client=None, smart_uploader=None, document_analyzer=None):
     """
     Run the Flask web server in a separate thread using Waitress (production WSGI server).
 
@@ -1681,8 +2376,14 @@ def run_web_server(state_manager, profile_loader, paperless_client, host='0.0.0.
         paperless_client: PaperlessClient instance
         host: Host to bind to
         port: Port to bind to
+        project_manager: ProjectManager instance (v1.5.0)
+        llm_client: LLM client instance (v1.5.0)
+        smart_uploader: SmartUploader instance (v1.5.0)
+        document_analyzer: DocumentAnalyzer instance (v1.5.0 - for re-analysis)
     """
-    create_app(state_manager, profile_loader, paperless_client)
+    create_app(state_manager, profile_loader, paperless_client,
+              project_manager=project_manager, llm_client=llm_client, smart_uploader=smart_uploader,
+              document_analyzer=document_analyzer)
 
     logger.info(f"Starting production web UI on {host}:{port}")
 
@@ -1699,7 +2400,8 @@ def run_web_server(state_manager, profile_loader, paperless_client, host='0.0.0.
     )
 
 
-def start_web_server_thread(state_manager, profile_loader, paperless_client, host='0.0.0.0', port=8051):
+def start_web_server_thread(state_manager, profile_loader, paperless_client, host='0.0.0.0', port=8051,
+                           project_manager=None, llm_client=None, smart_uploader=None, document_analyzer=None):
     """
     Start web server in background thread.
 
@@ -1709,6 +2411,10 @@ def start_web_server_thread(state_manager, profile_loader, paperless_client, hos
         paperless_client: PaperlessClient instance
         host: Host to bind to
         port: Port to bind to
+        project_manager: ProjectManager instance (v1.5.0)
+        llm_client: LLM client instance (v1.5.0)
+        smart_uploader: SmartUploader instance (v1.5.0)
+        document_analyzer: DocumentAnalyzer instance (v1.5.0 - for re-analysis)
     """
     # Set up log buffer handler
     root_logger = logging.getLogger()
@@ -1721,7 +2427,8 @@ def start_web_server_thread(state_manager, profile_loader, paperless_client, hos
 
     thread = Thread(
         target=run_web_server,
-        args=(state_manager, profile_loader, paperless_client, host, port),
+        args=(state_manager, profile_loader, paperless_client, host, port,
+              project_manager, llm_client, smart_uploader, document_analyzer),
         daemon=True
     )
     thread.start()

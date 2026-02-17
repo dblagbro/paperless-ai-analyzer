@@ -17,7 +17,8 @@ class LLMClient:
     def __init__(self,
                  provider: str = 'anthropic',
                  api_key: Optional[str] = None,
-                 model: Optional[str] = None):
+                 model: Optional[str] = None,
+                 usage_tracker=None):
         """
         Initialize LLM client.
 
@@ -25,11 +26,13 @@ class LLMClient:
             provider: 'anthropic' or 'openai'
             api_key: API key for the provider
             model: Model name (optional, uses defaults)
+            usage_tracker: LLMUsageTracker instance for token tracking
         """
         self.provider = provider
         self.api_key = api_key
         self.model = model or self._get_default_model()
         self.client = None
+        self.usage_tracker = usage_tracker
 
         if api_key:
             self._initialize_client()
@@ -39,10 +42,10 @@ class LLMClient:
     def _get_default_model(self) -> str:
         """Get default model for provider."""
         defaults = {
-            'anthropic': 'claude-3-5-sonnet-20241022',
+            'anthropic': 'claude-sonnet-4-5-20250929',
             'openai': 'gpt-4o'
         }
-        return defaults.get(self.provider, 'claude-3-5-sonnet-20241022')
+        return defaults.get(self.provider, 'claude-sonnet-4-5-20250929')
 
     def _initialize_client(self) -> None:
         """Initialize the LLM client."""
@@ -95,7 +98,11 @@ class LLMClient:
             )
 
             # Call LLM
-            response = self._call_llm(prompt)
+            response = self._call_llm(
+                prompt,
+                operation='anomaly_detection',
+                document_id=document_info.get('id')
+            )
 
             # Parse response
             parsed = self._parse_response(response)
@@ -223,7 +230,11 @@ Respond in JSON format:
 Important: Base your summary on the title and any content provided. If content is limited, describe what the document type and title suggest about its purpose."""
 
             # Call LLM
-            response = self._call_llm(prompt)
+            response = self._call_llm(
+                prompt,
+                operation='summary_generation',
+                document_id=document_info.get('id')
+            )
 
             # Parse JSON response
             import json
@@ -350,7 +361,11 @@ IMPORTANT:
 Return ONLY valid JSON."""
 
             # Call LLM with longer max tokens for rich extraction
-            response_text = self._call_llm(prompt)
+            response_text = self._call_llm(
+                prompt,
+                operation='metadata_extraction',
+                document_id=document_info.get('id')
+            )
 
             # Parse JSON response with safe parser
             metadata = self._safe_json_parse(response_text)
@@ -386,6 +401,17 @@ Return ONLY valid JSON."""
             doc_title = document_info.get('title', 'Unknown')
             doc_type = document_info.get('document_type', 'document')
 
+            # Build related documents context section
+            related_context = ""
+            if related_docs and len(related_docs) > 0:
+                related_context = "\n\n**RELATED DOCUMENTS IN THIS PROJECT/CASE:**\n"
+                related_context += "Consider these related documents when assessing if issues are truly missing or contradictory:\n\n"
+                for i, rdoc in enumerate(related_docs, 1):
+                    related_context += f"{i}. Document #{rdoc.get('document_id')}: {rdoc.get('title')}\n"
+                    related_context += f"   Content snippet: {rdoc.get('content_snippet', '')[:300]}...\n"
+                    related_context += f"   Relevance: {int(rdoc.get('relevance_score', 0) * 100)}%\n\n"
+                related_context += "IMPORTANT: If an issue appears to be missing information or contradictory, CHECK if it's explained in one of these related documents. If so, reference that document instead of flagging it as an issue.\n"
+
             prompt = f"""Analyze this document for integrity issues, conflicts, and quality problems.
 This is for LEGAL REVIEW - be thorough and precise.
 
@@ -393,7 +419,7 @@ Document: {doc_title}
 Type: {doc_type}
 Content Preview (first 1500 chars):
 {content_preview[:1500]}
-
+{related_context}
 Analyze for these issues:
 
 1. SELF-CONFLICTS (internal contradictions)
@@ -423,6 +449,18 @@ Analyze for these issues:
    - Date stamp issues
    - Party identification problems
 
+5. CROSS-DOCUMENT CONFLICTS (if related docs provided)
+   - Contradictions with other documents in the case
+   - Conflicting facts across documents
+   - Timeline inconsistencies between documents
+   - BUT: If related docs EXPLAIN or CLARIFY something, note that instead of flagging as an issue
+
+**CRITICAL INSTRUCTION:**
+If related documents are provided above, cross-reference them BEFORE flagging issues. For example:
+- If this document seems to be missing property details, but Document #1234 contains those details, mention that instead
+- If this document mentions venue concerns, but another document explains the legal basis, reference that
+- If something seems incomplete but is covered in a related document, note "Addressed in Document #1234" instead of flagging as an issue
+
 For EACH issue found, provide:
 - Severity: critical|high|medium|low
 - Category: conflict|logic_error|missing_info|quality|legal_compliance
@@ -451,10 +489,12 @@ Return JSON:
       }},
       "impact": "Why this matters for legal review",
       "suggested_action": "What to do",
-      "confidence": "high|medium|low"
+      "confidence": "high|medium|low",
+      "related_doc_reference": "Document #ID that explains/contradicts this, or null if none"
     }}
   ],
-  "summary": "Brief summary of integrity analysis"
+  "summary": "Brief summary of integrity analysis (mention if related docs provide context)",
+  "cross_document_notes": "Optional notes about how this document relates to others in the project"
 }}
 
 IMPORTANT:
@@ -464,7 +504,11 @@ IMPORTANT:
 - Consider legal context and implications
 - If no issues found, return empty findings array"""
 
-            response = self._call_llm(prompt)
+            response = self._call_llm(
+                prompt,
+                operation='integrity_check',
+                document_id=document_info.get('id')
+            )
 
             # Parse response with safe JSON parser
             integrity_result = self._safe_json_parse(response)
@@ -596,8 +640,18 @@ IMPORTANT:
         logger.error(f"All JSON parse strategies failed for response: {response[:200]}...")
         return None
 
-    def _call_llm(self, prompt: str) -> str:
-        """Call the LLM API with multi-provider fallback."""
+    def _call_llm(self, prompt: str, operation: str = 'analysis', document_id: int = None) -> str:
+        """
+        Call the LLM API with multi-provider fallback.
+
+        Args:
+            prompt: The prompt to send to the LLM
+            operation: Operation type for usage tracking (e.g., 'metadata_extraction', 'integrity_check')
+            document_id: Optional document ID for tracking
+
+        Returns:
+            LLM response text
+        """
         # Load AI configuration for document analysis
         from pathlib import Path
         import json
@@ -647,6 +701,19 @@ IMPORTANT:
                                     max_tokens=1024
                                 )
                                 result = response.choices[0].message.content
+
+                                # Log usage
+                                if self.usage_tracker and response.usage:
+                                    self.usage_tracker.log_usage(
+                                        provider='openai',
+                                        model=model,
+                                        operation=operation,
+                                        input_tokens=response.usage.prompt_tokens,
+                                        output_tokens=response.usage.completion_tokens,
+                                        document_id=document_id,
+                                        success=True
+                                    )
+
                                 logger.info(f"✓ Document analysis using: OpenAI {model}")
                                 return result
                             except Exception as e:
@@ -673,6 +740,19 @@ IMPORTANT:
                                     messages=[{"role": "user", "content": prompt}]
                                 )
                                 result = response.content[0].text
+
+                                # Log usage
+                                if self.usage_tracker and response.usage:
+                                    self.usage_tracker.log_usage(
+                                        provider='anthropic',
+                                        model=model,
+                                        operation=operation,
+                                        input_tokens=response.usage.input_tokens,
+                                        output_tokens=response.usage.output_tokens,
+                                        document_id=document_id,
+                                        success=True
+                                    )
+
                                 logger.info(f"✓ Document analysis using: Anthropic {model}")
                                 return result
                             except Exception as e:
@@ -695,10 +775,10 @@ IMPORTANT:
 
         # Fallback to original single-provider logic if no config
         if self.provider == 'anthropic':
-            # Try the configured model first, then fallback models
+            # Try the configured model first, then fallback models (Claude 4.5/4.6 and Claude 3.x)
             models_to_try = [self.model]
-            if self.model not in ['claude-3-opus-20240229', 'claude-3-sonnet-20240229', 'claude-3-haiku-20240307']:
-                models_to_try.extend(['claude-3-opus-20240229', 'claude-3-sonnet-20240229', 'claude-3-haiku-20240307'])
+            if self.model not in ['claude-sonnet-4-5-20250929', 'claude-haiku-4-5-20251001', 'claude-3-haiku-20240307']:
+                models_to_try.extend(['claude-sonnet-4-5-20250929', 'claude-haiku-4-5-20251001', 'claude-3-haiku-20240307'])
 
             last_error = None
             for model in models_to_try:
@@ -715,6 +795,19 @@ IMPORTANT:
                     if model != self.model:
                         logger.info(f"Using fallback model: {model}")
                         self.model = model
+
+                    # Log usage
+                    if self.usage_tracker and response.usage:
+                        self.usage_tracker.log_usage(
+                            provider='anthropic',
+                            model=model,
+                            operation=operation,
+                            input_tokens=response.usage.input_tokens,
+                            output_tokens=response.usage.output_tokens,
+                            document_id=document_id,
+                            success=True
+                        )
+
                     return response.content[0].text
                 except Exception as e:
                     last_error = e
@@ -735,6 +828,19 @@ IMPORTANT:
                 }],
                 max_tokens=1024
             )
+
+            # Log usage
+            if self.usage_tracker and response.usage:
+                self.usage_tracker.log_usage(
+                    provider='openai',
+                    model=self.model,
+                    operation=operation,
+                    input_tokens=response.usage.prompt_tokens,
+                    output_tokens=response.usage.completion_tokens,
+                    document_id=document_id,
+                    success=True
+                )
+
             return response.choices[0].message.content
 
         return ""

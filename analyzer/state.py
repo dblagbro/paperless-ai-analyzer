@@ -32,17 +32,46 @@ class AnalyzerState:
 class StateManager:
     """Manages persistent state for the analyzer."""
 
-    def __init__(self, state_path: str = '/app/data/state.json'):
+    def __init__(self, state_dir: str = '/app/data', project_slug: str = 'default'):
         """
-        Initialize state manager.
+        Initialize state manager for specific project.
 
         Args:
-            state_path: Path to state file
+            state_dir: Directory for state files
+            project_slug: Project identifier for state file naming (default: 'default')
         """
-        self.state_path = Path(state_path)
-        self.state_path.parent.mkdir(parents=True, exist_ok=True)
+        self.project_slug = project_slug
+        self.state_dir = Path(state_dir)
+        self.state_dir.mkdir(parents=True, exist_ok=True)
+
+        # Migrate legacy state.json to state_default.json
+        self._migrate_legacy_state()
+
+        # Use project-specific state file
+        self.state_path = self.state_dir / f"state_{project_slug}.json"
+
         self.lock = Lock()
         self.state = self._load_state()
+
+    def _migrate_legacy_state(self):
+        """
+        Migrate old state.json to state_default.json for backward compatibility.
+        Only runs once on first v1.5.0 startup.
+        """
+        legacy_path = self.state_dir / "state.json"
+        new_path = self.state_dir / "state_default.json"
+
+        if legacy_path.exists() and not new_path.exists() and self.project_slug == 'default':
+            try:
+                import shutil
+                shutil.copy2(legacy_path, new_path)
+                logger.info(f"Migrated legacy state.json to state_default.json")
+
+                # Optionally remove legacy file (or keep as backup)
+                # legacy_path.unlink()
+
+            except Exception as e:
+                logger.warning(f"Failed to migrate legacy state file: {e}")
 
     def _load_state(self) -> AnalyzerState:
         """Load state from disk."""

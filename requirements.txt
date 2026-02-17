@@ -38,3 +38,21 @@ pydantic==2.6.1
 Flask==3.0.0
 Werkzeug==3.0.1
 waitress==3.0.0  # Production WSGI server
+
+# Cloud service integrations (v1.5.0)
+# Google Drive
+google-api-python-client>=2.100.0
+google-auth>=2.23.0
+google-auth-httplib2>=0.1.1
+google-auth-oauthlib>=1.1.0
+
+# Dropbox
+dropbox>=11.36.0
+
+# Amazon S3
+boto3>=1.34.0
+
+# Microsoft OneDrive/Graph API (uses requests, already included)
+
+# Async HTTP for remote downloads
+aiohttp>=3.9.0
