@@ -17,15 +17,19 @@ logger = logging.getLogger(__name__)
 class VectorStore:
     """Manages document embeddings and semantic search using Cohere + ChromaDB."""
 
-    def __init__(self, cohere_api_key: Optional[str] = None, persist_directory: str = '/app/data/chroma'):
+    def __init__(self, cohere_api_key: Optional[str] = None, persist_directory: str = '/app/data/chroma',
+                 project_slug: str = 'default'):
         """
-        Initialize vector store.
+        Initialize vector store for specific project.
 
         Args:
             cohere_api_key: Cohere API key for embeddings
             persist_directory: Where to persist the ChromaDB database
+            project_slug: Project identifier for collection naming (default: 'default')
         """
         self.cohere_api_key = cohere_api_key or os.environ.get('COHERE_API_KEY', '')
+        self.project_slug = project_slug
+        self.collection_name = f"paperless_docs_{project_slug}"
 
         if not self.cohere_api_key:
             logger.warning("No Cohere API key provided - vector store disabled")
@@ -42,18 +46,76 @@ class VectorStore:
                 settings=Settings(anonymized_telemetry=False)
             )
 
-            # Get or create collection
+            # Migration: Rename old "paperless_docs" collection to "paperless_docs_default"
+            # This ensures backward compatibility with v1.0.x installations
+            self._migrate_legacy_collection()
+
+            # Get or create project-specific collection
             self.collection = self.chroma_client.get_or_create_collection(
-                name="documents",
-                metadata={"description": "Financial document embeddings"}
+                name=self.collection_name,
+                metadata={
+                    "description": f"Document embeddings for project: {project_slug}",
+                    "project_slug": project_slug
+                }
             )
 
             self.enabled = True
-            logger.info(f"Vector store initialized with {self.collection.count()} documents")
+            logger.info(f"Vector store initialized for project '{project_slug}' with {self.collection.count()} documents")
 
         except Exception as e:
             logger.error(f"Failed to initialize vector store: {e}")
             self.enabled = False
+
+    def _migrate_legacy_collection(self):
+        """
+        Migrate old 'paperless_docs' collection to 'paperless_docs_default'.
+        Only runs once on first v1.5.0 startup.
+        """
+        try:
+            # Check if legacy collection exists
+            collections = self.chroma_client.list_collections()
+            legacy_name = "paperless_docs"
+            new_name = "paperless_docs_default"
+
+            has_legacy = any(c.name == legacy_name for c in collections)
+            has_new = any(c.name == new_name for c in collections)
+
+            if has_legacy and not has_new and self.project_slug == 'default':
+                logger.info("Migrating legacy collection 'paperless_docs' to 'paperless_docs_default'")
+
+                # Get legacy collection
+                legacy_collection = self.chroma_client.get_collection(legacy_name)
+
+                # Get all data from legacy collection
+                data = legacy_collection.get(include=['embeddings', 'metadatas', 'documents'])
+
+                if data['ids']:
+                    # Create new collection
+                    new_collection = self.chroma_client.get_or_create_collection(
+                        name=new_name,
+                        metadata={
+                            "description": "Document embeddings for project: default",
+                            "project_slug": "default",
+                            "migrated_from": "paperless_docs"
+                        }
+                    )
+
+                    # Add all data to new collection
+                    new_collection.add(
+                        ids=data['ids'],
+                        embeddings=data['embeddings'],
+                        metadatas=data['metadatas'],
+                        documents=data['documents']
+                    )
+
+                    logger.info(f"Migrated {len(data['ids'])} documents from '{legacy_name}' to '{new_name}'")
+
+                    # Delete legacy collection
+                    self.chroma_client.delete_collection(legacy_name)
+                    logger.info(f"Deleted legacy collection '{legacy_name}'")
+
+        except Exception as e:
+            logger.warning(f"Legacy collection migration failed (may already be migrated): {e}")
 
     def embed_document(self, document_id: int, title: str, content: str, metadata: Dict[str, Any]) -> bool:
         """
@@ -323,18 +385,63 @@ class VectorStore:
             return []
 
     def clear(self) -> bool:
-        """Clear all embeddings from vector store."""
+        """Clear all embeddings from this project's vector store."""
         if not self.enabled:
             return False
 
         try:
-            self.chroma_client.delete_collection("documents")
+            self.chroma_client.delete_collection(self.collection_name)
             self.collection = self.chroma_client.get_or_create_collection(
-                name="documents",
-                metadata={"description": "Financial document embeddings"}
+                name=self.collection_name,
+                metadata={
+                    "description": f"Document embeddings for project: {self.project_slug}",
+                    "project_slug": self.project_slug
+                }
             )
-            logger.info("Vector store cleared")
+            logger.info(f"Vector store cleared for project '{self.project_slug}'")
             return True
         except Exception as e:
             logger.error(f"Failed to clear vector store: {e}")
             return False
+
+    def delete_collection(self) -> bool:
+        """
+        Delete this project's entire collection.
+        Used when deleting a project.
+
+        Returns:
+            True if successful
+        """
+        if not self.enabled:
+            return False
+
+        try:
+            self.chroma_client.delete_collection(self.collection_name)
+            logger.info(f"Deleted collection '{self.collection_name}' for project '{self.project_slug}'")
+            self.collection = None
+            return True
+        except Exception as e:
+            logger.error(f"Failed to delete collection: {e}")
+            return False
+
+    @staticmethod
+    def list_collections(persist_directory: str = '/app/data/chroma') -> List[str]:
+        """
+        List all collections (projects) in the vector store.
+
+        Args:
+            persist_directory: ChromaDB persist directory
+
+        Returns:
+            List of collection names
+        """
+        try:
+            client = chromadb.PersistentClient(
+                path=persist_directory,
+                settings=Settings(anonymized_telemetry=False)
+            )
+            collections = client.list_collections()
+            return [c.name for c in collections]
+        except Exception as e:
+            logger.error(f"Failed to list collections: {e}")
+            return []
