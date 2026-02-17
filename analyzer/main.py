@@ -16,12 +16,15 @@ from datetime import datetime
 from analyzer.paperless_client import PaperlessClient
 from analyzer.state import StateManager
 from analyzer.profile_loader import ProfileLoader
+from analyzer.project_manager import ProjectManager  # v1.5.0
+from analyzer.smart_upload import SmartUploader  # v1.5.0
 # NOTE: Deterministic checks and forensics handled by paperless-anomaly-detector
 # from analyzer.extract.unstructured_extract import UnstructuredExtractor
 # from analyzer.checks.deterministic import DeterministicChecker
 # from analyzer.forensics.risk_score import ForensicsAnalyzer
 from analyzer.vector_store import VectorStore
 from analyzer.llm.llm_client import LLMClient
+from analyzer.llm_usage_tracker import LLMUsageTracker
 from analyzer.web_ui import start_web_server_thread, update_ui_stats
 
 # Configure logging
@@ -53,16 +56,19 @@ class DocumentAnalyzer:
             api_token=config['paperless_api_token']
         )
 
+        # Use default project for now (full multi-tenancy in later phase)
+        project_slug = config.get('project_slug', 'default')
         self.state_manager = StateManager(
-            state_path=config.get('state_path', '/app/data/state.json')
+            state_dir=config.get('state_dir', '/app/data'),
+            project_slug=project_slug
         )
 
         self.profile_loader = ProfileLoader(
             profiles_dir=config.get('profiles_dir', '/app/profiles')
         )
 
-        # Initialize vector store for RAG
-        self.vector_store = VectorStore()
+        # Initialize vector store for RAG (project-aware)
+        self.vector_store = VectorStore(project_slug=project_slug)
 
         # NOTE: Deterministic checks and forensics are handled by paperless-anomaly-detector
         # This container ONLY does AI/LLM analysis
@@ -70,18 +76,46 @@ class DocumentAnalyzer:
         # self.deterministic_checker = DeterministicChecker()  # Handled by anomaly-detector
         # self.forensics_analyzer = ForensicsAnalyzer()  # Handled by anomaly-detector
 
+        # Initialize LLM usage tracker
+        logger.info("Initializing LLM Usage Tracker...")
+        self.usage_tracker = LLMUsageTracker(
+            db_path=config.get('usage_db_path', '/app/data/llm_usage.db')
+        )
+        logger.info("LLM Usage Tracker initialized successfully")
+
         # Optional LLM client
         self.llm_enabled = config.get('llm_enabled', False)
         if self.llm_enabled:
             self.llm_client = LLMClient(
                 provider=config.get('llm_provider', 'anthropic'),
                 api_key=config.get('llm_api_key'),
-                model=config.get('llm_model')
+                model=config.get('llm_model'),
+                usage_tracker=self.usage_tracker
             )
         else:
             self.llm_client = None
 
+        # v1.5.0: Project management and smart upload
+        logger.info("Initializing ProjectManager...")
+        self.project_manager = ProjectManager()
+        logger.info("ProjectManager initialized successfully")
+
+        logger.info("Initializing SmartUploader...")
+        self.smart_uploader = SmartUploader(
+            llm_client=self.llm_client,
+            paperless_client=self.paperless,
+            project_manager=self.project_manager
+        ) if self.llm_enabled else None
+        logger.info("SmartUploader initialized successfully")
+
+        # v1.5.0: Re-analysis tracking for project-wide context
+        self.last_document_time = {}  # project_slug -> timestamp of last processed doc
+        self.last_reanalysis_time = {}  # project_slug -> timestamp of last re-analysis
+        self.reanalysis_delay_seconds = 300  # 5 minutes after last doc before re-analyzing
+        self.documents_processed_this_cycle = 0
+
         self.archive_path = config.get('archive_path', '/paperless/media/documents/archive')
+        logger.info("DocumentAnalyzer initialization complete")
 
     def is_poor_quality_ocr(self, content: str, document: Dict[str, Any]) -> bool:
         """
@@ -241,6 +275,140 @@ Format the output as structured text that preserves the layout and relationships
             logger.error(f"Failed to extract with Vision AI for document {doc_id}: {e}", exc_info=True)
             return None
 
+    def check_and_trigger_reanalysis(self) -> None:
+        """
+        Check if any project needs re-analysis with full context.
+        Triggers automatic re-analysis 5 minutes after last document processed.
+        """
+        import time
+
+        current_time = time.time()
+        project_slug = self.config.get('project_slug', 'default')
+
+        # Check if documents were processed and enough time has passed
+        if project_slug in self.last_document_time:
+            last_doc_time = self.last_document_time[project_slug]
+            last_reanalysis = self.last_reanalysis_time.get(project_slug, 0)
+            time_since_last_doc = current_time - last_doc_time
+
+            # Trigger if: 5 minutes passed AND we haven't re-analyzed since last doc
+            if (time_since_last_doc >= self.reanalysis_delay_seconds and
+                last_doc_time > last_reanalysis):
+
+                logger.info(f"⏰ Triggering automatic re-analysis for project '{project_slug}' " +
+                           f"({int(time_since_last_doc/60)} minutes since last document)")
+                self.re_analyze_project(project_slug)
+                self.last_reanalysis_time[project_slug] = current_time
+
+    def re_analyze_project(self, project_slug: str) -> None:
+        """
+        Re-analyze all documents in a project with full project context.
+        This ensures every document sees ALL other documents in the project.
+
+        Args:
+            project_slug: Project identifier to re-analyze
+        """
+        if not self.llm_enabled or not self.llm_client:
+            logger.warning("Cannot re-analyze: LLM not enabled")
+            return
+
+        try:
+            logger.info(f"🔄 Starting project-wide re-analysis for '{project_slug}'...")
+
+            # Get all documents in the project
+            # For now, get all documents (in v1.5.0 we'd filter by project tag)
+            all_docs = []
+            page = 1
+            while True:
+                response = self.paperless.get_documents(
+                    ordering='-modified',
+                    page_size=100,
+                    page=page
+                )
+                page_results = response.get('results', [])
+                all_docs.extend(page_results)
+
+                if not response.get('next'):
+                    break
+                page += 1
+
+            logger.info(f"📊 Re-analyzing {len(all_docs)} documents with full project context...")
+
+            reanalyzed_count = 0
+            for doc in all_docs:
+                doc_id = doc['id']
+                doc_title = doc.get('title', f'Document {doc_id}')
+
+                try:
+                    # Get document content
+                    full_doc = self.paperless.get_document(doc_id)
+                    content = full_doc.get('content', '')
+
+                    if not content or len(content) < 50:
+                        continue
+
+                    content_preview = content[:1500]
+
+                    # Query vector store for related documents (now includes ALL docs in project)
+                    related_docs = []
+                    if self.vector_store:
+                        try:
+                            search_results = self.vector_store.collection.query(
+                                query_texts=[content_preview[:500]],
+                                n_results=5,
+                                include=['documents', 'metadatas', 'distances']
+                            )
+
+                            if search_results and search_results['documents']:
+                                for i, doc_content in enumerate(search_results['documents'][0]):
+                                    metadata = search_results['metadatas'][0][i] if search_results['metadatas'] else {}
+                                    distance = search_results['distances'][0][i] if search_results['distances'] else 0
+
+                                    if distance < 1.0 and metadata.get('document_id') != doc_id:
+                                        related_docs.append({
+                                            'title': metadata.get('title', 'Unknown'),
+                                            'document_id': metadata.get('document_id'),
+                                            'content_snippet': doc_content[:500],
+                                            'relevance_score': round(1.0 - distance, 2)
+                                        })
+                        except Exception as e:
+                            logger.warning(f"Failed to query related docs for re-analysis: {e}")
+
+                    # Re-run integrity analysis with full context
+                    integrity_analysis = self.llm_client.analyze_document_integrity(
+                        document_info={
+                            'title': doc_title,
+                            'document_type': 'document'
+                        },
+                        content_preview=content_preview,
+                        related_docs=related_docs
+                    )
+
+                    # Update tags if needed
+                    if integrity_analysis.get('has_issues') and integrity_analysis.get('findings'):
+                        tags_to_add = []
+                        for finding in integrity_analysis['findings']:
+                            tag_name = f"issue:{finding['issue_type']}"
+                            if tag_name not in tags_to_add:
+                                tags_to_add.append(tag_name)
+
+                        if tags_to_add:
+                            self.paperless.update_document_tags(doc_id, tags_to_add, add_only=True)
+
+                    reanalyzed_count += 1
+
+                    if reanalyzed_count % 10 == 0:
+                        logger.info(f"  ↳ Re-analyzed {reanalyzed_count}/{len(all_docs)} documents...")
+
+                except Exception as e:
+                    logger.warning(f"Failed to re-analyze document {doc_id}: {e}")
+                    continue
+
+            logger.info(f"✅ Project re-analysis complete: {reanalyzed_count} documents analyzed with full context")
+
+        except Exception as e:
+            logger.error(f"Failed to re-analyze project '{project_slug}': {e}", exc_info=True)
+
     def run_polling_loop(self) -> None:
         """Main polling loop."""
         poll_interval = self.config.get('poll_interval_seconds', 30)
@@ -255,7 +423,11 @@ Format the output as structured text that preserves the layout and relationships
                 self.profile_loader,
                 self.paperless,
                 host=web_host,
-                port=web_port
+                port=web_port,
+                project_manager=self.project_manager,  # v1.5.0
+                llm_client=self.llm_client,  # v1.5.0
+                smart_uploader=self.smart_uploader,  # v1.5.0
+                document_analyzer=self  # v1.5.0 - for re-analysis
             )
 
         # Health check
@@ -345,6 +517,12 @@ Format the output as structured text that preserves the layout and relationships
                 self.state_manager.mark_processed()
                 logger.info(f"Processed {processed_count} new documents")
 
+                # v1.5.0: Track document processing time for re-analysis trigger
+                import time
+                project_slug = self.config.get('project_slug', 'default')
+                self.last_document_time[project_slug] = time.time()
+                self.documents_processed_this_cycle = processed_count
+
                 # Exit reprocess mode if we've seen all documents
                 if reprocess_mode and skipped_count == 0 and len(documents) < 100:
                     with self.state_manager.lock:
@@ -355,6 +533,9 @@ Format the output as structured text that preserves the layout and relationships
                     logger.info("Reprocess all mode complete - returning to incremental mode")
             else:
                 logger.info("No new documents to process")
+
+            # v1.5.0: Check if we should trigger automatic re-analysis
+            self.check_and_trigger_reanalysis()
 
         except Exception as e:
             logger.error(f"Failed to poll documents: {e}", exc_info=True)
@@ -474,12 +655,45 @@ Format the output as structured text that preserves the layout and relationships
             if self.llm_enabled and self.llm_client:
                 try:
                     content_preview = document.get('content', '')[:1500]  # Longer preview for integrity check
+
+                    # v1.5.0: Query vector store for related documents in same project
+                    related_docs = []
+                    if self.vector_store and content_preview:
+                        try:
+                            # Search for similar documents in the same project/collection
+                            search_results = self.vector_store.collection.query(
+                                query_texts=[content_preview[:500]],  # Use first 500 chars for similarity search
+                                n_results=5,  # Get top 5 most relevant documents
+                                include=['documents', 'metadatas', 'distances']
+                            )
+
+                            # Build related docs list with context
+                            if search_results and search_results['documents']:
+                                for i, doc_content in enumerate(search_results['documents'][0]):
+                                    metadata = search_results['metadatas'][0][i] if search_results['metadatas'] else {}
+                                    distance = search_results['distances'][0][i] if search_results['distances'] else 0
+
+                                    # Only include if reasonably similar (distance < 1.0) and not the same document
+                                    if distance < 1.0 and metadata.get('document_id') != doc_id:
+                                        related_docs.append({
+                                            'title': metadata.get('title', 'Unknown'),
+                                            'document_id': metadata.get('document_id'),
+                                            'content_snippet': doc_content[:500],  # First 500 chars
+                                            'relevance_score': round(1.0 - distance, 2)  # Convert distance to similarity
+                                        })
+
+                            if related_docs:
+                                logger.info(f"Found {len(related_docs)} related documents in project for context")
+                        except Exception as e:
+                            logger.warning(f"Failed to query related documents: {e}")
+
                     integrity_analysis = self.llm_client.analyze_document_integrity(
                         document_info={
                             'title': doc_title,
                             'document_type': profile.profile_id if profile else 'financial document'
                         },
-                        content_preview=content_preview
+                        content_preview=content_preview,
+                        related_docs=related_docs  # v1.5.0: Pass project context
                     )
 
                     # Generate enhanced tags with evidence for each finding

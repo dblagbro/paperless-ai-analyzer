@@ -988,9 +988,17 @@
 </head>
 <body>
     <header>
-        <div class="container">
-            <h1><span class="status-indicator"></span> Paperless AI Analyzer</h1>
-            <p>Intelligent document analysis and anomaly detection</p>
+        <div class="container" style="display: flex; justify-content: space-between; align-items: center;">
+            <div>
+                <h1><span class="status-indicator"></span> Paperless AI Analyzer</h1>
+                <p>Intelligent document analysis and anomaly detection</p>
+            </div>
+            <div style="text-align: right;">
+                <label for="project-selector" style="color: white; font-size: 14px; display: block; margin-bottom: 5px;">Current Project:</label>
+                <select id="project-selector" onchange="switchProject()" style="padding: 8px 12px; font-size: 14px; border-radius: 4px; border: 1px solid #bdc3c7; min-width: 200px;">
+                    <option value="">Loading...</option>
+                </select>
+            </div>
         </div>
     </header>
 
@@ -999,6 +1007,8 @@
         <div class="tabs-container">
             <div class="tabs-nav">
                 <button class="tab-button active" onclick="switchTab('overview')">📊 Overview</button>
+                <button class="tab-button" onclick="switchTab('projects')">📁 Manage Projects</button>
+                <button class="tab-button" onclick="switchTab('upload')">📤 Smart Upload</button>
                 <button class="tab-button" onclick="switchTab('ai-chat')">💬 AI Chat</button>
                 <button class="tab-button" onclick="switchTab('search')">🔍 Search & Analysis</button>
                 <button class="tab-button" onclick="switchTab('config')">⚙️ Configuration</button>
@@ -1041,6 +1051,28 @@
 
                 <h2>Recent Activity</h2>
                 <div id="recent-analyses" class="loading">Loading...</div>
+            </div>
+
+            <!-- Manage Projects Tab -->
+            <div id="tab-projects" class="tab-content">
+                <h2>📁 Manage Projects</h2>
+                <p style="color: #666; margin-bottom: 20px;">Organize documents into projects for better analysis and cross-document reference checking.</p>
+
+                <div id="projects-list" class="loading">Loading projects...</div>
+            </div>
+
+            <!-- Smart Upload Tab -->
+            <div id="tab-upload" class="tab-content">
+                <h2>📤 Smart Upload</h2>
+                <p style="color: #666; margin-bottom: 20px;">Upload documents with AI-powered metadata extraction.</p>
+
+                <div class="upload-section">
+                    <div style="background: white; padding: 25px; border-radius: 8px;">
+                        <input type="file" id="upload-file-input" accept=".pdf,.png,.jpg,.jpeg,.doc,.docx" style="margin-bottom: 15px;">
+                        <button class="btn btn-primary" onclick="handleSimpleUpload()">📤 Upload to Paperless</button>
+                        <div id="upload-status" style="margin-top: 15px;"></div>
+                    </div>
+                </div>
             </div>
 
             <!-- AI Chat Tab -->
@@ -1240,6 +1272,22 @@
     </div>
 
     <script>
+        // Detect base path for API calls (handles nginx subpath proxying)
+        const BASE_PATH = (() => {
+            const path = window.location.pathname;
+            // If we're under /paperless-ai-analyzer/, use that as base
+            if (path.startsWith('/paperless-ai-analyzer')) {
+                return '/paperless-ai-analyzer';
+            }
+            // Otherwise, no base path (direct access)
+            return '';
+        })();
+
+        // Helper function to build API URLs
+        function apiUrl(path) {
+            return BASE_PATH + path;
+        }
+
         // Tab switching function
         function switchTab(tabName) {
             // Hide all tabs
@@ -1265,6 +1313,16 @@
                     btn.classList.add('active');
                 }
             });
+
+            // Load projects when projects tab is opened
+            if (tabName === 'projects') {
+                console.log('Projects tab selected, typeof loadProjectsList:', typeof loadProjectsList);
+                if (typeof loadProjectsList === 'function') {
+                    loadProjectsList();
+                } else {
+                    console.error('loadProjectsList is not a function!');
+                }
+            }
         }
 
         // Auto-refresh data every 10 seconds
@@ -1272,7 +1330,7 @@
 
         async function fetchStatus() {
             try {
-                const response = await fetch('api/status');
+                const response = await fetch(apiUrl('/api/status'));
                 const data = await response.json();
 
                 // Update stats
@@ -1303,7 +1361,7 @@
 
         async function fetchRecent() {
             try {
-                const response = await fetch('api/recent');
+                const response = await fetch(apiUrl('/api/recent'));
                 const data = await response.json();
 
                 const overviewContainer = document.getElementById('recent-analyses');
@@ -1393,7 +1451,7 @@
 
         async function fetchProfiles() {
             try {
-                const response = await fetch('api/profiles');
+                const response = await fetch(apiUrl('/api/profiles'));
                 const data = await response.json();
 
                 // Active profiles
@@ -1447,6 +1505,82 @@
             }
         }
 
+        // Load projects list for Manage Projects tab
+        async function loadProjectsList() {
+            console.log('loadProjectsList called');
+            const list = document.getElementById('projects-list');
+
+            try {
+                const url = apiUrl('/api/projects');
+                console.log('Fetching from:', url);
+
+                const response = await fetch(url);
+                console.log('Response status:', response.status);
+
+                if (!response.ok) {
+                    throw new Error('HTTP ' + response.status);
+                }
+
+                const data = await response.json();
+                console.log('Projects data:', data);
+
+                if (data.projects && data.projects.length > 0) {
+                    list.innerHTML = data.projects.map(p => `
+                        <div style="background: white; padding: 20px; margin-bottom: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); border-left: 4px solid ${p.color || '#3498db'};">
+                            <h3 style="margin: 0 0 5px 0; color: #2c3e50;">${p.name}</h3>
+                            <p style="margin: 0 0 10px 0; color: #666; font-size: 14px;">${p.description || 'No description'}</p>
+                            <div style="margin-top: 10px; font-size: 13px; color: #888;">
+                                📄 <strong>${p.document_count}</strong> documents |
+                                💾 ${p.storage_size_mb.toFixed(2)} MB |
+                                📅 Created: ${new Date(p.created_at).toLocaleDateString()}
+                            </div>
+                        </div>
+                    `).join('');
+                } else {
+                    list.innerHTML = '<div style="text-align: center; padding: 40px; color: #999;">No projects found.</div>';
+                }
+            } catch (error) {
+                console.error('Error loading projects:', error);
+                if (list) {
+                    list.innerHTML = '<div style="color: #e74c3c; padding: 20px; text-align: center;"><strong>Error loading projects:</strong><br>' + error.message + '<br><small>Check browser console for details</small></div>';
+                }
+            }
+        }
+
+        // Simple upload function
+        async function handleSimpleUpload() {
+            const fileInput = document.getElementById('upload-file-input');
+            const statusDiv = document.getElementById('upload-status');
+
+            if (!fileInput.files || fileInput.files.length === 0) {
+                statusDiv.innerHTML = '<div style="color: #e74c3c;">Please select a file first.</div>';
+                return;
+            }
+
+            const file = fileInput.files[0];
+            statusDiv.innerHTML = '<div style="color: #3498db;">Uploading...</div>';
+
+            try {
+                const formData = new FormData();
+                formData.append('document', file);
+                formData.append('title', file.name.replace(/\.[^/.]+$/, ""));
+
+                const response = await fetch('/paperless/api/documents/post_document/', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (response.ok) {
+                    statusDiv.innerHTML = '<div style="color: #27ae60; padding: 10px; background: #d4edda; border-radius: 4px;">✅ Uploaded: ' + file.name + '</div>';
+                    fileInput.value = '';
+                } else {
+                    statusDiv.innerHTML = '<div style="color: #e74c3c;">Upload failed</div>';
+                }
+            } catch (error) {
+                statusDiv.innerHTML = '<div style="color: #e74c3c;">Error: ' + error.message + '</div>';
+            }
+        }
+
         function refresh() {
             fetchStatus();
             fetchRecent();
@@ -1463,7 +1597,7 @@
             }
 
             try {
-                const response = await fetch('api/reprocess', { method: 'POST' });
+                const response = await fetch(apiUrl('/api/reprocess'), { method: 'POST' });
                 const data = await response.json();
 
                 if (data.success) {
@@ -1486,7 +1620,7 @@
             }
 
             try {
-                const response = await fetch(`api/reprocess/${docId}`, { method: 'POST' });
+                const response = await fetch(apiUrl(`/api/reprocess/${docId}`), { method: 'POST' });
                 const data = await response.json();
 
                 if (data.success) {
@@ -1504,7 +1638,7 @@
         // Vector store management functions
         async function refreshVectorTypes() {
             try {
-                const response = await fetch('api/vector/types');
+                const response = await fetch(apiUrl('/api/vector/types'));
                 const data = await response.json();
 
                 if (!data.success) {
@@ -1545,7 +1679,7 @@
         // Load all vector store documents grouped by type
         async function loadVectorStoreDocuments() {
             try {
-                const response = await fetch('api/vector/documents');
+                const response = await fetch(apiUrl('/api/vector/documents'));
                 const data = await response.json();
 
                 const container = document.getElementById('vector-store-manager');
@@ -1629,7 +1763,7 @@
             }
 
             try {
-                const response = await fetch('api/vector/delete-document', {
+                const response = await fetch(apiUrl('/api/vector/delete-document'), {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ doc_id: docId })
@@ -1654,7 +1788,7 @@
             }
 
             try {
-                const response = await fetch('api/vector/delete-by-type', {
+                const response = await fetch(apiUrl('/api/vector/delete-by-type'), {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ document_type: documentType })
@@ -1680,7 +1814,7 @@
             }
 
             try {
-                const response = await fetch('api/vector/clear', { method: 'POST' });
+                const response = await fetch(apiUrl('/api/vector/clear'), { method: 'POST' });
                 const data = await response.json();
 
                 if (data.success) {
@@ -1719,7 +1853,7 @@
             resultDiv.textContent = '🔄 Updating poll interval...';
 
             try {
-                const response = await fetch('api/settings/poll-interval', {
+                const response = await fetch(apiUrl('/api/settings/poll-interval'), {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ interval: parseInt(interval) })
@@ -1746,7 +1880,7 @@
         // Refresh logs
         async function refreshLogs() {
             try {
-                const response = await fetch('api/logs?limit=100');
+                const response = await fetch(apiUrl('/api/logs?limit=100'));
                 const data = await response.json();
 
                 const logsViewer = document.getElementById('logs-viewer');
@@ -1787,7 +1921,7 @@
             if (hasAnomalies) params.append('has_anomalies', 'true');
 
             try {
-                const response = await fetch(`api/search?${params}`);
+                const response = await fetch(apiUrl(`/api/search?${params}`));
                 const data = await response.json();
 
                 const resultsContainer = document.getElementById('search-results');
@@ -1886,7 +2020,7 @@
         // Check LLM status and show setup panel if needed
         async function checkLLMStatus() {
             try {
-                const response = await fetch('api/llm/status');
+                const response = await fetch(apiUrl('/api/llm/status'));
                 const data = await response.json();
 
                 if (!data.enabled || !data.has_key) {
@@ -1961,7 +2095,7 @@
         // View staging profile
         async function viewStagingProfile(filename) {
             try {
-                const response = await fetch(`api/staging/${filename}`);
+                const response = await fetch(apiUrl(`/api/staging/${filename}`));
                 const data = await response.json();
 
                 if (data.error) {
@@ -2052,7 +2186,7 @@
         // Active profile management
         async function viewActiveProfile(filename) {
             try {
-                const response = await fetch(`api/active/${filename}`);
+                const response = await fetch(apiUrl(`/api/active/${filename}`));
                 const data = await response.json();
 
                 if (data.error) {
@@ -2122,7 +2256,7 @@
             resultDiv.innerHTML = '<div class="loading">Analyzing profiles for duplicates...</div>';
 
             try {
-                const response = await fetch('api/active/duplicates');
+                const response = await fetch(apiUrl('/api/active/duplicates'));
                 const data = await response.json();
 
                 if (data.duplicate_groups === 0) {
@@ -2254,7 +2388,7 @@
         // AI Configuration Management
         async function loadAIConfig() {
             try {
-                const response = await fetch('/api/ai-config');
+                const response = await fetch(apiUrl('/api/ai-config'));
                 const data = await response.json();
 
                 if (data.success && data.config) {
@@ -2573,7 +2707,7 @@
             modalBody.innerHTML = '<div class="loading">Loading evidence...</div>';
 
             try {
-                const response = await fetch(`api/tag-evidence/${docId}`);
+                const response = await fetch(apiUrl(`/api/tag-evidence/${docId}`));
                 const data = await response.json();
 
                 if (data.error) {
@@ -2663,6 +2797,60 @@
                 closeTagModal();
             }
         });
+
+        // Project Selector Functions
+        async function loadProjectSelector() {
+            try {
+                const response = await fetch(apiUrl('/api/projects'));
+                const data = await response.json();
+
+                const selector = document.getElementById('project-selector');
+                if (!selector) return;
+
+                // Get current project
+                const currentResponse = await fetch(apiUrl('/api/current-project'));
+                const currentProject = await currentResponse.json();
+
+                // Populate dropdown
+                selector.innerHTML = data.projects
+                    .filter(p => !p.is_archived)
+                    .map(p => `<option value="${p.slug}" ${p.slug === currentProject.slug ? 'selected' : ''}>${p.name}</option>`)
+                    .join('');
+
+            } catch (error) {
+                console.error('Failed to load project selector:', error);
+                const selector = document.getElementById('project-selector');
+                if (selector) {
+                    selector.innerHTML = '<option value="">Error loading projects</option>';
+                }
+            }
+        }
+
+        async function switchProject() {
+            const selector = document.getElementById('project-selector');
+            const projectSlug = selector.value;
+
+            try {
+                const response = await fetch(apiUrl('/api/current-project'), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ project_slug: projectSlug })
+                });
+
+                if (response.ok) {
+                    // Reload page to refresh all data for new project
+                    window.location.reload();
+                } else {
+                    alert('Failed to switch project');
+                }
+            } catch (error) {
+                console.error('Failed to switch project:', error);
+                alert('Failed to switch project');
+            }
+        }
+
+        // Load project selector on page load
+        loadProjectSelector();
     </script>
 
     <!-- Tag Evidence Modal -->

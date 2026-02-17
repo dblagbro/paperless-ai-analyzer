@@ -195,7 +195,7 @@ def main():
         'llm_enabled': True,
         'llm_provider': 'anthropic',
         'llm_api_key': os.environ.get('ANTHROPIC_API_KEY', ''),
-        'llm_model': 'claude-3-5-sonnet-20241022'
+        'llm_model': 'claude-sonnet-4-5-20250929'
     }
 
     logger.info("Initializing components...")
