@@ -259,6 +259,96 @@ Important: Base your summary on the title and any content provided. If content i
                 'full': f"Document titled '{title}'. Summary generation failed."
             }
 
+    def generate_comparative_summary(self, document_info: Dict[str, Any],
+                                    content_preview: str = "",
+                                    similar_documents: list = None) -> Dict[str, str]:
+        """
+        Generate enhanced summaries that compare the document with others in the system.
+
+        Args:
+            document_info: Document metadata (title, type, date, etc.)
+            content_preview: First ~500 chars of document content for context
+            similar_documents: List of similar documents from vector search
+
+        Returns:
+            Dict with 'brief' (1 sentence) and 'full' (detailed comparison) summaries
+        """
+        if not self.client or not similar_documents:
+            # Fall back to basic summary if no LLM or no similar docs
+            return self.generate_document_summary(document_info, content_preview)
+
+        try:
+            doc_title = document_info.get('title', 'Unknown')
+            doc_type = document_info.get('document_type', 'financial document')
+            doc_date = document_info.get('created', 'unknown date')
+            doc_id = document_info.get('id', 'unknown')
+
+            # Build context about similar documents
+            similar_docs_context = "\n".join([
+                f"- Doc #{doc.get('id', 'N/A')}: {doc.get('title', 'Untitled')} "
+                f"(Date: {doc.get('created', 'unknown')}, Similarity: {doc.get('similarity', 0):.2f})"
+                for doc in similar_documents[:5]  # Top 5 most similar
+            ])
+
+            # Enhanced prompt with comparison instructions
+            prompt = f"""Analyze this document and compare it with similar documents in the system.
+
+Current Document:
+- ID: {doc_id}
+- Title: {doc_title}
+- Type: {doc_type}
+- Date: {doc_date}
+{f"- Content Preview: {content_preview[:500]}..." if content_preview else ""}
+
+Similar Documents in System:
+{similar_docs_context if similar_docs_context else "No similar documents found"}
+
+Provide:
+1. BRIEF (1 sentence): What this document is
+2. FULL (4-6 sentences): Detailed analysis including:
+   - What this document contains
+   - How it relates to similar documents (if any)
+   - Whether this supersedes or is superseded by another document (check dates)
+   - Any notable patterns or relationships with other documents
+
+Respond in JSON format:
+{{
+  "brief": "One sentence description",
+  "full": "Four to six sentence detailed summary with comparisons"
+}}
+
+Important:
+- Compare dates to determine document supersession
+- Note if this is an updated version of an earlier document
+- Identify relationships between documents"""
+
+            # Call LLM
+            response = self._call_llm(
+                prompt,
+                operation='comparative_summary',
+                document_id=doc_id
+            )
+
+            # Parse JSON response
+            import json
+            try:
+                result = json.loads(response)
+                return {
+                    'brief': result.get('brief', f"{doc_type}: {doc_title}"),
+                    'full': result.get('full', f"Financial document titled '{doc_title}'.")
+                }
+            except json.JSONDecodeError:
+                # Fallback parsing
+                lines = response.strip().split('\n')
+                brief = next((l.split(':', 1)[1].strip() for l in lines if 'brief' in l.lower()), f"{doc_type}: {doc_title}")
+                full = next((l.split(':', 1)[1].strip() for l in lines if 'full' in l.lower()), brief)
+                return {'brief': brief, 'full': full}
+
+        except Exception as e:
+            logger.warning(f"Failed to generate comparative summary: {e}")
+            # Fall back to basic summary
+            return self.generate_document_summary(document_info, content_preview)
+
     def extract_rich_metadata(self, document_info: Dict[str, Any], content_preview: str = "") -> Dict[str, Any]:
         """
         Extract comprehensive metadata from document for optimal RAG performance.

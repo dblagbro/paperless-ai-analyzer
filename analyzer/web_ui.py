@@ -50,6 +50,95 @@ app = Flask(__name__, template_folder='/app/analyzer/templates', static_folder='
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'dev-secret-key-change-in-production')
 
 
+def initialize_ui_state():
+    """
+    Initialize UI state from existing analyzed documents on startup.
+    This ensures counts and recent analyses persist across container restarts.
+    """
+    try:
+        logger.info("Initializing UI state from existing documents...")
+
+        # Get tag ID for analyzed documents
+        analyzed_tag_id = app.paperless_client.get_or_create_tag('analyzed:deterministic:v1')
+        if not analyzed_tag_id:
+            logger.info("No analyzed tag found, UI state will start empty")
+            return
+
+        # Query Paperless for all documents with the analyzed tag
+        documents_list = app.paperless_client.get_documents_by_tag(analyzed_tag_id)
+
+        if not documents_list:
+            logger.info("No previously analyzed documents found")
+            return
+
+        total_docs = len(documents_list)
+        results = documents_list
+
+        logger.info(f"Found {total_docs} previously analyzed documents")
+
+        # Update stats
+        with ui_state['lock']:
+            ui_state['stats']['total_analyzed'] = total_docs
+
+            # Count high risk documents
+            high_risk_count = 0
+            anomalies_count = 0
+
+            # Process recent documents for the list (last 100 to include more anomalies)
+            for doc in results[:100]:
+                doc_id = doc['id']
+
+                # Get tags
+                tags = []
+                try:
+                    for tag_id in doc.get('tags', [])[:10]:
+                        tag_response = app.paperless_client.session.get(
+                            f'{app.paperless_client.base_url}/api/tags/{tag_id}/'
+                        )
+                        if tag_response.ok:
+                            tags.append(tag_response.json().get('name', ''))
+                except:
+                    pass
+
+                anomalies = [t.replace('anomaly:', '') for t in tags if t.startswith('anomaly:')]
+                if anomalies:
+                    anomalies_count += 1
+
+                # Determine risk score
+                risk_score = 0
+                if 'anomaly:forensic_risk_high' in tags:
+                    risk_score = 80
+                    high_risk_count += 1
+                elif 'anomaly:forensic_risk_medium' in tags:
+                    risk_score = 60
+                elif 'anomaly:forensic_risk_low' in tags:
+                    risk_score = 30
+
+                # Add to recent analyses (summaries will be generated on first view)
+                ui_state['recent_analyses'].append({
+                    'document_id': doc_id,
+                    'document_title': doc['title'],
+                    'anomalies_found': anomalies[:5],
+                    'risk_score': risk_score,
+                    'timestamp': doc['modified'],
+                    'ai_analysis': "",
+                    'created': doc.get('created', ''),
+                    'correspondent': doc.get('correspondent', None),
+                    'brief_summary': f"Financial document: {doc['title']}",
+                    'full_summary': ""
+                })
+
+            ui_state['stats']['anomalies_detected'] = anomalies_count
+            ui_state['stats']['high_risk_count'] = high_risk_count
+            ui_state['last_update'] = results[0].get('modified') if results else None
+
+        logger.info(f"✓ UI state initialized: {total_docs} analyzed, {anomalies_count} with anomalies, {high_risk_count} high risk")
+
+    except Exception as e:
+        logger.error(f"Failed to initialize UI state: {e}")
+        logger.exception(e)
+
+
 def create_app(state_manager, profile_loader, paperless_client,
                project_manager=None, llm_client=None, smart_uploader=None, document_analyzer=None):
     """
@@ -76,6 +165,9 @@ def create_app(state_manager, profile_loader, paperless_client,
     app.project_manager = project_manager
     app.llm_client = llm_client
     app.smart_uploader = smart_uploader
+
+    # Initialize UI state from existing documents
+    initialize_ui_state()
 
     return app
 
@@ -622,6 +714,54 @@ def api_chat():
                     elif 'anomaly:forensic_risk_low' in tags:
                         risk_score = 30
 
+                    # Generate AI-powered comparative summary if LLM is available
+                    brief_summary = ""
+                    full_summary = ""
+                    try:
+                        if app.document_analyzer and app.document_analyzer.llm_client:
+                            # Query vector store for similar documents
+                            similar_docs = []
+                            if app.document_analyzer.vector_store:
+                                try:
+                                    # Search for similar documents using title as query
+                                    results = app.document_analyzer.vector_store.query(
+                                        query_text=doc['title'],
+                                        n_results=6  # Get 6 to exclude self
+                                    )
+                                    if results and 'documents' in results:
+                                        # Filter out the current document and format results
+                                        for i, result_doc in enumerate(results.get('documents', [[]])[0]):
+                                            metadata = results.get('metadatas', [[]])[0][i] if i < len(results.get('metadatas', [[]])[0]) else {}
+                                            result_id = metadata.get('document_id', '')
+                                            if result_id and str(result_id) != str(doc_id):
+                                                similar_docs.append({
+                                                    'id': result_id,
+                                                    'title': metadata.get('title', 'Unknown'),
+                                                    'created': metadata.get('created', 'unknown'),
+                                                    'similarity': results.get('distances', [[]])[0][i] if i < len(results.get('distances', [[]])[0]) else 0
+                                                })
+                                except Exception as ve:
+                                    logger.debug(f"Vector search failed for doc {doc_id}: {ve}")
+
+                            # Generate comparative summary
+                            doc_info = {
+                                'id': doc_id,
+                                'title': doc['title'],
+                                'document_type': 'financial document',
+                                'created': doc.get('created', ''),
+                            }
+                            summary = app.document_analyzer.llm_client.generate_comparative_summary(
+                                doc_info,
+                                content_preview=notes[:500] if notes else "",
+                                similar_documents=similar_docs
+                            )
+                            brief_summary = summary.get('brief', '')
+                            full_summary = summary.get('full', '')
+                    except Exception as sum_err:
+                        logger.debug(f"Failed to generate summary for doc {doc_id}: {sum_err}")
+                        brief_summary = f"Financial document: {doc['title']}"
+                        full_summary = brief_summary
+
                     recent_analyses.append({
                         'document_id': doc_id,
                         'document_title': doc['title'],
@@ -630,7 +770,9 @@ def api_chat():
                         'timestamp': doc['modified'],
                         'ai_analysis': ai_analysis,
                         'created': doc.get('created', ''),
-                        'correspondent': doc.get('correspondent', None)
+                        'correspondent': doc.get('correspondent', None),
+                        'brief_summary': brief_summary,
+                        'full_summary': full_summary
                     })
 
                 logger.info(f"Fetched {len(recent_analyses)} analyzed documents from Paperless")
@@ -1602,30 +1744,310 @@ def api_search():
 def api_tag_evidence(doc_id):
     """
     Get enhanced tag evidence for a specific document.
-    Returns detailed information about why each tag was flagged.
+    Returns detailed information about why each tag was flagged, including specific evidence from anomaly-detector.
     """
+    import sqlite3
+    import json
+
+    # Define fallback explanations for anomaly types
+    ANOMALY_EXPLANATIONS = {
+        'balance_mismatch': {
+            'category': 'Financial Integrity',
+            'description': 'The running balance does not match the calculated balance based on debits and credits.',
+            'severity': 'high'
+        },
+        'duplicate_lines': {
+            'category': 'Data Quality',
+            'description': 'Duplicate transaction entries were detected in the document.',
+            'severity': 'medium'
+        },
+        'duplicate_transaction': {
+            'category': 'Data Quality',
+            'description': 'The same transaction appears multiple times with identical details.',
+            'severity': 'medium'
+        },
+        'date_ordering': {
+            'category': 'Data Quality',
+            'description': 'Transaction dates are not in chronological order.',
+            'severity': 'low'
+        },
+        'missing_data': {
+            'category': 'Completeness',
+            'description': 'Required fields or data are missing from the document.',
+            'severity': 'medium'
+        },
+        'forensic_risk_high': {
+            'category': 'Document Forensics',
+            'description': 'High risk of document tampering detected through image analysis (risk score > 60%).',
+            'severity': 'critical'
+        },
+        'forensic_risk_medium': {
+            'category': 'Document Forensics',
+            'description': 'Medium risk of document tampering detected through image analysis (risk score 30-60%).',
+            'severity': 'medium'
+        },
+        'forensic_risk_low': {
+            'category': 'Document Forensics',
+            'description': 'Low risk indicators detected through image analysis (risk score < 30%).',
+            'severity': 'low'
+        }
+    }
+
+    # Try to find analysis in recent_analyses first for enhanced tags
+    analysis = None
     with ui_state['lock']:
-        # Find the analysis for this document
-        analysis = None
         for result in ui_state['recent_analyses']:
-            if result.get('doc_id') == doc_id:
+            if result.get('doc_id') == doc_id or result.get('document_id') == doc_id:
                 analysis = result
                 break
 
-        if not analysis:
+    # If not in recent_analyses, fetch from Paperless API
+    if not analysis:
+        try:
+            doc = app.paperless_client.get_document(doc_id)
+
+            # Get tags from Paperless
+            tags = []
+            for tag_id in doc.get('tags', []):
+                try:
+                    tag_response = app.paperless_client.session.get(
+                        f'{app.paperless_client.base_url}/api/tags/{tag_id}/'
+                    )
+                    if tag_response.ok:
+                        tags.append(tag_response.json().get('name', ''))
+                except:
+                    pass
+
+            # Extract anomaly tags
+            anomalies = [t.replace('anomaly:', '') for t in tags if t.startswith('anomaly:')]
+
+            analysis = {
+                'document_id': doc_id,
+                'document_title': doc.get('title', 'Unknown'),
+                'anomalies_found': anomalies,
+                'enhanced_tags': []
+            }
+        except Exception as e:
+            logger.error(f"Failed to fetch document {doc_id}: {e}")
             return jsonify({'error': 'Document not found'}), 404
 
-        # Return enhanced tags with evidence
-        enhanced_tags = analysis.get('enhanced_tags', [])
+    # Collect all tags with evidence
+    all_tags = []
 
-        return jsonify({
-            'document_id': doc_id,
-            'document_title': analysis.get('title', 'Unknown'),
-            'tags': enhanced_tags,
-            'integrity_summary': analysis.get('integrity_summary', ''),
-            'issue_count': analysis.get('issue_count', 0),
-            'critical_count': analysis.get('critical_count', 0)
-        })
+    # Add enhanced tags with detailed evidence (issue: type tags from LLM analysis)
+    enhanced_tags = analysis.get('enhanced_tags', [])
+    all_tags.extend(enhanced_tags)
+
+    # Query anomaly-detector database for detailed evidence
+    anomaly_detector_evidence = {}
+    try:
+        db_path = '/app/anomaly_data/anomaly_detector.db'
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        # Query the processed_documents table
+        cursor.execute("""
+            SELECT
+                has_anomalies,
+                anomaly_types,
+                balance_check_status,
+                balance_diff_amount,
+                beginning_balance,
+                ending_balance,
+                calculated_balance,
+                pattern_flags,
+                document_type
+            FROM processed_documents
+            WHERE paperless_doc_id = ?
+        """, (doc_id,))
+
+        row = cursor.fetchone()
+        if row:
+            # Parse JSON fields
+            anomaly_types = json.loads(row['anomaly_types']) if row['anomaly_types'] else []
+            pattern_flags = json.loads(row['pattern_flags']) if row['pattern_flags'] else []
+            db_balance_status = row['balance_check_status']
+
+            # Index pattern_flags by type for easy lookup (keeps all flags per type)
+            flags_by_type = {}
+            for flag in pattern_flags:
+                t = flag.get('type', '')
+                flags_by_type.setdefault(t, []).append(flag)
+
+            # Build evidence for each confirmed anomaly type
+            for anomaly_type in anomaly_types:
+                matching_flags = flags_by_type.get(anomaly_type, [])
+                evidence = {'db_confirmed': True, 'severity': 'medium'}
+
+                if anomaly_type == 'balance_mismatch':
+                    evidence['status'] = db_balance_status
+                    if row['balance_diff_amount'] is not None:
+                        evidence['difference'] = f"${abs(row['balance_diff_amount']):.2f}"
+                    if row['beginning_balance'] is not None:
+                        evidence['beginning_balance'] = f"${row['beginning_balance']:.2f}"
+                    if row['ending_balance'] is not None:
+                        evidence['ending_balance'] = f"${row['ending_balance']:.2f}"
+                    if row['calculated_balance'] is not None:
+                        evidence['calculated_balance'] = f"${row['calculated_balance']:.2f}"
+                    # Include descriptions + details from each flag
+                    issue_lines = []
+                    for flag in matching_flags:
+                        issue_lines.append(flag.get('description', ''))
+                        for detail in flag.get('details', []):
+                            issue_lines.append(f"  – {detail}")
+                    if issue_lines:
+                        evidence['issues'] = issue_lines
+
+                elif anomaly_type == 'duplicate_lines':
+                    duplicate_texts = []
+                    for flag in matching_flags:
+                        duplicate_texts.extend(flag.get('details', []))
+                    evidence['duplicate_texts'] = duplicate_texts
+                    evidence['count'] = len(duplicate_texts)
+                    if matching_flags:
+                        evidence['severity'] = matching_flags[0].get('severity', 'medium')
+
+                elif anomaly_type == 'page_discontinuity':
+                    for flag in matching_flags:
+                        evidence['details'] = flag.get('details', [])
+                        evidence['found_pages'] = flag.get('found_pages', [])
+                        evidence['declared_max'] = flag.get('declared_max')
+                        evidence['actual_count'] = flag.get('actual_count')
+                        evidence['severity'] = flag.get('severity', 'medium')
+                        break
+
+                else:
+                    # Generic: collect description + details from flags
+                    issue_lines = []
+                    for flag in matching_flags:
+                        issue_lines.append(flag.get('description', ''))
+                        for detail in flag.get('details', []):
+                            issue_lines.append(f"  – {detail}")
+                    if issue_lines:
+                        evidence['issues'] = issue_lines
+                    if matching_flags:
+                        evidence['severity'] = matching_flags[0].get('severity', 'medium')
+
+                anomaly_detector_evidence[anomaly_type] = evidence
+
+            # Also store balance check result so we can detect false-positive tags
+            anomaly_detector_evidence['_balance_status'] = db_balance_status
+
+        conn.close()
+    except Exception as e:
+        logger.error(f"Failed to query anomaly-detector database: {e}")
+        # Continue with fallback explanations
+
+    def _build_description(anomaly, evidence):
+        """Build a human-readable description from structured evidence."""
+        if anomaly == 'balance_mismatch':
+            # If DB says PASS, this is a false-positive tag
+            if evidence.get('status') == 'PASS':
+                return "Balance check passed — no arithmetic mismatch found in this document."
+            lines = []
+            if evidence.get('beginning_balance'):
+                lines.append(f"Beginning Balance: {evidence['beginning_balance']}")
+            if evidence.get('ending_balance'):
+                lines.append(f"Ending Balance:    {evidence['ending_balance']}")
+            if evidence.get('calculated_balance'):
+                lines.append(f"Calculated Total:  {evidence['calculated_balance']}")
+            if evidence.get('difference'):
+                lines.append(f"Discrepancy:       {evidence['difference']}")
+            header = "\n".join(f"• {l}" for l in lines) if lines else ""
+            specific = "\n".join(f"• {i}" for i in evidence.get('issues', []))
+            return (header + "\n\n" + specific).strip() if specific else (header or "Balance mismatch detected — specific amounts unavailable.")
+
+        elif anomaly == 'duplicate_lines':
+            texts = evidence.get('duplicate_texts', [])
+            count = evidence.get('count', len(texts))
+            if texts:
+                quoted = "\n".join(f'  "{t}"' for t in texts[:10])
+                return f"Found {count} duplicate line(s):\n{quoted}"
+            return f"Found {count} duplicate transaction line(s)."
+
+        elif anomaly == 'page_discontinuity':
+            details = evidence.get('details', [])
+            found = evidence.get('found_pages', [])
+            declared = evidence.get('declared_max')
+            actual = evidence.get('actual_count')
+            lines = list(details)
+            if found and declared:
+                expected = set(range(1, declared + 1))
+                missing = sorted(expected - set(found))
+                if missing:
+                    lines.append(f"Pages present in headers: {found}")
+                    lines.append(f"Expected (1–{declared}): {missing} are missing")
+            if actual and declared and actual != declared:
+                lines.append(f"PDF has {actual} physical pages, headers say 1 of {declared}")
+            return "\n".join(f"• {l}" for l in lines) if lines else "Page numbering inconsistencies detected."
+
+        else:
+            issues = evidence.get('issues', [])
+            return "\n".join(f"• {i}" for i in issues) if issues else f"Flagged with: {anomaly.replace('_', ' ').title()}"
+
+    # Add standard anomaly tags with real evidence from anomaly-detector
+    anomalies = analysis.get('anomalies_found', [])
+    db_balance_status = anomaly_detector_evidence.get('_balance_status')
+
+    for anomaly in anomalies:
+        # Skip if already covered by enhanced_tags (LLM findings)
+        if any(tag.get('tag', '').endswith(anomaly) for tag in enhanced_tags):
+            continue
+
+        if anomaly in anomaly_detector_evidence:
+            real_evidence = anomaly_detector_evidence[anomaly]
+            description = _build_description(anomaly, real_evidence)
+            explanation = ANOMALY_EXPLANATIONS.get(anomaly, {
+                'category': 'Anomaly Detection',
+                'severity': real_evidence.get('severity', 'medium')
+            })
+            # Downgrade severity for confirmed false-positives
+            severity = explanation.get('severity', 'medium')
+            if anomaly == 'balance_mismatch' and real_evidence.get('status') == 'PASS':
+                severity = 'info'
+
+            all_tags.append({
+                'tag': f'anomaly:{anomaly}',
+                'category': explanation.get('category', 'Anomaly Detection'),
+                'description': description,
+                'severity': severity,
+                'evidence': real_evidence
+            })
+
+        elif anomaly == 'balance_mismatch' and db_balance_status == 'PASS':
+            # Tag exists but DB confirms balance passed
+            all_tags.append({
+                'tag': f'anomaly:{anomaly}',
+                'category': 'Financial Integrity',
+                'description': "Balance check passed — no arithmetic mismatch found in this document.",
+                'severity': 'info',
+                'evidence': {'status': 'PASS'}
+            })
+
+        else:
+            # Fallback: no DB record for this anomaly
+            explanation = ANOMALY_EXPLANATIONS.get(anomaly, {
+                'category': 'Anomaly Detection',
+                'description': f'This document was flagged with: {anomaly.replace("_", " ").title()}',
+                'severity': 'medium'
+            })
+            all_tags.append({
+                'tag': f'anomaly:{anomaly}',
+                'category': explanation['category'],
+                'description': explanation['description'],
+                'severity': explanation['severity'],
+                'evidence': {}
+            })
+
+    return jsonify({
+        'document_id': doc_id,
+        'document_title': analysis.get('document_title') or analysis.get('title', 'Unknown'),
+        'tags': all_tags,
+        'integrity_summary': analysis.get('integrity_summary', ''),
+        'issue_count': analysis.get('issue_count', 0) + len(anomalies),
+        'critical_count': analysis.get('critical_count', 0)
+    })
 
 
 # ==================== Project Management API (v1.5.0) ====================
