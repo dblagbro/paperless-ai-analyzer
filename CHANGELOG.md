@@ -4,6 +4,25 @@ All notable changes to Paperless AI Analyzer are documented here.
 
 ---
 
+## [2.0.2] — 2026-02-19
+
+### About / Help / Bug Report
+
+- **ℹ About modal** — Header button shows app version, component versions, and a link to GitHub.
+- **? Help toggle** — Header button shows/hides a contextual help panel at the top of the currently active tab. Each tab has its own help text.
+- **🐛 Report Issue modal** — Header button opens a bug report form with:
+  - Severity selector (Low / Medium / High / Critical)
+  - Free-text description field
+  - Optional contact email for follow-up
+  - Optional HAR file attachment (browser network capture)
+  - Option to include last 60 lines of server logs
+  - Sends email to `dblagbro@voipguru.org` via SMTP with all details
+- **📧 Notifications sub-tab** (admin only, under ⚙️ Configuration) — SMTP settings form:
+  - Host, Port, STARTTLS toggle, Username, Password, From Address, HELO hostname, Bug Report To address
+  - Save and Send Test Email buttons
+  - Settings stored in `/app/data/smtp_settings.json`
+- New backend routes: `GET /api/about`, `GET|POST /api/smtp-settings`, `POST /api/smtp-settings/test`, `POST /api/bug-report`
+
 ## [2.0.1] — 2026-02-19
 
 ### Upload Tab Redesign

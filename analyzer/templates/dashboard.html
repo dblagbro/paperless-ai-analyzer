@@ -325,6 +325,23 @@
             background: #f8fbff;
         }
         .config-sub-content { display: none; }
+
+        /* ── Tab Help Panel ─────────────────────── */
+        .tab-help-panel {
+            display: none;
+            background: #eaf4fb;
+            border: 1px solid #b3d9f0;
+            border-left: 4px solid #3498db;
+            border-radius: 6px;
+            padding: 12px 16px;
+            margin-bottom: 18px;
+            font-size: 13px;
+            color: #2c3e50;
+            animation: fadeIn 0.2s ease;
+        }
+        .tab-help-panel ul { margin: 6px 0 0 0; padding-left: 18px; }
+        .tab-help-panel li { margin-bottom: 4px; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
         .config-sub-content.active { display: block; animation: fadeIn 0.2s; }
 
         .empty-state {
@@ -1305,7 +1322,10 @@
                     <strong>{{ current_user.display_name }}</strong>
                     <span style="background: {{ '#e74c3c' if is_admin else '#3498db' }}; color: white; font-size: 11px; padding: 1px 6px; border-radius: 10px; margin-left: 6px;">{{ 'Admin' if is_admin else 'Basic' }}</span>
                 </div>
-                <div style="display: flex; gap: 8px; justify-content: flex-end;">
+                <div style="display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap;">
+                    <button onclick="openAboutModal()" style="background: rgba(255,255,255,0.12); color: #cce5ff; border: 1px solid rgba(255,255,255,0.25); padding: 5px 12px; border-radius: 5px; font-size: 12px; cursor: pointer;" title="About this application">ℹ About</button>
+                    <button onclick="toggleTabHelp()" id="help-toggle-btn" style="background: rgba(255,255,255,0.12); color: #cce5ff; border: 1px solid rgba(255,255,255,0.25); padding: 5px 12px; border-radius: 5px; font-size: 12px; cursor: pointer;" title="Show/hide help for current tab">? Help</button>
+                    <button onclick="openBugReportModal()" style="background: rgba(255,165,0,0.25); color: #ffd580; border: 1px solid rgba(255,165,0,0.4); padding: 5px 12px; border-radius: 5px; font-size: 12px; cursor: pointer;" title="Report a problem">🐛 Report Issue</button>
                     <button onclick="openChangePasswordModal()" style="background: rgba(255,255,255,0.15); color: white; border: 1px solid rgba(255,255,255,0.3); padding: 5px 12px; border-radius: 5px; font-size: 12px; cursor: pointer;">🔑 Change Password</button>
                     <a href="{{ url_for('logout') }}" style="background: rgba(231,76,60,0.7); color: white; border: 1px solid rgba(231,76,60,0.9); padding: 5px 12px; border-radius: 5px; font-size: 12px; text-decoration: none; display: inline-block;">Sign Out</a>
                 </div>
@@ -1353,6 +1373,16 @@
 
             <!-- Overview Tab -->
             <div id="tab-overview" class="tab-content active">
+                <div class="tab-help-panel" id="help-overview">
+                    <strong>📊 Overview</strong> — At a glance, this tab shows the live status of the analyzer and key stats.
+                    <ul style="margin:8px 0 0 0; padding-left:18px;">
+                        <li><strong>Documents Analyzed</strong> — Total documents the AI has processed.</li>
+                        <li><strong>Anomalies Detected</strong> — Documents flagged with any anomaly (balance mismatch, layout issues, etc.).</li>
+                        <li><strong>High Risk</strong> — Documents with critical or high-severity anomalies requiring review.</li>
+                        <li><strong>Recent Activity</strong> — The latest processed documents and their results.</li>
+                        <li>Use <em>Configuration → AI Settings</em> to connect an AI model if no analysis is running.</li>
+                    </ul>
+                </div>
                 <!-- Status bar moved into Overview tab -->
                 <div class="status-bar" style="margin-bottom: 30px;">
                     <div class="stat-card status-running">
@@ -1391,6 +1421,16 @@
 
             <!-- Manage Projects Tab -->
             <div id="tab-projects" class="tab-content">
+                <div class="tab-help-panel" id="help-projects">
+                    <strong>📁 Manage Projects</strong> — Projects group related documents so the AI can reason across them together.
+                    <ul style="margin:8px 0 0 0; padding-left:18px;">
+                        <li>Click <strong>+ New Project</strong> to create a project and give it a name, description, and tags.</li>
+                        <li>Use <strong>📦 Move Documents</strong> to reassign documents from one project to another.</li>
+                        <li>Use <strong>🗄️ Archive</strong> to hide completed projects without deleting them.</li>
+                        <li>The <strong>Current Project</strong> selector in the header controls which project context the AI Chat uses.</li>
+                        <li>Deleting a project removes it from the analyzer but does <em>not</em> delete documents from Paperless.</li>
+                    </ul>
+                </div>
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
                     <div>
                         <h2 style="margin:0 0 4px 0;">📁 Manage Projects</h2>
@@ -1501,6 +1541,16 @@
 
             <!-- Smart Upload Tab -->
             <div id="tab-upload" class="tab-content">
+                <div class="tab-help-panel" id="help-upload">
+                    <strong>📤 Smart Upload</strong> — Upload documents to Paperless directly from this interface.
+                    <ul style="margin:8px 0 0 0; padding-left:18px;">
+                        <li><strong>File</strong> — Drag and drop or browse for a PDF, image, or document file.</li>
+                        <li><strong>URL</strong> — Paste a direct download link. Add Basic Auth credentials if the link requires a login.</li>
+                        <li><strong>Cloud Share Link</strong> — Paste a Google Drive, Dropbox, or OneDrive share link; it will be converted automatically to a direct download URL.</li>
+                        <li>Enable <strong>Smart Metadata</strong> to let the AI suggest a title, tags, and project assignment before uploading.</li>
+                        <li>The <strong>Import History</strong> panel below tracks all uploads with their status and Paperless document IDs.</li>
+                    </ul>
+                </div>
                 <h2>📤 Smart Upload</h2>
                 <p style="color: #666; margin-bottom: 20px;">Upload documents to Paperless from a file, URL, or cloud share link.</p>
 
@@ -1628,6 +1678,16 @@
 
             <!-- AI Chat Tab -->
             <div id="tab-ai-chat" class="tab-content">
+                <div class="tab-help-panel" id="help-ai-chat">
+                    <strong>💬 AI Chat</strong> — Ask the AI questions about your documents using natural language.
+                    <ul style="margin:8px 0 0 0; padding-left:18px;">
+                        <li>The AI has access to all analyzed documents in the <strong>Current Project</strong> selected in the header.</li>
+                        <li>Ask things like: <em>"Are there any documents with balance mismatches?"</em> or <em>"Summarize documents from March 2024."</em></li>
+                        <li>Use <strong>+ New Chat</strong> in the sidebar to start a fresh conversation.</li>
+                        <li>Chat sessions can be <strong>shared</strong> with other users using the share button in the header bar.</li>
+                        <li>Requires an AI API key — configure one under <strong>⚙️ Configuration → AI Settings</strong>.</li>
+                    </ul>
+                </div>
                 <!-- API key warning banner (hidden until checked) -->
                 <div id="ai-key-warning" style="display:none; background:#fff3cd; border:1px solid #ffc107; color:#856404; padding:12px 16px; border-radius:6px; margin-bottom:14px; font-size:13px;">
                     ⚠️ <strong>No AI API key configured.</strong> Chat will not work until you add one.
@@ -1683,6 +1743,16 @@
 
             <!-- Search & Analysis Tab -->
             <div id="tab-search" class="tab-content">
+                <div class="tab-help-panel" id="help-search">
+                    <strong>🔍 Search &amp; Analysis</strong> — Search and filter all analyzed documents and their AI findings.
+                    <ul style="margin:8px 0 0 0; padding-left:18px;">
+                        <li>Search by <strong>title</strong>, <strong>document ID</strong>, or <strong>anomaly type</strong> (e.g., "balance_mismatch").</li>
+                        <li>Filter by <strong>risk percentage</strong> range to focus on high-risk documents.</li>
+                        <li>Check <strong>Anomalies Only</strong> to hide clean documents from results.</li>
+                        <li>Click a result row to expand and see the full AI analysis, tags, and evidence.</li>
+                        <li>Click <strong>View Tags</strong> to see how individual anomaly tags were determined.</li>
+                    </ul>
+                </div>
                 <h2>🔍 Search Analyses</h2>
                 <div class="search-bar">
                     <input type="text" id="search-query" placeholder="Search by title, doc ID, or anomaly..." />
@@ -1703,6 +1773,16 @@
 
             <!-- Configuration Tab -->
             <div id="tab-config" class="tab-content">
+                <div class="tab-help-panel" id="help-config">
+                    <strong>⚙️ Configuration</strong> — Set up AI providers, analysis profiles, and system settings.
+                    <ul style="margin:8px 0 0 0; padding-left:18px;">
+                        <li><strong>AI Settings</strong> — Add OpenAI or Anthropic API keys. Without a key, no AI analysis or chat will run.</li>
+                        <li><strong>Profiles</strong> — Rules files that define how the AI tags and classifies documents. Activate staging profiles to use them.</li>
+                        <li><strong>Vector Store</strong> — Manages the embedded document index used for AI Chat. Clear it if documents seem stale.</li>
+                        <li><strong>Notifications (SMTP)</strong> — Configure outgoing email for bug reports and alerts.</li>
+                        <li><strong>Users</strong> (admin) — Add, edit, or remove user accounts and set roles.</li>
+                    </ul>
+                </div>
 
                 <!-- Sub-tab navigation -->
                 <div class="config-sub-nav">
@@ -1710,6 +1790,7 @@
                     <button class="config-sub-btn" onclick="switchConfigTab('profiles')" id="cfg-btn-profiles">📄 Profiles</button>
                     <button class="config-sub-btn" onclick="switchConfigTab('vectorstore')" id="cfg-btn-vectorstore">🗄️ Vector Store</button>
                     {% if is_admin %}
+                    <button class="config-sub-btn" onclick="switchConfigTab('smtp')" id="cfg-btn-smtp">📧 Notifications</button>
                     <button class="config-sub-btn" onclick="switchConfigTab('users')" id="cfg-btn-users">👥 Users</button>
                     {% endif %}
                 </div>
@@ -1845,6 +1926,57 @@
                 </div>
                 </div><!-- /cfg-vectorstore -->
 
+                <!-- ── SMTP / Notifications sub-section (admin only) ── -->
+                {% if is_admin %}
+                <div id="cfg-smtp" class="config-sub-content">
+                <h2 style="margin-bottom: 15px;">📧 Notifications &amp; Email</h2>
+                <div class="card" style="margin-bottom: 20px;">
+                    <p style="color:#555; font-size:14px; margin-bottom:16px;">
+                        Configure outgoing email (SMTP) used for bug reports and alerts. All settings are stored securely on the server.
+                    </p>
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px;">
+                        <div>
+                            <label style="display:block; font-size:12px; color:#666; margin-bottom:4px;">SMTP Host</label>
+                            <input type="text" id="smtp-host" placeholder="e.g. smtpauth.earthlink.net" style="width:100%; padding:8px 10px; border:1px solid #ddd; border-radius:4px; font-size:13px; box-sizing:border-box;">
+                        </div>
+                        <div>
+                            <label style="display:block; font-size:12px; color:#666; margin-bottom:4px;">Port</label>
+                            <input type="number" id="smtp-port" value="587" min="1" max="65535" style="width:100%; padding:8px 10px; border:1px solid #ddd; border-radius:4px; font-size:13px; box-sizing:border-box;">
+                        </div>
+                        <div>
+                            <label style="display:block; font-size:12px; color:#666; margin-bottom:4px;">Username</label>
+                            <input type="text" id="smtp-user" autocomplete="off" placeholder="your@email.com" style="width:100%; padding:8px 10px; border:1px solid #ddd; border-radius:4px; font-size:13px; box-sizing:border-box;">
+                        </div>
+                        <div>
+                            <label style="display:block; font-size:12px; color:#666; margin-bottom:4px;">Password</label>
+                            <input type="password" id="smtp-pass" autocomplete="new-password" placeholder="••••••••" style="width:100%; padding:8px 10px; border:1px solid #ddd; border-radius:4px; font-size:13px; box-sizing:border-box;">
+                        </div>
+                        <div>
+                            <label style="display:block; font-size:12px; color:#666; margin-bottom:4px;">From Address</label>
+                            <input type="text" id="smtp-from" placeholder="noreply@yourdomain.com" style="width:100%; padding:8px 10px; border:1px solid #ddd; border-radius:4px; font-size:13px; box-sizing:border-box;">
+                        </div>
+                        <div>
+                            <label style="display:block; font-size:12px; color:#666; margin-bottom:4px;">HELO Hostname (optional)</label>
+                            <input type="text" id="smtp-helo" placeholder="yourdomain.com" style="width:100%; padding:8px 10px; border:1px solid #ddd; border-radius:4px; font-size:13px; box-sizing:border-box;">
+                        </div>
+                        <div>
+                            <label style="display:block; font-size:12px; color:#666; margin-bottom:4px;">Bug Reports Sent To</label>
+                            <input type="email" id="smtp-bug-report-to" placeholder="admin@yourdomain.com" style="width:100%; padding:8px 10px; border:1px solid #ddd; border-radius:4px; font-size:13px; box-sizing:border-box;">
+                        </div>
+                        <div style="display:flex; align-items:center; gap:8px; padding-top:18px;">
+                            <input type="checkbox" id="smtp-starttls" checked style="cursor:pointer;">
+                            <label for="smtp-starttls" style="font-size:13px; cursor:pointer;">Use STARTTLS (recommended)</label>
+                        </div>
+                    </div>
+                    <div id="smtp-result" style="display:none; padding:8px 12px; border-radius:4px; font-size:13px; margin-bottom:12px;"></div>
+                    <div style="display:flex; gap:10px;">
+                        <button class="btn btn-success" onclick="saveSmtpSettings()">💾 Save Settings</button>
+                        <button class="btn" onclick="testSmtpSettings()">📨 Send Test Email</button>
+                    </div>
+                </div>
+                </div><!-- /cfg-smtp -->
+                {% endif %}
+
                 <!-- ── Users sub-section (admin only) ── -->
                 {% if is_admin %}
                 <div id="cfg-users" class="config-sub-content">
@@ -1897,6 +2029,15 @@
 
             <!-- Debug & Tools Tab -->
             <div id="tab-tools" class="tab-content">
+                <div class="tab-help-panel" id="help-tools">
+                    <strong>🛠️ Debug &amp; Tools</strong> — Force re-analysis and view live system logs.
+                    <ul style="margin:8px 0 0 0; padding-left:18px;">
+                        <li><strong>Reprocess All</strong> — Clears existing analysis results and re-runs the AI on every document. Use this after changing profiles or AI settings.</li>
+                        <li><strong>Reprocess Document</strong> — Re-runs analysis on a single document by its Paperless document ID.</li>
+                        <li><strong>Live Logs</strong> — Shows the last 200 log lines from the analyzer in real time. Useful for diagnosing why a document wasn't processed.</li>
+                        <li>If documents are stuck or incorrectly tagged, check the logs here first before filing a bug report.</li>
+                    </ul>
+                </div>
                 <h2>🎛️ Reprocess Controls</h2>
                 <div class="action-group" style="margin-bottom: 30px;">
                     <button class="btn btn-danger" onclick="reprocessAll()">🔄 Reprocess All Documents</button>
@@ -4551,6 +4692,214 @@
         loadProjectSelector();
         // Load chat sessions on page load
         loadSessions();
+
+
+        // ── About Modal ──────────────────────────────────────────────────────
+        function openAboutModal() {
+            const m = document.getElementById('about-modal');
+            m.style.display = 'flex';
+            document.getElementById('about-version-line').textContent = 'Loading…';
+            document.getElementById('about-components').innerHTML = '<span style="color:#8899aa;">Loading…</span>';
+            fetch('/api/about').then(r => r.json()).then(d => {
+                document.getElementById('about-version-line').textContent = 'Version ' + d.version;
+                const comp = d.components || {};
+                let rows = '';
+                for (const [k, v] of Object.entries(comp)) {
+                    rows += `<span style="color:#aabbcc;">${escapeHtml(k)}</span><span style="color:#7db8f7; font-weight:600;">${escapeHtml(v)}</span>`;
+                }
+                document.getElementById('about-components').innerHTML = rows || '<span style="color:#aabbcc;">—</span>';
+            }).catch(() => {
+                document.getElementById('about-version-line').textContent = 'Version unknown';
+            });
+        }
+        function closeAboutModal() {
+            document.getElementById('about-modal').style.display = 'none';
+        }
+        document.getElementById('about-modal').addEventListener('click', function(e) {
+            if (e.target === this) closeAboutModal();
+        });
+
+
+        // ── Tab Help Panels ──────────────────────────────────────────────────
+        let _helpVisible = false;
+        const _helpPanelMap = {
+            'overview': 'help-overview',
+            'projects': 'help-projects',
+            'upload':   'help-upload',
+            'ai-chat':  'help-ai-chat',
+            'search':   'help-search',
+            'config':   'help-config',
+            'tools':    'help-tools',
+        };
+        function toggleTabHelp() {
+            _helpVisible = !_helpVisible;
+            const btn = document.getElementById('help-toggle-btn');
+            if (btn) btn.style.background = _helpVisible
+                ? 'rgba(52,152,219,0.35)'
+                : 'rgba(255,255,255,0.12)';
+            // Show/hide the panel for the currently active tab
+            _refreshHelpPanel();
+        }
+        function _refreshHelpPanel() {
+            // Hide all panels first
+            Object.values(_helpPanelMap).forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.style.display = 'none';
+            });
+            if (!_helpVisible) return;
+            // Show the one for the current tab
+            const activeTab = document.querySelector('.tab-button.active');
+            if (!activeTab) return;
+            const tabName = activeTab.getAttribute('onclick').match(/'([^']+)'/)?.[1];
+            const panelId = _helpPanelMap[tabName];
+            if (panelId) {
+                const el = document.getElementById(panelId);
+                if (el) el.style.display = 'block';
+            }
+        }
+        // Hook into switchTab so help updates when switching tabs
+        const _origSwitchTab = switchTab;
+        switchTab = function(name) {
+            _origSwitchTab(name);
+            _refreshHelpPanel();
+        };
+
+
+        // ── Bug Report Modal ─────────────────────────────────────────────────
+        function openBugReportModal() {
+            document.getElementById('bug-report-modal').style.display = 'flex';
+            document.getElementById('bug-report-result').style.display = 'none';
+            document.getElementById('bug-description').value = '';
+            document.getElementById('bug-contact-email').value = '';
+            document.getElementById('bug-har-file').value = '';
+            document.getElementById('bug-severity').value = 'Medium';
+            document.getElementById('bug-include-logs').checked = true;
+        }
+        function closeBugReportModal() {
+            document.getElementById('bug-report-modal').style.display = 'none';
+        }
+        document.getElementById('bug-report-modal').addEventListener('click', function(e) {
+            if (e.target === this) closeBugReportModal();
+        });
+        async function submitBugReport() {
+            const desc = document.getElementById('bug-description').value.trim();
+            if (!desc) {
+                const el = document.getElementById('bug-report-result');
+                el.style.display = 'block';
+                el.style.background = 'rgba(231,76,60,0.15)';
+                el.style.border = '1px solid rgba(231,76,60,0.4)';
+                el.style.color = '#f08080';
+                el.textContent = 'Please describe the problem before sending.';
+                return;
+            }
+            const btn = document.querySelector('#bug-report-modal button[onclick="submitBugReport()"]');
+            if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+            const fd = new FormData();
+            fd.append('description', desc);
+            fd.append('severity', document.getElementById('bug-severity').value);
+            fd.append('contact_email', document.getElementById('bug-contact-email').value);
+            fd.append('include_logs', document.getElementById('bug-include-logs').checked ? 'true' : 'false');
+            const harInput = document.getElementById('bug-har-file');
+            if (harInput.files && harInput.files[0]) fd.append('har_file', harInput.files[0]);
+            try {
+                const r = await fetch('/api/bug-report', { method: 'POST', body: fd });
+                const d = await r.json();
+                const el = document.getElementById('bug-report-result');
+                el.style.display = 'block';
+                if (d.ok) {
+                    el.style.background = 'rgba(39,174,96,0.15)';
+                    el.style.border = '1px solid rgba(39,174,96,0.4)';
+                    el.style.color = '#7dcea0';
+                    el.textContent = d.message;
+                    if (btn) { btn.disabled = false; btn.textContent = '📨 Send Report'; }
+                    setTimeout(closeBugReportModal, 3000);
+                } else {
+                    el.style.background = 'rgba(231,76,60,0.15)';
+                    el.style.border = '1px solid rgba(231,76,60,0.4)';
+                    el.style.color = '#f08080';
+                    el.textContent = d.error || 'Failed to send report.';
+                    if (btn) { btn.disabled = false; btn.textContent = '📨 Send Report'; }
+                }
+            } catch (e) {
+                const el = document.getElementById('bug-report-result');
+                el.style.display = 'block';
+                el.style.background = 'rgba(231,76,60,0.15)';
+                el.style.border = '1px solid rgba(231,76,60,0.4)';
+                el.style.color = '#f08080';
+                el.textContent = 'Network error: ' + e.message;
+                if (btn) { btn.disabled = false; btn.textContent = '📨 Send Report'; }
+            }
+        }
+
+
+        // ── SMTP Settings (admin) ─────────────────────────────────────────────
+        let _smtpLoaded = false;
+        function _ensureSmtpLoaded(subtab) {
+            if (subtab === 'smtp' && !_smtpLoaded) {
+                _smtpLoaded = true;
+                loadSmtpSettings();
+            }
+        }
+        // Monkey-patch switchConfigTab to lazy-load SMTP settings
+        const _origSwitchConfigTab = switchConfigTab;
+        switchConfigTab = function(name) {
+            _origSwitchConfigTab(name);
+            _ensureSmtpLoaded(name);
+        };
+        function loadSmtpSettings() {
+            fetch('/api/smtp-settings').then(r => r.json()).then(d => {
+                if (d.error) return;
+                document.getElementById('smtp-host').value = d.host || '';
+                document.getElementById('smtp-port').value = d.port || 587;
+                document.getElementById('smtp-user').value = d.user || '';
+                document.getElementById('smtp-pass').value = d.pass || '';
+                document.getElementById('smtp-from').value = d.from || '';
+                document.getElementById('smtp-helo').value = d.helo || '';
+                document.getElementById('smtp-bug-report-to').value = d.bug_report_to || '';
+                document.getElementById('smtp-starttls').checked = !!d.starttls;
+            }).catch(() => {});
+        }
+        function _showSmtpResult(msg, ok) {
+            const el = document.getElementById('smtp-result');
+            el.style.display = 'block';
+            el.style.background = ok ? 'rgba(39,174,96,0.15)' : 'rgba(231,76,60,0.15)';
+            el.style.border = `1px solid ${ok ? 'rgba(39,174,96,0.4)' : 'rgba(231,76,60,0.4)'}`;
+            el.style.color = ok ? '#27ae60' : '#e74c3c';
+            el.textContent = msg;
+        }
+        async function saveSmtpSettings() {
+            const payload = {
+                host: document.getElementById('smtp-host').value.trim(),
+                port: parseInt(document.getElementById('smtp-port').value) || 587,
+                user: document.getElementById('smtp-user').value.trim(),
+                pass: document.getElementById('smtp-pass').value,
+                from: document.getElementById('smtp-from').value.trim(),
+                helo: document.getElementById('smtp-helo').value.trim(),
+                bug_report_to: document.getElementById('smtp-bug-report-to').value.trim(),
+                starttls: document.getElementById('smtp-starttls').checked,
+            };
+            try {
+                const r = await fetch('/api/smtp-settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const d = await r.json();
+                _showSmtpResult(d.ok ? d.message : (d.error || 'Failed'), !!d.ok);
+            } catch (e) {
+                _showSmtpResult('Error: ' + e.message, false);
+            }
+        }
+        async function testSmtpSettings() {
+            _showSmtpResult('Sending test email…', true);
+            try {
+                const r = await fetch('/api/smtp-settings/test', { method: 'POST' });
+                const d = await r.json();
+                _showSmtpResult(d.ok ? d.message : (d.error || 'Failed'), !!d.ok);
+            } catch (e) {
+                _showSmtpResult('Error: ' + e.message, false);
+            }
+        }
     </script>
 
     <!-- Tag Evidence Modal -->
@@ -4583,6 +4932,79 @@
             </div>
             <div style="margin-top: 20px; text-align: right;">
                 <button class="btn" onclick="closeShareModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── About Modal ─────────────────────────────── -->
+    <div id="about-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.55); z-index:9999; align-items:center; justify-content:center;">
+        <div style="background:#243447; border-radius:12px; padding:36px 36px 28px; width:100%; max-width:480px; box-shadow:0 10px 40px rgba(0,0,0,0.6); color:#cdd4dc;">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:20px;">
+                <div>
+                    <h2 style="color:#fff; margin:0 0 4px; font-size:20px;">📄 Paperless AI Analyzer</h2>
+                    <div style="font-size:13px; color:#aabbcc;" id="about-version-line">Loading…</div>
+                </div>
+                <button onclick="closeAboutModal()" style="background:none; border:none; color:#aabbcc; font-size:22px; cursor:pointer; padding:0; line-height:1;">&times;</button>
+            </div>
+            <p style="font-size:14px; color:#aabbcc; margin:0 0 18px;">
+                Intelligent document analysis, anomaly detection, and AI-powered chat interface for <strong style="color:#cce5ff;">Paperless-ngx</strong>.
+            </p>
+            <div style="background:rgba(255,255,255,0.06); border-radius:8px; padding:14px 16px; margin-bottom:18px; font-size:13px;">
+                <div style="display:grid; grid-template-columns:auto 1fr; gap:6px 16px;" id="about-components">
+                    <span style="color:#aabbcc;">Loading…</span>
+                </div>
+            </div>
+            <div style="font-size:12px; color:#8899aa; margin-bottom:18px;" id="about-footer-links">
+                <a href="https://github.com/dblagbro/paperless-ai-analyzer" target="_blank" style="color:#7db8f7;">🔗 GitHub Repository</a>
+                &nbsp;·&nbsp;
+                <a href="#" onclick="closeAboutModal(); openBugReportModal(); return false;" style="color:#ffd580;">🐛 Report an Issue</a>
+            </div>
+            <div style="text-align:right;">
+                <button onclick="closeAboutModal()" style="padding:8px 22px; background:#4a90d9; color:white; border:none; border-radius:5px; cursor:pointer; font-size:13px; font-weight:600;">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Bug Report Modal ─────────────────────────────── -->
+    <div id="bug-report-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.55); z-index:9999; align-items:center; justify-content:center;">
+        <div style="background:#243447; border-radius:12px; padding:32px; width:100%; max-width:520px; max-height:90vh; overflow-y:auto; box-shadow:0 10px 40px rgba(0,0,0,0.6);">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                <h3 style="color:#fff; margin:0; font-size:17px;">🐛 Report an Issue</h3>
+                <button onclick="closeBugReportModal()" style="background:none; border:none; color:#aabbcc; font-size:22px; cursor:pointer; padding:0; line-height:1;">&times;</button>
+            </div>
+            <p style="color:#aabbcc; font-size:13px; margin:0 0 18px;">
+                Describe what happened and we'll send a detailed report (including recent logs) to the developer.
+            </p>
+            <div style="margin-bottom:14px;">
+                <label style="display:block; font-size:12px; color:#aabbcc; margin-bottom:5px;">Severity</label>
+                <select id="bug-severity" style="width:100%; padding:9px 12px; background:#1a2332; border:1px solid #334455; border-radius:5px; color:#eee; font-size:13px; box-sizing:border-box;">
+                    <option value="Low">Low — Minor cosmetic issue or inconvenience</option>
+                    <option value="Medium" selected>Medium — Feature not working as expected</option>
+                    <option value="High">High — Major feature broken</option>
+                    <option value="Critical">Critical — System unusable / data loss risk</option>
+                </select>
+            </div>
+            <div style="margin-bottom:14px;">
+                <label style="display:block; font-size:12px; color:#aabbcc; margin-bottom:5px;">What were you doing when the problem occurred? <span style="color:#e74c3c;">*</span></label>
+                <textarea id="bug-description" rows="5" placeholder="e.g. I clicked the Upload button with a PDF file and the page went blank. No error message appeared." style="width:100%; padding:9px 12px; background:#1a2332; border:1px solid #334455; border-radius:5px; color:#eee; font-size:13px; box-sizing:border-box; resize:vertical;"></textarea>
+            </div>
+            <div style="margin-bottom:14px;">
+                <label style="display:block; font-size:12px; color:#aabbcc; margin-bottom:5px;">Your email (optional — for follow-up)</label>
+                <input type="email" id="bug-contact-email" placeholder="you@example.com" style="width:100%; padding:9px 12px; background:#1a2332; border:1px solid #334455; border-radius:5px; color:#eee; font-size:13px; box-sizing:border-box;">
+            </div>
+            <div style="margin-bottom:14px;">
+                <label style="display:block; font-size:12px; color:#aabbcc; margin-bottom:5px;">HAR file (optional — browser network capture)</label>
+                <input type="file" id="bug-har-file" accept=".har,.json" style="width:100%; padding:7px 0; color:#cdd4dc; font-size:13px;">
+                <div style="font-size:11px; color:#667788; margin-top:4px;">In Chrome/Firefox: DevTools → Network tab → right-click → "Save all as HAR". Helps diagnose network errors.</div>
+            </div>
+            <div style="margin-bottom:18px; display:flex; align-items:center; gap:8px;">
+                <input type="checkbox" id="bug-include-logs" checked style="cursor:pointer;">
+                <label for="bug-include-logs" style="font-size:13px; color:#aabbcc; cursor:pointer;">Include recent server logs in report (recommended)</label>
+            </div>
+            <div id="bug-report-result" style="display:none; padding:10px 12px; border-radius:5px; font-size:13px; margin-bottom:14px;"></div>
+            <div style="display:flex; gap:10px; justify-content:flex-end;">
+                <button onclick="closeBugReportModal()" style="padding:8px 18px; background:rgba(255,255,255,0.1); color:#ccc; border:1px solid #334455; border-radius:5px; cursor:pointer; font-size:13px;">Cancel</button>
+                <button onclick="submitBugReport()" style="padding:8px 22px; background:#e07b00; color:white; border:none; border-radius:5px; cursor:pointer; font-size:13px; font-weight:600;">📨 Send Report</button>
             </div>
         </div>
     </div>
