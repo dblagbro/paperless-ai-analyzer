@@ -2385,13 +2385,8 @@
                 const overviewContainer = document.getElementById('recent-analyses');
                 const searchContainer = document.getElementById('recent-analyses-list');
 
-                // Save open state of all details elements before updating
-                const openDetailsIds = new Set();
-                document.querySelectorAll('details[id^="summary-details-"]').forEach(details => {
-                    if (details.open) {
-                        openDetailsIds.add(details.id);
-                    }
-                });
+                // Skip re-rendering the search-tab list while the user is reading it
+                const searchTabActive = document.getElementById('tab-search')?.classList.contains('active');
 
                 if (data.analyses.length === 0) {
                     const emptyHtml = '<div class="empty-state">No analyses yet</div>';
@@ -2423,22 +2418,14 @@
                         }
                     }
 
-                    // Format summaries if available
+                    // Format summaries — always fully visible, no collapse
                     const briefSummary = analysis.brief_summary || '';
                     const fullSummary = analysis.full_summary || '';
-                    const detailsId = `summary-details-${analysis.doc_id}`;
                     const summaryHtml = briefSummary ? `
-                        <div style="margin-top: 8px; padding: 8px; background: rgba(52, 152, 219, 0.1); border-radius: 4px; font-size: 0.9em;">
-                            <div style="color: #555; font-style: italic;">
-                                💡 ${briefSummary}
-                            </div>
+                        <div style="margin-top: 8px; padding: 8px 10px; background: rgba(52, 152, 219, 0.08); border-left: 3px solid #3498db; border-radius: 4px; font-size: 0.9em;">
+                            <div style="color: #444; font-style: italic; line-height: 1.5;">💡 ${briefSummary}</div>
                             ${fullSummary && fullSummary !== briefSummary ? `
-                                <details id="${detailsId}" style="margin-top: 4px;">
-                                    <summary style="cursor: pointer; color: #3498db; font-size: 0.85em;">Show full summary</summary>
-                                    <div style="margin-top: 6px; color: #666; line-height: 1.4;">
-                                        ${fullSummary}
-                                    </div>
-                                </details>
+                                <div style="margin-top: 6px; color: #555; line-height: 1.5; border-top: 1px solid rgba(52,152,219,0.2); padding-top: 6px;">${fullSummary}</div>
                             ` : ''}
                         </div>
                     ` : '';
@@ -2458,19 +2445,9 @@
                     `;
                 }).join('');
 
-                // Update both containers
+                // Always update overview; skip search list while user is reading it
                 if (overviewContainer) overviewContainer.innerHTML = analysesHtml;
-                if (searchContainer) searchContainer.innerHTML = analysesHtml;
-
-                // Restore open state of details elements after updating
-                setTimeout(() => {
-                    openDetailsIds.forEach(id => {
-                        const details = document.getElementById(id);
-                        if (details) {
-                            details.open = true;
-                        }
-                    });
-                }, 0);
+                if (searchContainer && !searchTabActive) searchContainer.innerHTML = analysesHtml;
             } catch (error) {
                 console.error('Failed to fetch recent analyses:', error);
                 const errorHtml = '<div class="empty-state">Failed to load</div>';
@@ -3587,28 +3564,20 @@
                                 return `<span class="tag anomaly clickable" onclick="event.stopPropagation(); showTagEvidence(${analysis.document_id || analysis.doc_id}, '${(analysis.document_title || analysis.title).replace(/'/g, "\\'")}')" title="Click to see why this was flagged">🔍 ${a}</span>`;
                             }).join('');
 
-                            // Add "View Evidence" button if document has integrity issues
-                            if (hasEvidence) {
+                            // Add "View Evidence" button only when there are actual anomalies to explain
+                            if (hasEvidence && tags) {
                                 tags += ` <span class="tag clickable" style="background: #3498db; color: white;" onclick="event.stopPropagation(); showTagEvidence(${analysis.document_id || analysis.doc_id}, '${(analysis.document_title || analysis.title).replace(/'/g, "\\'")}');" title="Click to view all evidence">📋 View Evidence</span>`;
                             }
                         }
 
-                        // Format summaries if available
+                        // Format summaries — always fully visible, no collapse
                         const briefSummary = analysis.brief_summary || '';
                         const fullSummary = analysis.full_summary || '';
-                        const detailsId = `search-summary-details-${analysis.doc_id}`;
                         const summaryHtml = briefSummary ? `
-                            <div style="margin-top: 8px; padding: 8px; background: rgba(52, 152, 219, 0.1); border-radius: 4px; font-size: 0.9em;">
-                                <div style="color: #555; font-style: italic;">
-                                    💡 ${briefSummary}
-                                </div>
+                            <div style="margin-top: 8px; padding: 8px 10px; background: rgba(52, 152, 219, 0.08); border-left: 3px solid #3498db; border-radius: 4px; font-size: 0.9em;">
+                                <div style="color: #444; font-style: italic; line-height: 1.5;">💡 ${briefSummary}</div>
                                 ${fullSummary && fullSummary !== briefSummary ? `
-                                    <details id="${detailsId}" style="margin-top: 4px;">
-                                        <summary style="cursor: pointer; color: #3498db; font-size: 0.85em;">Show full summary</summary>
-                                        <div style="margin-top: 6px; color: #666; line-height: 1.4;">
-                                            ${fullSummary}
-                                        </div>
-                                    </details>
+                                    <div style="margin-top: 6px; color: #555; line-height: 1.5; border-top: 1px solid rgba(52,152,219,0.2); padding-top: 6px;">${fullSummary}</div>
                                 ` : ''}
                             </div>
                         ` : '';
