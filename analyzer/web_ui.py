@@ -136,6 +136,7 @@ from analyzer.db import (
     share_session, unshare_session, get_session_shares, can_access_session,
     list_users, create_user as db_create_user, update_user as db_update_user,
     log_import, get_import_history,
+    mark_document_processed, count_processed_documents,
 )
 login_manager.init_app(app)
 
@@ -199,9 +200,13 @@ def initialize_ui_state():
 
         logger.info(f"Found {total_docs} previously analyzed documents")
 
+        # Load persisted analyzed count from app.db (survives restarts)
+        db_count = count_processed_documents()
+        logger.info(f"Persistent processed_documents count: {db_count}")
+
         # Update stats
         with ui_state['lock']:
-            ui_state['stats']['total_analyzed'] = total_docs
+            ui_state['stats']['total_analyzed'] = db_count
 
             # Count high risk documents
             high_risk_count = 0
@@ -2846,6 +2851,129 @@ def api_transform_upload_url():
         logger.error(f"transform-url error: {e}")
         return jsonify({'error': str(e)}), 500
 
+# Allowed file extensions for directory-scan (OCR-able or text-bearing documents)
+_ALLOWED_SCAN_EXTS = {
+    '.pdf',
+    '.png', '.jpg', '.jpeg', '.gif', '.tiff', '.tif', '.bmp', '.webp', '.heic', '.heif',
+    '.docx', '.doc', '.odt', '.rtf', '.txt', '.md', '.rst',
+    '.xlsx', '.xls', '.ods', '.csv',
+    '.pptx', '.ppt', '.odp',
+    '.eml', '.msg',
+    '.djvu', '.epub',
+}
+
+
+@app.route('/api/upload/scan-url', methods=['POST'])
+@login_required
+def api_scan_url():
+    """Probe a URL: return single-file info OR a list of compatible file links found on an
+    HTML directory-listing page.  Used by the Upload tab to support folder-level ingestion.
+    """
+    import re as _re
+    from urllib.parse import urljoin, urlparse as _urlparse, unquote as _unquote
+    try:
+        data = request.json or {}
+        url = data.get('url', '').strip()
+        auth_type = data.get('auth_type', 'none')
+        username = data.get('username')
+        password = data.get('password')
+        token = data.get('token')
+
+        if not url:
+            return jsonify({'error': 'url is required'}), 400
+
+        import requests as _req
+
+        session_auth = None
+        req_headers = {'User-Agent': 'Paperless-AI-Analyzer/2.0'}
+        if auth_type == 'basic' and username and password:
+            session_auth = (username, password)
+        elif auth_type == 'token' and token:
+            req_headers['Authorization'] = f'Bearer {token}'
+
+        # ── Step 1: HEAD the URL ────────────────────────────────────────────────
+        try:
+            head = _req.head(url, auth=session_auth, headers=req_headers,
+                             allow_redirects=True, timeout=15)
+            content_type = head.headers.get('content-type', '').lower().split(';')[0].strip()
+        except Exception as e:
+            return jsonify({'error': f'Could not reach URL: {e}'}), 400
+
+        # ── Step 2: Check file extension ────────────────────────────────────────
+        path = _urlparse(url).path
+        m = _re.search(r'(\.[a-z0-9]{2,6})(?:[?#]|$)', path.lower())
+        file_ext = m.group(1) if m else ''
+
+        if file_ext in _ALLOWED_SCAN_EXTS:
+            size = int(head.headers.get('content-length', 0))
+            return jsonify({
+                'type': 'single',
+                'url': url,
+                'filename': _unquote(path.split('/')[-1]) or 'document',
+                'size_bytes': size,
+                'ext': file_ext,
+            })
+
+        # ── Step 3: Not a known file extension — parse as HTML listing ──────────
+        if 'text/html' not in content_type:
+            # Non-HTML, no recognised extension: treat as opaque single file
+            size = int(head.headers.get('content-length', 0))
+            fname = _unquote(path.split('/')[-1]) or 'document'
+            return jsonify({'type': 'single', 'url': url,
+                            'filename': fname, 'size_bytes': size, 'ext': file_ext})
+
+        # Fetch the HTML page
+        try:
+            resp = _req.get(url, auth=session_auth, headers=req_headers,
+                            allow_redirects=True, timeout=30)
+            resp.raise_for_status()
+        except Exception as e:
+            return jsonify({'error': f'Failed to fetch page: {e}'}), 400
+
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(resp.text, 'html.parser')
+        base_url = resp.url  # after any redirects
+
+        files = []
+        seen = set()
+        for a in soup.find_all('a', href=True):
+            href = a['href'].strip()
+            if not href or href.startswith('#') or href.startswith('?'):
+                continue
+            full_url = urljoin(base_url, href)
+            link_path = _urlparse(full_url).path
+            lm = _re.search(r'(\.[a-z0-9]{2,6})(?:[?#]|$)', link_path.lower())
+            lext = lm.group(1) if lm else ''
+            if lext not in _ALLOWED_SCAN_EXTS:
+                continue
+            if full_url in seen:
+                continue
+            seen.add(full_url)
+            filename = _unquote(link_path.split('/')[-1]) or 'document'
+            # Best-effort file size (short timeout, non-fatal)
+            size = 0
+            try:
+                fh = _req.head(full_url, auth=session_auth, headers=req_headers,
+                               allow_redirects=True, timeout=4)
+                size = int(fh.headers.get('content-length', 0))
+            except Exception:
+                pass
+            files.append({'filename': filename, 'url': full_url,
+                          'size_bytes': size, 'ext': lext})
+
+        if not files:
+            return jsonify({
+                'error': 'No compatible files found at this URL. '
+                         'Supported types: PDF, images, Word/Excel/ODT, TXT, EML and more.'
+            }), 404
+
+        logger.info(f"scan-url: found {len(files)} compatible files at {url[:80]}")
+        return jsonify({'type': 'directory', 'base_url': base_url, 'files': files})
+
+    except Exception as e:
+        logger.error(f"scan-url error: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
 
 @app.route('/api/upload/history', methods=['GET'])
 @login_required
@@ -3663,6 +3791,14 @@ def update_ui_stats(analysis_result: Dict[str, Any]) -> None:
 
         # Update stats
         ui_state['stats']['total_analyzed'] += 1
+
+        # Persist to app.db so the count survives container restarts
+        doc_id = analysis_result.get('doc_id')
+        if doc_id:
+            try:
+                mark_document_processed(doc_id)
+            except Exception:
+                pass
 
         if analysis_result.get('anomalies_found'):
             ui_state['stats']['anomalies_detected'] += len(analysis_result['anomalies_found'])

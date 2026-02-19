@@ -1324,7 +1324,7 @@
                 </div>
                 <div style="display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap;">
                     <button onclick="openAboutModal()" style="background: rgba(255,255,255,0.12); color: #cce5ff; border: 1px solid rgba(255,255,255,0.25); padding: 5px 12px; border-radius: 5px; font-size: 12px; cursor: pointer;" title="About this application">ℹ About</button>
-                    <button onclick="toggleTabHelp()" id="help-toggle-btn" style="background: rgba(255,255,255,0.12); color: #cce5ff; border: 1px solid rgba(255,255,255,0.25); padding: 5px 12px; border-radius: 5px; font-size: 12px; cursor: pointer;" title="Show/hide help for current tab">? Help</button>
+                    <button onclick="toggleTabHelp()" id="help-toggle-btn" style="background: rgba(255,255,255,0.12); color: #cce5ff; border: 1px solid rgba(255,255,255,0.25); padding: 5px 12px; border-radius: 5px; font-size: 12px; cursor: pointer;" title="Toggle help panel for current tab">? Help: Off</button>
                     <button onclick="openBugReportModal()" style="background: rgba(255,165,0,0.25); color: #ffd580; border: 1px solid rgba(255,165,0,0.4); padding: 5px 12px; border-radius: 5px; font-size: 12px; cursor: pointer;" title="Report a problem">🐛 Report Issue</button>
                     <button onclick="openChangePasswordModal()" style="background: rgba(255,255,255,0.15); color: white; border: 1px solid rgba(255,255,255,0.3); padding: 5px 12px; border-radius: 5px; font-size: 12px; cursor: pointer;">🔑 Change Password</button>
                     <a href="{{ url_for('logout') }}" style="background: rgba(231,76,60,0.7); color: white; border: 1px solid rgba(231,76,60,0.9); padding: 5px 12px; border-radius: 5px; font-size: 12px; text-decoration: none; display: inline-block;">Sign Out</a>
@@ -1545,7 +1545,7 @@
                     <strong>📤 Smart Upload</strong> — Upload documents to Paperless directly from this interface.
                     <ul style="margin:8px 0 0 0; padding-left:18px;">
                         <li><strong>File</strong> — Drag and drop or browse for a PDF, image, or document file.</li>
-                        <li><strong>URL</strong> — Paste a direct download link. Add Basic Auth credentials if the link requires a login.</li>
+                        <li><strong>URL</strong> — Paste a direct file link <em>or a folder/directory URL</em>. If the URL points to an HTML directory listing, all compatible files (PDF, images, Word, etc.) are discovered automatically so you can pick which ones to upload. Add Basic Auth credentials if the link requires a login.</li>
                         <li><strong>Cloud Share Link</strong> — Paste a Google Drive, Dropbox, or OneDrive share link; it will be converted automatically to a direct download URL.</li>
                         <li>Enable <strong>Smart Metadata</strong> to let the AI suggest a title, tags, and project assignment before uploading.</li>
                         <li>The <strong>Import History</strong> panel below tracks all uploads with their status and Paperless document IDs.</li>
@@ -1596,8 +1596,8 @@
 
                         <!-- URL MODE -->
                         <div id="uinput-url" style="display:none;">
-                            <label style="display:block; font-weight:600; margin-bottom:6px; color:#374151;">File URL</label>
-                            <input type="url" id="upload-url-input" placeholder="https://example.com/document.pdf"
+                            <label style="display:block; font-weight:600; margin-bottom:6px; color:#374151;">File or Folder URL</label>
+                            <input type="url" id="upload-url-input" placeholder="https://example.com/document.pdf  or  https://example.com/docs/"
                                 style="width:100%; box-sizing:border-box; padding:10px 12px; border:1px solid #d1d5db; border-radius:6px; font-size:14px; margin-bottom:14px;">
 
                             <label style="display:block; font-weight:600; margin-bottom:6px; color:#374151;">Authentication</label>
@@ -1647,6 +1647,31 @@
 
                         <!-- Status -->
                         <div id="upload-status" style="margin-top: 16px;"></div>
+
+                        <!-- Directory file-list picker (shown when a folder URL is scanned) -->
+                        <div id="upload-filelist" style="display:none; margin-top:16px; background:#f9fafb; border:1px solid #e5e7eb; border-radius:8px; overflow:hidden;">
+                            <div style="padding:10px 14px; border-bottom:1px solid #e5e7eb; display:flex; align-items:center; gap:12px; background:#fff;">
+                                <span style="font-weight:600; font-size:13px; color:#374151;">📁 <span id="upload-filelist-count">0</span> compatible files found</span>
+                                <label style="font-size:12px; color:#6b7280; display:flex; align-items:center; gap:5px; cursor:pointer; margin-left:auto;">
+                                    <input type="checkbox" id="upload-filelist-selectall" checked
+                                        onchange="toggleSelectAllFiles(this.checked)"
+                                        style="width:13px; height:13px;">
+                                    Select all
+                                </label>
+                            </div>
+                            <div id="upload-filelist-table"
+                                style="max-height:280px; overflow-y:auto;"
+                                onchange="if(event.target.classList.contains('flist-cb')) _updateFileListBtn()">
+                            </div>
+                            <div style="padding:10px 14px; border-top:1px solid #e5e7eb; display:flex; gap:8px; align-items:center; background:#fff;">
+                                <button class="btn btn-primary" id="upload-filelist-btn"
+                                    onclick="uploadSelectedFiles()"
+                                    style="font-size:13px; padding:7px 18px;">Upload 0 files</button>
+                                <button class="btn" onclick="cancelFileList()"
+                                    style="font-size:13px; padding:7px 14px; background:#f3f4f6; color:#374151; border:1px solid #d1d5db; border-radius:5px;">Cancel</button>
+                                <span id="upload-filelist-progress" style="font-size:12px; color:#6b7280; margin-left:6px;"></span>
+                            </div>
+                        </div>
 
                         <!-- Smart metadata preview card -->
                         <div id="upload-meta-preview" style="display:none; margin-top:16px; background:#f0f9ff; border:1px solid #bae6fd; border-radius:8px; padding:16px;">
@@ -2214,10 +2239,10 @@
             const sidebar = document.getElementById('chat-sidebar');
             if (sidebar) sidebar.style.display = tabName === 'ai-chat' ? 'flex' : 'none';
 
-            // Activate selected tab button
-            const buttons = document.querySelectorAll('.tab-button');
-            buttons.forEach(btn => {
-                if (btn.textContent.toLowerCase().includes(tabName.replace('-', ' & '))) {
+            // Activate selected tab button (match by onclick attribute, not text content)
+            document.querySelectorAll('.tab-button').forEach(btn => {
+                const m = btn.getAttribute('onclick') && btn.getAttribute('onclick').match(/'([^']+)'/);
+                if (m && m[1] === tabName) {
                     btn.classList.add('active');
                 }
             });
@@ -2823,6 +2848,8 @@
         // ── Upload tab state ──────────────────────────────────────────────
         let _uploadMode = 'file';          // 'file' | 'url' | 'cloud'
         let _smartPendingPayload = null;   // holds {type, file|url, metadata, source} during preview
+        let _fileListFiles = [];           // files returned by scan-url directory scan
+        let _fileListAuthPayload = {};     // auth/source payload shared by all batch uploads
 
         function switchUploadMode(mode) {
             _uploadMode = mode;
@@ -2877,6 +2904,115 @@
                 body: JSON.stringify({url})
             });
             return await res.json();
+        }
+
+        async function _scanUrl(url, authPayload) {
+            try {
+                const res = await apiFetch(apiUrl('/api/upload/scan-url'), {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(Object.assign({url}, authPayload)),
+                });
+                return await res.json();
+            } catch(e) {
+                return {error: e.message};
+            }
+        }
+
+        function _fmtSize(bytes) {
+            if (!bytes) return '';
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1048576) return Math.round(bytes / 1024) + ' KB';
+            return (bytes / 1048576).toFixed(1) + ' MB';
+        }
+
+        function _showFileList(files, authPayload) {
+            _fileListFiles = files;
+            _fileListAuthPayload = authPayload;
+
+            const extColor = {
+                '.pdf':'#dc2626','.docx':'#2563eb','.doc':'#2563eb','.odt':'#2563eb',
+                '.png':'#16a34a','.jpg':'#16a34a','.jpeg':'#16a34a','.gif':'#16a34a',
+                '.tiff':'#16a34a','.tif':'#16a34a','.webp':'#16a34a','.heic':'#16a34a',
+                '.xlsx':'#15803d','.xls':'#15803d','.ods':'#15803d','.csv':'#15803d',
+                '.pptx':'#d97706','.ppt':'#d97706','.txt':'#6b7280','.eml':'#9333ea',
+            };
+            const rows = files.map(function(f, i) {
+                const col = extColor[f.ext] || '#6b7280';
+                const badge = f.ext.slice(1).toUpperCase();
+                const sz = _fmtSize(f.size_bytes);
+                return '<div style="display:flex;align-items:center;gap:8px;padding:7px 12px;border-bottom:1px solid #f0f0f0;" id="flist-row-' + i + '">'
+                    + '<input type="checkbox" class="flist-cb" data-idx="' + i + '" checked style="width:13px;height:13px;flex-shrink:0;">'
+                    + '<span style="background:' + col + ';color:#fff;font-size:10px;font-weight:700;padding:1px 5px;border-radius:3px;min-width:34px;text-align:center;flex-shrink:0;">' + badge + '</span>'
+                    + '<span style="flex:1;font-size:13px;color:#111;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + f.filename + '">' + f.filename + '</span>'
+                    + (sz ? '<span style="font-size:11px;color:#9ca3af;white-space:nowrap;">' + sz + '</span>' : '')
+                    + '<span id="flist-st-' + i + '" style="font-size:12px;width:20px;text-align:center;flex-shrink:0;"></span>'
+                    + '</div>';
+            }).join('');
+
+            document.getElementById('upload-filelist-table').innerHTML = rows;
+            document.getElementById('upload-filelist-count').textContent = files.length;
+            document.getElementById('upload-filelist-selectall').checked = true;
+            document.getElementById('upload-filelist').style.display = '';
+            document.getElementById('upload-filelist-progress').textContent = '';
+            setUploadStatus('');
+            _updateFileListBtn();
+        }
+
+        function _updateFileListBtn() {
+            const n = document.querySelectorAll('.flist-cb:checked').length;
+            const btn = document.getElementById('upload-filelist-btn');
+            btn.textContent = 'Upload ' + n + ' file' + (n !== 1 ? 's' : '');
+            btn.disabled = n === 0;
+        }
+
+        function toggleSelectAllFiles(checked) {
+            document.querySelectorAll('.flist-cb').forEach(function(cb) { cb.checked = checked; });
+            _updateFileListBtn();
+        }
+
+        function cancelFileList() {
+            _fileListFiles = [];
+            _fileListAuthPayload = {};
+            document.getElementById('upload-filelist').style.display = 'none';
+            setUploadStatus('');
+        }
+
+        async function uploadSelectedFiles() {
+            const indices = [];
+            document.querySelectorAll('.flist-cb:checked').forEach(function(cb) {
+                indices.push(parseInt(cb.getAttribute('data-idx')));
+            });
+            if (!indices.length) return;
+
+            const btn = document.getElementById('upload-filelist-btn');
+            const prog = document.getElementById('upload-filelist-progress');
+            btn.disabled = true;
+
+            let done = 0, failed = 0;
+            for (let i = 0; i < indices.length; i++) {
+                const idx = indices[i];
+                const f = _fileListFiles[idx];
+                const stEl = document.getElementById('flist-st-' + idx);
+                stEl.textContent = '⏳';
+                prog.textContent = (i + 1) + '/' + indices.length + ' uploading…';
+                try {
+                    const payload = Object.assign({}, _fileListAuthPayload, {url: f.url});
+                    const res = await apiFetch(apiUrl('/api/upload/from-url'), {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify(payload),
+                    });
+                    const data = await res.json();
+                    if (data.success) { stEl.textContent = '✅'; done++; }
+                    else { stEl.title = data.error || 'failed'; stEl.textContent = '❌'; failed++; }
+                } catch(e) {
+                    stEl.title = e.message; stEl.textContent = '❌'; failed++;
+                }
+            }
+            prog.textContent = done + ' uploaded' + (failed ? ', ' + failed + ' failed' : '') + ' — ⏳ analyzer picks up in ~30 s';
+            btn.disabled = false;
+            if (done > 0) loadImportHistory();
         }
 
         async function doUpload() {
@@ -2945,7 +3081,7 @@
                 return;
             }
 
-            // Transform cloud / share links to direct download URLs
+            // Step 1: transform cloud / share links to direct download URLs
             let directUrl = rawUrl;
             let service = 'url';
             try {
@@ -2973,8 +3109,22 @@
                 token: authType === 'token' ? document.getElementById('upload-auth-token-val').value : undefined,
             };
 
+            // Step 2: scan — single file or a directory listing?
+            setUploadStatus('<div style="color:#2563eb;">🔍 Scanning URL…</div>');
+            const scan = await _scanUrl(directUrl, urlPayload);
+            if (scan.error) {
+                setUploadStatus('<div style="color:#e74c3c;">❌ ' + scan.error + '</div>');
+                return;
+            }
+
+            if (scan.type === 'directory') {
+                // Show file-picker panel; user chooses which files to upload
+                _showFileList(scan.files, urlPayload);
+                return;
+            }
+
+            // Single file — proceed to direct upload
             if (smartMeta) {
-                // Not supported for URL mode in this flow (no server-side temp file retention)
                 setUploadStatus('<div style="color:#f59e0b; padding:8px 12px; background:#fef3c7; border-radius:6px;">⚠️ Smart Metadata is not available for URL uploads — uploading directly.</div>');
                 await new Promise(r => setTimeout(r, 1500));
             }
@@ -4738,9 +4888,12 @@
         function toggleTabHelp() {
             _helpVisible = !_helpVisible;
             var btn = document.getElementById('help-toggle-btn');
-            if (btn) btn.style.background = _helpVisible
-                ? 'rgba(52,152,219,0.35)'
-                : 'rgba(255,255,255,0.12)';
+            if (btn) {
+                btn.style.background = _helpVisible
+                    ? 'rgba(52,152,219,0.35)'
+                    : 'rgba(255,255,255,0.12)';
+                btn.textContent = _helpVisible ? '? Help: On' : '? Help: Off';
+            }
             _refreshHelpPanel();
         }
         function _refreshHelpPanel() {
@@ -4759,10 +4912,22 @@
                 if (el) el.style.display = 'block';
             }
         }
-        // Wrap switchTab so the help panel updates on tab change
+        // Wrap switchTab so the help panel updates and config sub-tabs are
+        // fully reset whenever we leave the config tab.
         (function() {
             var _orig = switchTab;
-            switchTab = function(name) { _orig(name); _refreshHelpPanel(); };
+            switchTab = function(name) {
+                _orig(name);
+                // Explicitly clear config sub-tab active state when leaving config.
+                // This prevents sub-tab content from bleeding into other main tabs
+                // during the CSS fadeIn animation window.
+                if (name !== 'config') {
+                    document.querySelectorAll('.config-sub-content').forEach(function(c) {
+                        c.classList.remove('active');
+                    });
+                }
+                _refreshHelpPanel();
+            };
         })();
 
         // ── Bug Report Modal ─────────────────────────────────────────────────

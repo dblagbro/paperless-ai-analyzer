@@ -75,6 +75,12 @@ def init_db():
                 error_msg         TEXT,
                 created_at        TEXT NOT NULL DEFAULT (datetime('now'))
             );
+
+            CREATE TABLE IF NOT EXISTS processed_documents (
+                doc_id            INTEGER PRIMARY KEY,
+                first_analyzed_at TEXT NOT NULL DEFAULT (datetime('now')),
+                last_analyzed_at  TEXT NOT NULL DEFAULT (datetime('now'))
+            );
         """)
     logger.info("Database initialized (tables created if not exist)")
 
@@ -279,6 +285,37 @@ def log_import(user_id: int, source: str, filename: str, url: str = None,
                VALUES (?, ?, ?, ?, ?, ?, ?)""",
             (user_id, source, filename, url, doc_id, status, error)
         )
+
+
+def mark_document_processed(doc_id: int) -> None:
+    """Record that the AI analyzer has processed a document.  Uses INSERT OR REPLACE so the
+    last_analyzed_at timestamp is updated on re-analysis while first_analyzed_at is preserved."""
+    if not doc_id:
+        return
+    with _get_conn() as conn:
+        existing = conn.execute(
+            "SELECT first_analyzed_at FROM processed_documents WHERE doc_id = ?", (doc_id,)
+        ).fetchone()
+        if existing:
+            conn.execute(
+                "UPDATE processed_documents SET last_analyzed_at = datetime('now') WHERE doc_id = ?",
+                (doc_id,)
+            )
+        else:
+            conn.execute(
+                "INSERT INTO processed_documents (doc_id) VALUES (?)", (doc_id,)
+            )
+
+
+def count_processed_documents() -> int:
+    """Return the total number of unique documents ever processed by the AI analyzer."""
+    try:
+        with _get_conn() as conn:
+            row = conn.execute("SELECT COUNT(*) FROM processed_documents").fetchone()
+            return row[0] if row else 0
+    except Exception as e:
+        logger.error(f"Failed to count processed documents: {e}")
+        return 0
 
 
 def get_import_history(user_id: int, limit: int = 20):
