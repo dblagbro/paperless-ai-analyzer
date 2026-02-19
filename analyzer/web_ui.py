@@ -787,6 +787,99 @@ def api_reload_profiles():
         return jsonify({'error': str(e)}), 500
 
 
+def _vision_extract_doc(doc_id: int, title: str, paperless_client, ai_config: dict) -> str:
+    """
+    Extract text from a Paperless document using Vision AI (GPT-4o or Claude Vision).
+    Downloads the archived PDF, converts each page to a PNG, and sends to the configured
+    LLM with vision capability.  Returns concatenated page text, or '' on any failure.
+    Used during AI chat to enrich documents whose OCR content is empty or too short.
+    """
+    try:
+        import base64
+        from io import BytesIO
+
+        pdf_bytes = paperless_client.download_document(doc_id, archived=True)
+        if not pdf_bytes or len(pdf_bytes) < 200:
+            return ''
+
+        # Build list of base64-encoded page PNGs
+        page_images = []
+        try:
+            from pdf2image import convert_from_bytes
+            imgs = convert_from_bytes(pdf_bytes, dpi=150, first_page=1, last_page=8)
+            for img in imgs:
+                buf = BytesIO()
+                img.save(buf, format='PNG')
+                page_images.append(base64.b64encode(buf.getvalue()).decode())
+        except ImportError:
+            # pdf2image not installed — treat bytes as a raw image
+            page_images.append(base64.b64encode(pdf_bytes).decode())
+        except Exception:
+            page_images.append(base64.b64encode(pdf_bytes).decode())
+
+        if not page_images:
+            return ''
+
+        vision_prompt = (
+            "Extract ALL text from this document page accurately. "
+            "Include all numbers, dates, names, headings, account numbers, addresses, "
+            "and table data (format table columns separated by |). "
+            "Output the raw extracted text only — no commentary."
+        )
+
+        # Pick the first enabled provider that has an API key
+        provider_name, api_key = None, None
+        for p in ai_config.get('chat', {}).get('providers', []):
+            if p.get('enabled') and p.get('api_key', '').strip():
+                provider_name = p['name']
+                api_key = p['api_key'].strip()
+                break
+
+        if not provider_name or not api_key:
+            return ''
+
+        extracted_pages = []
+        for i, img_b64 in enumerate(page_images[:8]):
+            try:
+                page_text = ''
+                if provider_name == 'openai':
+                    import openai as _openai
+                    oc = _openai.OpenAI(api_key=api_key)
+                    resp = oc.chat.completions.create(
+                        model='gpt-4o',
+                        max_tokens=2000,
+                        messages=[{'role': 'user', 'content': [
+                            {'type': 'image_url', 'image_url': {'url': f'data:image/png;base64,{img_b64}'}},
+                            {'type': 'text', 'text': vision_prompt}
+                        ]}]
+                    )
+                    page_text = resp.choices[0].message.content or ''
+                elif provider_name == 'anthropic':
+                    import anthropic as _anthropic
+                    ac = _anthropic.Anthropic(api_key=api_key)
+                    resp = ac.messages.create(
+                        model='claude-3-5-sonnet-20241022',
+                        max_tokens=2000,
+                        messages=[{'role': 'user', 'content': [
+                            {'type': 'image', 'source': {'type': 'base64', 'media_type': 'image/png', 'data': img_b64}},
+                            {'type': 'text', 'text': vision_prompt}
+                        ]}]
+                    )
+                    page_text = resp.content[0].text if resp.content else ''
+                if page_text:
+                    extracted_pages.append(f"[Page {i + 1}]\n{page_text}")
+            except Exception as page_err:
+                logger.warning(f"Vision AI page {i + 1} failed for doc {doc_id}: {page_err}")
+
+        result = '\n\n'.join(extracted_pages)
+        logger.info(f"Vision AI extracted {len(result)} chars from doc {doc_id} ({len(page_images)} pages)")
+        return result
+
+    except Exception as e:
+        logger.warning(f"_vision_extract_doc failed for doc {doc_id} ({title}): {e}")
+        return ''
+
+
 @app.route('/api/chat', methods=['POST'])
 @login_required
 def api_chat():
@@ -854,6 +947,58 @@ def api_chat():
             # Fallback: fetch from memory or Paperless
             with ui_state['lock']:
                 recent_analyses = ui_state['recent_analyses']
+
+        # ── Vision AI content enrichment ────────────────────────────────────────
+        # For each retrieved doc whose stored content is too short (empty OCR at
+        # embed time), first try a fresh Paperless OCR fetch, then fall back to
+        # Vision AI.  Cap Vision AI at 2 docs per query to limit latency.
+        vision_ai_used = []
+        if recent_analyses and hasattr(app, 'paperless_client'):
+            _ai_cfg_vision = load_ai_config()
+            vision_cap = 0
+            enriched = []
+            for _a in recent_analyses:
+                _content = _a.get('content', _a.get('ai_analysis', ''))
+                _doc_id  = _a.get('document_id')
+                _doc_title = _a.get('document_title', '')
+                if len(_content.strip()) < 500 and _doc_id:
+                    try:
+                        _fresh = app.paperless_client.get_document(int(_doc_id))
+                        _fresh_text = _fresh.get('content', '').strip()
+                        if len(_fresh_text) >= 200:
+                            _a = dict(_a)
+                            _a['content'] = f"Document Content (Paperless OCR — live fetch):\n{_fresh_text}"
+                            logger.info(f"Chat enrichment: refreshed OCR for doc {_doc_id} ({len(_fresh_text)} chars)")
+                        elif vision_cap < 2:
+                            # OCR still short — try Vision AI
+                            logger.info(f"Chat enrichment: running Vision AI on doc {_doc_id}")
+                            _vtext = _vision_extract_doc(int(_doc_id), _doc_title, app.paperless_client, _ai_cfg_vision)
+                            if _vtext and len(_vtext) > 200:
+                                _a = dict(_a)
+                                _a['content'] = f"Document Content (Vision AI — extracted during this chat):\n{_vtext}"
+                                vision_ai_used.append(_doc_title or str(_doc_id))
+                                vision_cap += 1
+                                # Re-embed in background so future queries benefit
+                                def _bg_reembed(_did=int(_doc_id), _dtitle=_doc_title, _dtext=_vtext,
+                                                _dtype=_a.get('document_type', 'unknown'),
+                                                _drisk=_a.get('risk_score', 0)):
+                                    try:
+                                        if app.document_analyzer and app.document_analyzer.vector_store:
+                                            app.document_analyzer.vector_store.embed_document(
+                                                _did, _dtitle, _dtext,
+                                                {'risk_score': _drisk, 'anomalies': [],
+                                                 'timestamp': datetime.utcnow().isoformat(),
+                                                 'paperless_modified': '', 'document_type': _dtype}
+                                            )
+                                            logger.info(f"Chat Vision AI: re-embedded doc {_did}")
+                                    except Exception as _re:
+                                        logger.warning(f"Chat Vision AI: re-embed failed for doc {_did}: {_re}")
+                                Thread(target=_bg_reembed, daemon=True).start()
+                    except Exception as _ee:
+                        logger.warning(f"Chat enrichment failed for doc {_doc_id}: {_ee}")
+                enriched.append(_a)
+            recent_analyses = enriched
+        # ────────────────────────────────────────────────────────────────────────
 
         # If we don't have analyses, fetch from Paperless
         if not recent_analyses or len(recent_analyses) < 5:
@@ -1067,13 +1212,17 @@ Current Statistics (for available documents):
 
         system_prompt += """
 
+VISION AI CAPABILITY:
+- Documents whose stored OCR was empty or too short have been enriched LIVE during this chat.
+- Content marked "Vision AI — extracted during this chat" was read directly from the original PDF pages using image recognition — treat it as authoritative.
+- Content marked "Paperless OCR — live fetch" was retrieved fresh from Paperless at query time.
+- You CAN and SHOULD analyze the content in these enriched documents fully.
+
 CRITICAL - NEVER HALLUCINATE DATA:
-- If a document says "(Scanned image PDF with no extractable text)" or similar, DO NOT invent financial data
-- NEVER make up dollar amounts, totals, sections, or line items that aren't explicitly in the content above
-- If asked about specific numbers in a document with no extracted content, respond:
-  "This document is a scanned image with no extracted text. I cannot analyze specific financial figures without OCR or Vision AI to read the document."
-- Only report numbers and facts that are EXPLICITLY stated in the document content provided above
-- If the content is missing or incomplete, acknowledge this limitation clearly
+- NEVER invent dollar amounts, totals, dates, names, or any data not explicitly present in the content shown above.
+- Only report numbers and facts that are EXPLICITLY stated in the document content provided above.
+- If content is still empty or very short after enrichment, say: "This document's content could not be extracted even with Vision AI. I cannot analyze specific figures without the source file being accessible."
+- Do NOT claim you lack access to PDFs — Vision AI has already been applied where needed.
 
 IMPORTANT INSTRUCTIONS:
 When users ask for summaries or "all documents":
@@ -1107,6 +1256,9 @@ LEDGER AND REPORT GENERATION:
 - Create tables with available information, clearly noting any gaps or missing data
 - If some documents lack certain information, work with what's available and note limitations
 - Provide the most complete analysis possible given the data you can access"""
+
+        if vision_ai_used:
+            system_prompt += f"\n\n[Note: Vision AI was used during this query to extract content from {len(vision_ai_used)} document(s) with poor OCR: {', '.join(vision_ai_used[:3])}. Their embeddings have been updated for future queries.]"
 
         # Load AI configuration and try providers/models in order
         ai_config = load_ai_config()
