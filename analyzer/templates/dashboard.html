@@ -994,11 +994,270 @@
             padding: 40px;
             color: #666;
         }
+
+        /* ── Sidebar layout ───────────────────────────────── */
+        #app-layout {
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        #chat-sidebar {
+            width: 260px;
+            flex-shrink: 0;
+            background: #1e2a38;
+            color: #cdd4dc;
+            display: none;
+            flex-direction: column;
+            overflow: hidden;
+            border-right: 1px solid #263444;
+        }
+
+        #chat-sidebar .sidebar-header {
+            padding: 16px 14px 12px;
+            border-bottom: 1px solid #263444;
+        }
+
+        #chat-sidebar .sidebar-header h3 {
+            font-size: 13px;
+            font-weight: 700;
+            color: #fff;
+            letter-spacing: 0.3px;
+            margin-bottom: 10px;
+        }
+
+        .btn-new-chat {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            width: 100%;
+            padding: 8px 12px;
+            background: #2c86d4;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+        .btn-new-chat:hover { background: #1a76c4; }
+
+        #session-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px 0;
+        }
+        #session-list::-webkit-scrollbar { width: 4px; }
+        #session-list::-webkit-scrollbar-thumb { background: #334455; border-radius: 2px; }
+
+        .session-group-header {
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            color: #667788;
+            padding: 10px 14px 4px;
+        }
+
+        .session-item {
+            padding: 8px 14px;
+            cursor: pointer;
+            border-radius: 0;
+            transition: background 0.1s;
+            position: relative;
+        }
+        .session-item:hover { background: #263444; }
+        .session-item.active { background: #2c3e50; }
+
+        .session-title {
+            font-size: 13px;
+            color: #d0d8e0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            display: block;
+            max-width: 180px;
+        }
+        .session-meta {
+            font-size: 11px;
+            color: #556677;
+            margin-top: 2px;
+        }
+
+        .session-badge-shared {
+            font-size: 10px;
+            background: #2c86d4;
+            color: white;
+            padding: 1px 5px;
+            border-radius: 3px;
+            margin-left: 4px;
+        }
+
+        .session-actions {
+            display: none;
+            position: absolute;
+            right: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+            gap: 4px;
+        }
+        .session-item:hover .session-actions { display: flex; }
+
+        .session-action-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 14px;
+            padding: 2px 4px;
+            border-radius: 3px;
+            opacity: 0.7;
+            transition: opacity 0.1s;
+        }
+        .session-action-btn:hover { opacity: 1; background: rgba(255,255,255,0.1); }
+
+        .sidebar-footer {
+            padding: 12px 14px;
+            border-top: 1px solid #263444;
+            font-size: 12px;
+        }
+
+        .sidebar-user-info {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+
+        .role-badge {
+            font-size: 10px;
+            padding: 1px 7px;
+            border-radius: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+        .role-badge.admin { background: #e74c3c; color: white; }
+        .role-badge.basic { background: #3d5166; color: #aabbcc; }
+
+        .btn-logout {
+            display: block;
+            width: 100%;
+            padding: 6px;
+            background: none;
+            border: 1px solid #334455;
+            color: #8899aa;
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+            text-align: center;
+            transition: all 0.15s;
+        }
+        .btn-logout:hover { background: #263444; color: #cdd4dc; border-color: #4455667; }
+
+        #main-content {
+            flex: 1;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* ── Chat session header ─────────────────────────── */
+        .chat-session-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 16px;
+            background: #f8f9fa;
+            border-bottom: 1px solid #dee2e6;
+        }
+        .chat-session-title {
+            font-size: 15px;
+            font-weight: 600;
+            color: #2c3e50;
+            flex: 1;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .chat-session-actions { display: flex; gap: 8px; }
+        .btn-session-action {
+            padding: 5px 12px;
+            font-size: 12px;
+            border: 1px solid #dee2e6;
+            background: white;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background 0.1s;
+        }
+        .btn-session-action:hover { background: #f0f0f0; }
+
+        /* ── Share modal ─────────────────────────────────── */
+        #share-modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+        #share-modal.active { display: flex; }
+        .share-modal-box {
+            background: white;
+            border-radius: 10px;
+            padding: 28px;
+            width: 420px;
+            max-width: 96vw;
+            box-shadow: 0 12px 40px rgba(0,0,0,0.2);
+        }
+        .share-modal-box h3 { margin-bottom: 18px; font-size: 17px; color: #2c3e50; }
+        .share-input-row { display: flex; gap: 8px; margin-bottom: 14px; }
+        .share-input-row input { flex: 1; padding: 8px 12px; border: 1px solid #ddd; border-radius: 5px; font-size: 14px; }
+        .share-list { margin-top: 12px; }
+        .share-list-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 7px 0;
+            border-bottom: 1px solid #f0f0f0;
+            font-size: 14px;
+        }
+
+        /* ── User management table ───────────────────────── */
+        .user-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+        .user-table th, .user-table td {
+            padding: 8px 12px;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+        }
+        .user-table th { background: #f8f9fa; font-weight: 600; color: #555; font-size: 12px; text-transform: uppercase; }
+        .user-table tr:hover td { background: #fafafa; }
     </style>
 </head>
 <body>
+<div id="app-layout">
+    <!-- ── Chat Sidebar ─────────────────────────────── -->
+    <div id="chat-sidebar">
+        <div class="sidebar-header">
+            <h3>💬 Chat Sessions</h3>
+            <button class="btn-new-chat" onclick="newChat()">+ New Chat</button>
+        </div>
+        <div id="session-list">
+            <div style="padding: 20px 14px; font-size: 12px; color: #556677;">Loading sessions...</div>
+        </div>
+        <div class="sidebar-footer">
+            <div class="sidebar-user-info">
+                <span style="color: #cdd4dc; font-weight: 600;">{{ current_user.display_name }}</span>
+                <span class="role-badge {{ 'admin' if is_admin else 'basic' }}">{{ 'Admin' if is_admin else 'Basic' }}</span>
+            </div>
+            <a href="{{ url_for('logout') }}" class="btn-logout">Sign Out</a>
+        </div>
+    </div>
+
+    <!-- ── Main Content ─────────────────────────────── -->
+    <div id="main-content">
     <header>
-        <div class="container" style="display: flex; justify-content: space-between; align-items: center;">
+        <div class="container" style="display: flex; justify-content: space-between; align-items: center; gap: 20px;">
             <div>
                 <h1><span class="status-indicator"></span> Paperless AI Analyzer</h1>
                 <p>Intelligent document analysis and anomaly detection</p>
@@ -1009,8 +1268,43 @@
                     <option value="">Loading...</option>
                 </select>
             </div>
+            <div style="text-align: right; white-space: nowrap; flex-shrink: 0;">
+                <div style="color: #cce5ff; font-size: 13px; margin-bottom: 6px;">
+                    <strong>{{ current_user.display_name }}</strong>
+                    <span style="background: {{ '#e74c3c' if is_admin else '#3498db' }}; color: white; font-size: 11px; padding: 1px 6px; border-radius: 10px; margin-left: 6px;">{{ 'Admin' if is_admin else 'Basic' }}</span>
+                </div>
+                <div style="display: flex; gap: 8px; justify-content: flex-end;">
+                    <button onclick="openChangePasswordModal()" style="background: rgba(255,255,255,0.15); color: white; border: 1px solid rgba(255,255,255,0.3); padding: 5px 12px; border-radius: 5px; font-size: 12px; cursor: pointer;">🔑 Change Password</button>
+                    <a href="{{ url_for('logout') }}" style="background: rgba(231,76,60,0.7); color: white; border: 1px solid rgba(231,76,60,0.9); padding: 5px 12px; border-radius: 5px; font-size: 12px; text-decoration: none; display: inline-block;">Sign Out</a>
+                </div>
+            </div>
         </div>
     </header>
+
+    <!-- Change Password Modal -->
+    <div id="change-password-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:9999; align-items:center; justify-content:center;">
+        <div style="background:#243447; border-radius:10px; padding:32px; width:100%; max-width:380px; box-shadow:0 8px 32px rgba(0,0,0,0.5);">
+            <h3 style="color:#fff; margin:0 0 20px; font-size:16px;">🔑 Change Password</h3>
+            <div id="cp-error" style="display:none; background:rgba(231,76,60,0.2); border:1px solid rgba(231,76,60,0.5); color:#f08080; padding:8px 12px; border-radius:5px; font-size:13px; margin-bottom:14px;"></div>
+            <div id="cp-success" style="display:none; background:rgba(39,174,96,0.2); border:1px solid rgba(39,174,96,0.5); color:#7dcea0; padding:8px 12px; border-radius:5px; font-size:13px; margin-bottom:14px;"></div>
+            <div style="margin-bottom:14px;">
+                <label style="display:block; font-size:12px; color:#aabbcc; margin-bottom:5px;">Current Password</label>
+                <input type="password" id="cp-current" style="width:100%; padding:9px 12px; background:#1a2332; border:1px solid #334455; border-radius:5px; color:#eee; font-size:14px; box-sizing:border-box;" autocomplete="current-password">
+            </div>
+            <div style="margin-bottom:14px;">
+                <label style="display:block; font-size:12px; color:#aabbcc; margin-bottom:5px;">New Password</label>
+                <input type="password" id="cp-new" style="width:100%; padding:9px 12px; background:#1a2332; border:1px solid #334455; border-radius:5px; color:#eee; font-size:14px; box-sizing:border-box;" autocomplete="new-password">
+            </div>
+            <div style="margin-bottom:20px;">
+                <label style="display:block; font-size:12px; color:#aabbcc; margin-bottom:5px;">Confirm New Password</label>
+                <input type="password" id="cp-confirm" style="width:100%; padding:9px 12px; background:#1a2332; border:1px solid #334455; border-radius:5px; color:#eee; font-size:14px; box-sizing:border-box;" autocomplete="new-password">
+            </div>
+            <div style="display:flex; gap:10px; justify-content:flex-end;">
+                <button onclick="closeChangePasswordModal()" style="padding:8px 18px; background:rgba(255,255,255,0.1); color:#ccc; border:1px solid #334455; border-radius:5px; cursor:pointer; font-size:13px;">Cancel</button>
+                <button onclick="submitChangePassword()" style="padding:8px 18px; background:#4a90d9; color:white; border:none; border-radius:5px; cursor:pointer; font-size:13px; font-weight:600;">Update Password</button>
+            </div>
+        </div>
+    </div>
 
     <div class="container">
         <!-- Tabbed Interface -->
@@ -1087,10 +1381,23 @@
 
             <!-- AI Chat Tab -->
             <div id="tab-ai-chat" class="tab-content">
+                <!-- API key warning banner (hidden until checked) -->
+                <div id="ai-key-warning" style="display:none; background:#fff3cd; border:1px solid #ffc107; color:#856404; padding:12px 16px; border-radius:6px; margin-bottom:14px; font-size:13px;">
+                    ⚠️ <strong>No AI API key configured.</strong> Chat will not work until you add one.
+                    Go to the <a href="#" onclick="switchTab('config'); return false;" style="color:#856404; font-weight:600;">⚙️ Configuration tab</a> → AI Configuration section to add your key.
+                </div>
+                <!-- Session header -->
+                <div class="chat-session-header">
+                    <span class="chat-session-title" id="active-session-title">New Chat</span>
+                    <div class="chat-session-actions">
+                        <button class="btn-session-action" onclick="shareCurrentChat()" id="btn-share-chat" title="Share chat">🔗 Share</button>
+                        <button class="btn-session-action" onclick="exportCurrentChat()" id="btn-export-chat" title="Export as PDF">📥 Export PDF</button>
+                        <button class="btn-session-action" onclick="clearChat()" title="Clear chat">🗑️ Clear</button>
+                    </div>
+                </div>
                 <div class="chat-container" style="margin: 0;">
                     <div class="chat-header">
                         <h2>💬 AI Document Assistant</h2>
-                        <button class="btn btn-small" onclick="clearChat()" style="background: rgba(255,255,255,0.2); border: 1px solid white;">Clear</button>
                     </div>
                     <div class="chat-messages" id="chat-messages">
                         <div class="chat-message assistant">
@@ -1171,7 +1478,7 @@
                             Best for: Legal documents, forensic analysis, financial document understanding
                         </div>
                         <div class="action-group" style="margin-bottom: 10px;">
-                            <input type="password" id="openai-api-key" placeholder="OpenAI API key (sk-...)"
+                            <input type="text" autocomplete="off" id="openai-api-key" placeholder="OpenAI API key (sk-...)"
                                    style="flex: 1; font-family: monospace; font-size: 13px;" />
                             <button class="btn" onclick="testAIProvider('openai')">🧪 Test</button>
                         </div>
@@ -1192,7 +1499,7 @@
                             Best for: General analysis, code understanding, logical reasoning
                         </div>
                         <div class="action-group" style="margin-bottom: 10px;">
-                            <input type="password" id="anthropic-api-key" placeholder="Anthropic API key (sk-ant-api03-...)"
+                            <input type="text" autocomplete="off" id="anthropic-api-key" placeholder="Anthropic API key (sk-ant-api03-...)"
                                    style="flex: 1; font-family: monospace; font-size: 13px;" />
                             <button class="btn" onclick="testAIProvider('anthropic')">🧪 Test</button>
                         </div>
@@ -1259,6 +1566,52 @@
                     </div>
                     <div id="settings-result" style="margin-top: 10px; padding: 10px; border-radius: 4px; display: none;"></div>
                 </div>
+
+                <!-- User Management (admin only) -->
+                {% if is_admin %}
+                <h2 style="margin-top: 30px; margin-bottom: 15px;">👥 User Management</h2>
+                <div class="card" style="margin-bottom: 20px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                        <span style="color: #555; font-size: 14px;">Manage user accounts and roles.</span>
+                        <button class="btn btn-primary" onclick="showAddUserForm()">+ Add User</button>
+                    </div>
+
+                    <!-- Add User Form (hidden by default) -->
+                    <div id="add-user-form" style="display: none; background: #f8f9fa; padding: 16px; border-radius: 6px; margin-bottom: 16px;">
+                        <h3 style="margin-bottom: 12px; font-size: 15px;">New User</h3>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
+                            <input type="text" id="new-user-username" placeholder="Username" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px;">
+                            <input type="text" id="new-user-display" placeholder="Display Name (optional)" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px;">
+                            <input type="password" id="new-user-password" placeholder="Password" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px;">
+                            <select id="new-user-role" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px;">
+                                <option value="basic">Basic</option>
+                                <option value="admin">Admin</option>
+                            </select>
+                        </div>
+                        <div id="add-user-error" style="color: #e74c3c; font-size: 13px; margin-bottom: 8px; display:none;"></div>
+                        <div style="display: flex; gap: 8px;">
+                            <button class="btn btn-success" onclick="createUser()">Create User</button>
+                            <button class="btn" onclick="hideAddUserForm()">Cancel</button>
+                        </div>
+                    </div>
+
+                    <table class="user-table" id="users-table">
+                        <thead>
+                            <tr>
+                                <th>Username</th>
+                                <th>Display Name</th>
+                                <th>Role</th>
+                                <th>Last Login</th>
+                                <th>Active</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="users-table-body">
+                            <tr><td colspan="6" class="loading">Loading users...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                {% endif %}
             </div>
 
             <!-- Debug & Tools Tab -->
@@ -1282,20 +1635,26 @@
     </div>
 
     <script>
-        // Detect base path for API calls (handles nginx subpath proxying)
-        const BASE_PATH = (() => {
-            const path = window.location.pathname;
-            // If we're under /paperless-ai-analyzer/, use that as base
-            if (path.startsWith('/paperless-ai-analyzer')) {
-                return '/paperless-ai-analyzer';
-            }
-            // Otherwise, no base path (direct access)
-            return '';
-        })();
+        // Base path injected by Flask from URL_PREFIX env var (set in docker-compose)
+        const BASE_PATH = "{{ request.script_root }}";
 
         // Helper function to build API URLs
         function apiUrl(path) {
             return BASE_PATH + path;
+        }
+
+        // Wrapper around fetch that detects session expiry and redirects to login
+        async function apiFetch(url, options = {}) {
+            const response = await fetch(url, options);
+            if (response.redirected && response.url.includes('/login')) {
+                window.location.href = apiUrl('/login');
+                throw new Error('Session expired');
+            }
+            if (response.status === 401) {
+                window.location.href = apiUrl('/login');
+                throw new Error('Session expired');
+            }
+            return response;
         }
 
         // Tab switching function
@@ -1316,6 +1675,10 @@
                 selectedTab.classList.add('active');
             }
 
+            // Sidebar only visible on AI Chat tab
+            const sidebar = document.getElementById('chat-sidebar');
+            if (sidebar) sidebar.style.display = tabName === 'ai-chat' ? 'flex' : 'none';
+
             // Activate selected tab button
             const buttons = document.querySelectorAll('.tab-button');
             buttons.forEach(btn => {
@@ -1333,14 +1696,89 @@
                     console.error('loadProjectsList is not a function!');
                 }
             }
+            // Load users when config tab is opened (admin only)
+            if (tabName === 'config') {
+                if (typeof loadUsers === 'function') loadUsers();
+            }
+            // Check API key when AI chat tab is opened
+            if (tabName === 'ai-chat') {
+                checkAiKeyStatus();
+            }
         }
+
+        async function checkAiKeyStatus() {
+            try {
+                const res = await apiFetch(apiUrl('/api/llm/status'));
+                const data = await res.json();
+                // Show warning if LLM is not enabled or has no key, and also
+                // check the chat-specific ai-config for any enabled provider with a key
+                const configRes = await apiFetch(apiUrl('/api/ai-config'));
+                const configData = await configRes.json();
+                const chatProviders = configData.config?.chat?.providers || [];
+                const hasAnyKey = chatProviders.some(p => p.enabled && p.api_key && p.api_key.trim());
+                document.getElementById('ai-key-warning').style.display = hasAnyKey ? 'none' : 'block';
+            } catch (e) {
+                // If we can't check, hide the warning (don't block usage)
+            }
+        }
+
+        function openChangePasswordModal() {
+            document.getElementById('cp-current').value = '';
+            document.getElementById('cp-new').value = '';
+            document.getElementById('cp-confirm').value = '';
+            document.getElementById('cp-error').style.display = 'none';
+            document.getElementById('cp-success').style.display = 'none';
+            document.getElementById('change-password-modal').style.display = 'flex';
+        }
+
+        function closeChangePasswordModal() {
+            document.getElementById('change-password-modal').style.display = 'none';
+        }
+
+        async function submitChangePassword() {
+            const current = document.getElementById('cp-current').value;
+            const newPw = document.getElementById('cp-new').value;
+            const confirm = document.getElementById('cp-confirm').value;
+            const errEl = document.getElementById('cp-error');
+            const okEl = document.getElementById('cp-success');
+            errEl.style.display = 'none';
+            okEl.style.display = 'none';
+            if (!current || !newPw) { errEl.textContent = 'All fields are required.'; errEl.style.display = 'block'; return; }
+            if (newPw !== confirm) { errEl.textContent = 'New passwords do not match.'; errEl.style.display = 'block'; return; }
+            if (newPw.length < 6) { errEl.textContent = 'New password must be at least 6 characters.'; errEl.style.display = 'block'; return; }
+            try {
+                const res = await apiFetch(apiUrl('/api/change-password'), {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({current_password: current, new_password: newPw})
+                });
+                const data = await res.json();
+                if (data.success) {
+                    okEl.textContent = 'Password updated successfully!';
+                    okEl.style.display = 'block';
+                    setTimeout(closeChangePasswordModal, 1500);
+                } else {
+                    errEl.textContent = data.error || 'Failed to update password.';
+                    errEl.style.display = 'block';
+                }
+            } catch (e) {
+                errEl.textContent = 'Network error: ' + e.message;
+                errEl.style.display = 'block';
+            }
+        }
+
+        // Close modal on backdrop click (use delegation so element doesn't need to exist yet)
+        document.addEventListener('click', function(e) {
+            const m = document.getElementById('change-password-modal');
+            if (m && e.target === m) closeChangePasswordModal();
+        });
 
         // Auto-refresh data every 10 seconds
         let refreshInterval;
 
         async function fetchStatus() {
             try {
-                const response = await fetch(apiUrl('/api/status'));
+                const response = await apiFetch(apiUrl('/api/status'));
                 const data = await response.json();
 
                 // Update stats
@@ -1371,7 +1809,7 @@
 
         async function fetchRecent() {
             try {
-                const response = await fetch(apiUrl('/api/recent'));
+                const response = await apiFetch(apiUrl('/api/recent'));
                 const data = await response.json();
 
                 const overviewContainer = document.getElementById('recent-analyses');
@@ -1475,7 +1913,7 @@
 
         async function fetchProfiles() {
             try {
-                const response = await fetch(apiUrl('/api/profiles'));
+                const response = await apiFetch(apiUrl('/api/profiles'));
                 const data = await response.json();
 
                 // Active profiles
@@ -1621,7 +2059,7 @@
             }
 
             try {
-                const response = await fetch(apiUrl('/api/reprocess'), { method: 'POST' });
+                const response = await apiFetch(apiUrl('/api/reprocess'), { method: 'POST' });
                 const data = await response.json();
 
                 if (data.success) {
@@ -1644,7 +2082,7 @@
             }
 
             try {
-                const response = await fetch(apiUrl(`/api/reprocess/${docId}`), { method: 'POST' });
+                const response = await apiFetch(apiUrl(`/api/reprocess/${docId}`), { method: 'POST' });
                 const data = await response.json();
 
                 if (data.success) {
@@ -1662,7 +2100,7 @@
         // Vector store management functions
         async function refreshVectorTypes() {
             try {
-                const response = await fetch(apiUrl('/api/vector/types'));
+                const response = await apiFetch(apiUrl('/api/vector/types'));
                 const data = await response.json();
 
                 if (!data.success) {
@@ -1703,7 +2141,7 @@
         // Load all vector store documents grouped by type
         async function loadVectorStoreDocuments() {
             try {
-                const response = await fetch(apiUrl('/api/vector/documents'));
+                const response = await apiFetch(apiUrl('/api/vector/documents'));
                 const data = await response.json();
 
                 const container = document.getElementById('vector-store-manager');
@@ -1787,7 +2225,7 @@
             }
 
             try {
-                const response = await fetch(apiUrl('/api/vector/delete-document'), {
+                const response = await apiFetch(apiUrl('/api/vector/delete-document'), {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ doc_id: docId })
@@ -1812,7 +2250,7 @@
             }
 
             try {
-                const response = await fetch(apiUrl('/api/vector/delete-by-type'), {
+                const response = await apiFetch(apiUrl('/api/vector/delete-by-type'), {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ document_type: documentType })
@@ -1838,7 +2276,7 @@
             }
 
             try {
-                const response = await fetch(apiUrl('/api/vector/clear'), { method: 'POST' });
+                const response = await apiFetch(apiUrl('/api/vector/clear'), { method: 'POST' });
                 const data = await response.json();
 
                 if (data.success) {
@@ -1877,7 +2315,7 @@
             resultDiv.textContent = '🔄 Updating poll interval...';
 
             try {
-                const response = await fetch(apiUrl('/api/settings/poll-interval'), {
+                const response = await apiFetch(apiUrl('/api/settings/poll-interval'), {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ interval: parseInt(interval) })
@@ -1904,7 +2342,7 @@
         // Refresh logs
         async function refreshLogs() {
             try {
-                const response = await fetch(apiUrl('/api/logs?limit=100'));
+                const response = await apiFetch(apiUrl('/api/logs?limit=100'));
                 const data = await response.json();
 
                 const logsViewer = document.getElementById('logs-viewer');
@@ -1945,7 +2383,7 @@
             if (hasAnomalies) params.append('has_anomalies', 'true');
 
             try {
-                const response = await fetch(apiUrl(`/api/search?${params}`));
+                const response = await apiFetch(apiUrl(`/api/search?${params}`));
                 const data = await response.json();
 
                 const resultsContainer = document.getElementById('search-results');
@@ -2040,7 +2478,7 @@
         // Check LLM status and show setup panel if needed
         async function checkLLMStatus() {
             try {
-                const response = await fetch(apiUrl('/api/llm/status'));
+                const response = await apiFetch(apiUrl('/api/llm/status'));
                 const data = await response.json();
 
                 if (!data.enabled || !data.has_key) {
@@ -2085,7 +2523,7 @@
             saveBtn.style.display = 'none';
 
             try {
-                const response = await fetch('api/llm/test', {
+                const response = await apiFetch(apiUrl('/api/llm/test'), {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({provider, api_key: apiKey})
@@ -2115,7 +2553,7 @@
         // View staging profile
         async function viewStagingProfile(filename) {
             try {
-                const response = await fetch(apiUrl(`/api/staging/${filename}`));
+                const response = await apiFetch(apiUrl(`/api/staging/${filename}`));
                 const data = await response.json();
 
                 if (data.error) {
@@ -2163,7 +2601,7 @@
             }
 
             try {
-                const response = await fetch('api/staging/activate-all', {
+                const response = await apiFetch(apiUrl('/api/staging/activate-all'), {
                     method: 'POST'
                 });
                 const data = await response.json();
@@ -2206,7 +2644,7 @@
         // Active profile management
         async function viewActiveProfile(filename) {
             try {
-                const response = await fetch(apiUrl(`/api/active/${filename}`));
+                const response = await apiFetch(apiUrl(`/api/active/${filename}`));
                 const data = await response.json();
 
                 if (data.error) {
@@ -2276,7 +2714,7 @@
             resultDiv.innerHTML = '<div class="loading">Analyzing profiles for duplicates...</div>';
 
             try {
-                const response = await fetch(apiUrl('/api/active/duplicates'));
+                const response = await apiFetch(apiUrl('/api/active/duplicates'));
                 const data = await response.json();
 
                 if (data.duplicate_groups === 0) {
@@ -2338,7 +2776,7 @@
             }
 
             try {
-                const response = await fetch('api/active/duplicates/remove', {
+                const response = await apiFetch(apiUrl('/api/active/duplicates/remove'), {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({filenames})
@@ -2373,7 +2811,7 @@
             resultDiv.textContent = '💾 Saving configuration...';
 
             try {
-                const response = await fetch('api/llm/save', {
+                const response = await apiFetch(apiUrl('/api/llm/save'), {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({provider, api_key: apiKey})
@@ -2408,7 +2846,7 @@
         // AI Configuration Management
         async function loadAIConfig() {
             try {
-                const response = await fetch(apiUrl('/api/ai-config'));
+                const response = await apiFetch(apiUrl('/api/ai-config'));
                 const data = await response.json();
 
                 if (data.success && data.config) {
@@ -2456,7 +2894,7 @@
             resultDiv.textContent = '🧪 Testing API key...';
 
             try {
-                const response = await fetch('/api/ai-config/test', {
+                const response = await apiFetch(apiUrl('/api/ai-config/test'), {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({provider, api_key: apiKey})
@@ -2542,7 +2980,7 @@
             resultDiv.textContent = '💾 Saving AI configuration...';
 
             try {
-                const response = await fetch('/api/ai-config', {
+                const response = await apiFetch(apiUrl('/api/ai-config'), {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({config})
@@ -2569,6 +3007,343 @@
                 resultDiv.textContent = '✗ Failed to save: ' + error.message;
             }
         }
+
+        // ── Chat session state ────────────────────────────────────────
+        let currentSessionId = null;
+
+        async function loadSessions() {
+            try {
+                const res = await apiFetch(apiUrl('/api/chat/sessions'));
+                const data = await res.json();
+                renderSessionList(data);
+            } catch (e) {
+                console.error('Failed to load sessions:', e);
+            }
+        }
+
+        function renderSessionList(data) {
+            const container = document.getElementById('session-list');
+            const isAdmin = data.is_admin;
+            let html = '';
+
+            function formatDate(iso) {
+                if (!iso) return '';
+                const d = new Date(iso);
+                const now = new Date();
+                const diffMs = now - d;
+                const diffH = Math.floor(diffMs / 3600000);
+                if (diffH < 1) return 'Just now';
+                if (diffH < 24) return `${diffH}h ago`;
+                const diffD = Math.floor(diffH / 24);
+                if (diffD < 7) return `${diffD}d ago`;
+                return d.toLocaleDateString();
+            }
+
+            function sessionItemHtml(s) {
+                const active = s.id === currentSessionId ? ' active' : '';
+                const sharedBadge = s.is_shared ? '<span class="session-badge-shared">shared</span>' : '';
+                return `<div class="session-item${active}" data-session-id="${s.id}" onclick="loadSession('${s.id}')">
+                    <span class="session-title">${escapeHtml(s.title)}${sharedBadge}</span>
+                    <span class="session-meta">${formatDate(s.updated_at)}</span>
+                    <div class="session-actions" onclick="event.stopPropagation()">
+                        <button class="session-action-btn" title="Rename" onclick="renameSessionPrompt('${s.id}', '${escapeHtml(s.title).replace(/'/g, "\\'")}')">✏️</button>
+                        ${s.is_own !== false ? `<button class="session-action-btn" title="Delete" onclick="deleteSession('${s.id}')">🗑️</button>` : ''}
+                    </div>
+                </div>`;
+            }
+
+            if (isAdmin && data.sessions_by_user) {
+                for (const [username, sessions] of Object.entries(data.sessions_by_user)) {
+                    html += `<div class="session-group-header">${escapeHtml(username)}</div>`;
+                    sessions.forEach(s => { html += sessionItemHtml(s); });
+                }
+            } else if (data.sessions) {
+                const own = data.sessions.filter(s => s.is_own && !s.is_shared);
+                const shared = data.sessions.filter(s => s.is_shared);
+                if (own.length) {
+                    html += '<div class="session-group-header">My Chats</div>';
+                    own.forEach(s => { html += sessionItemHtml(s); });
+                }
+                if (shared.length) {
+                    html += '<div class="session-group-header">Shared with me</div>';
+                    shared.forEach(s => { html += sessionItemHtml(s); });
+                }
+            }
+
+            if (!html) {
+                html = '<div style="padding: 20px 14px; font-size: 12px; color: #556677;">No chats yet. Start a new chat!</div>';
+            }
+            container.innerHTML = html;
+        }
+
+        function escapeHtml(str) {
+            return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+        }
+
+        async function loadSession(sessionId) {
+            try {
+                const res = await apiFetch(apiUrl(`/api/chat/sessions/${sessionId}`));
+                if (!res.ok) { alert('Failed to load session'); return; }
+                const data = await res.json();
+
+                currentSessionId = sessionId;
+                chatHistory = [];
+
+                // Update header title
+                document.getElementById('active-session-title').textContent = data.session.title;
+
+                // Populate chat messages
+                const messagesDiv = document.getElementById('chat-messages');
+                messagesDiv.innerHTML = '';
+                data.messages.forEach(m => {
+                    addChatMessage(m.role, m.content);
+                    chatHistory.push({role: m.role, content: m.content});
+                });
+
+                if (!data.messages.length) {
+                    // Show welcome message if empty session
+                    addWelcomeMessage();
+                }
+
+                // Switch to AI Chat tab
+                switchTab('ai-chat');
+                // Update sidebar highlights
+                loadSessions();
+            } catch (e) {
+                console.error('loadSession error:', e);
+            }
+        }
+
+        function newChat() {
+            currentSessionId = null;
+            chatHistory = [];
+            document.getElementById('active-session-title').textContent = 'New Chat';
+            const messagesDiv = document.getElementById('chat-messages');
+            messagesDiv.innerHTML = '';
+            addWelcomeMessage();
+            switchTab('ai-chat');
+            // Deselect active session in sidebar
+            document.querySelectorAll('.session-item.active').forEach(el => el.classList.remove('active'));
+        }
+
+        function addWelcomeMessage() {
+            const messagesDiv = document.getElementById('chat-messages');
+            messagesDiv.innerHTML = `
+                <div class="chat-message assistant">
+                    <div class="message-bubble">
+                        <div>👋 Hi! I'm your AI document assistant. I can help you:</div>
+                        <ul style="margin: 10px 0 0 20px; line-height: 1.8;">
+                            <li>Analyze patterns across all your documents</li>
+                            <li>Find specific transactions or anomalies</li>
+                            <li>Generate reports and ledgers</li>
+                            <li>Answer questions about your financial documents</li>
+                        </ul>
+                        <div style="margin-top: 10px;">Try asking me something!</div>
+                    </div>
+                </div>
+                <div class="chat-suggestions">
+                    <div class="suggestion-chip" onclick="sendSuggestion('Show me all high-risk documents')">Show me all high-risk documents</div>
+                    <div class="suggestion-chip" onclick="sendSuggestion('What anomalies were most common?')">What anomalies were most common?</div>
+                    <div class="suggestion-chip" onclick="sendSuggestion('Generate a summary of all analyzed documents')">Generate a summary</div>
+                </div>`;
+        }
+
+        async function deleteSession(sessionId) {
+            if (!confirm('Delete this chat session? This cannot be undone.')) return;
+            try {
+                const res = await apiFetch(apiUrl(`/api/chat/sessions/${sessionId}`), {method: 'DELETE'});
+                if (!res.ok) { alert('Failed to delete session'); return; }
+                if (currentSessionId === sessionId) newChat();
+                loadSessions();
+            } catch (e) { console.error(e); }
+        }
+
+        async function renameSessionPrompt(sessionId, currentTitle) {
+            const newTitle = prompt('Rename chat:', currentTitle);
+            if (!newTitle || newTitle.trim() === currentTitle) return;
+            try {
+                const res = await apiFetch(apiUrl(`/api/chat/sessions/${sessionId}`), {
+                    method: 'PATCH',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({title: newTitle.trim()}),
+                });
+                if (!res.ok) { alert('Failed to rename session'); return; }
+                if (currentSessionId === sessionId) {
+                    document.getElementById('active-session-title').textContent = newTitle.trim();
+                }
+                loadSessions();
+            } catch (e) { console.error(e); }
+        }
+
+        // ── Share modal ────────────────────────────────────────────────
+        let _shareSessionId = null;
+
+        function shareCurrentChat() {
+            if (!currentSessionId) { alert('Start a chat first, then share it.'); return; }
+            openShareModal(currentSessionId);
+        }
+
+        async function openShareModal(sessionId) {
+            _shareSessionId = sessionId;
+            document.getElementById('share-modal').classList.add('active');
+            document.getElementById('share-username-input').value = '';
+            document.getElementById('share-error').style.display = 'none';
+            await refreshShareList();
+        }
+
+        function closeShareModal() {
+            document.getElementById('share-modal').classList.remove('active');
+            _shareSessionId = null;
+        }
+
+        async function refreshShareList() {
+            if (!_shareSessionId) return;
+            const res = await apiFetch(apiUrl(`/api/chat/sessions/${_shareSessionId}`));
+            const data = await res.json();
+            const shares = data.shared_with || [];
+            const list = document.getElementById('share-list');
+            if (!shares.length) {
+                list.innerHTML = '<div style="color: #999; font-size: 13px;">No shares yet</div>';
+            } else {
+                list.innerHTML = shares.map(s => `
+                    <div class="share-list-item">
+                        <span>👤 ${escapeHtml(s.username)}</span>
+                        <button class="btn btn-danger" style="font-size: 12px; padding: 3px 10px;"
+                            onclick="removeShare(${s.id})">Remove</button>
+                    </div>`).join('');
+            }
+        }
+
+        async function addShare() {
+            const username = document.getElementById('share-username-input').value.trim();
+            const errEl = document.getElementById('share-error');
+            if (!username) { errEl.textContent = 'Enter a username'; errEl.style.display = 'block'; return; }
+            errEl.style.display = 'none';
+            try {
+                const res = await apiFetch(apiUrl(`/api/chat/sessions/${_shareSessionId}/share`), {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({username}),
+                });
+                const data = await res.json();
+                if (!res.ok) { errEl.textContent = data.error || 'Failed to share'; errEl.style.display = 'block'; return; }
+                document.getElementById('share-username-input').value = '';
+                await refreshShareList();
+            } catch (e) { errEl.textContent = e.message; errEl.style.display = 'block'; }
+        }
+
+        async function removeShare(uid) {
+            await apiFetch(apiUrl(`/api/chat/sessions/${_shareSessionId}/share/${uid}`), {method: 'DELETE'});
+            await refreshShareList();
+        }
+
+        document.addEventListener('click', e => {
+            const m = document.getElementById('share-modal');
+            if (m && e.target === m) closeShareModal();
+        });
+
+        // ── Export ─────────────────────────────────────────────────────
+        function exportCurrentChat() {
+            if (!currentSessionId) { alert('Start a chat first, then export it.'); return; }
+            window.location.href = apiUrl(`/api/chat/sessions/${currentSessionId}/export`);
+        }
+
+        // ── User management (admin) ────────────────────────────────────
+        async function loadUsers() {
+            try {
+                const res = await apiFetch(apiUrl('/api/users'));
+                if (!res.ok) return;
+                const data = await res.json();
+                renderUsersTable(data.users);
+            } catch (e) { console.error(e); }
+        }
+
+        function renderUsersTable(users) {
+            const tbody = document.getElementById('users-table-body');
+            if (!tbody) return;
+            if (!users || !users.length) {
+                tbody.innerHTML = '<tr><td colspan="6" style="color:#999;">No users found</td></tr>';
+                return;
+            }
+            tbody.innerHTML = users.map(u => `<tr>
+                <td><strong>${escapeHtml(u.username)}</strong></td>
+                <td>${escapeHtml(u.display_name || '')}</td>
+                <td><span class="role-badge ${u.role}">${u.role}</span></td>
+                <td style="font-size:12px; color:#666;">${u.last_login ? u.last_login.split('T')[0] : 'Never'}</td>
+                <td>${u.is_active ? '✅' : '❌'}</td>
+                <td style="display:flex; gap:6px; flex-wrap:wrap;">
+                    <select id="role-sel-${u.id}" style="padding:3px 6px; font-size:12px; border:1px solid #ddd; border-radius:3px;">
+                        <option value="basic" ${u.role==='basic'?'selected':''}>Basic</option>
+                        <option value="admin" ${u.role==='admin'?'selected':''}>Admin</option>
+                    </select>
+                    <button class="btn" style="font-size:11px; padding:3px 8px;" onclick="updateUserRole(${u.id})">Save</button>
+                    ${u.is_active
+                        ? `<button class="btn btn-danger" style="font-size:11px; padding:3px 8px;" onclick="deactivateUser(${u.id})">Deactivate</button>`
+                        : `<button class="btn btn-success" style="font-size:11px; padding:3px 8px;" onclick="activateUser(${u.id})">Activate</button>`
+                    }
+                </td>
+            </tr>`).join('');
+        }
+
+        function showAddUserForm() {
+            document.getElementById('add-user-form').style.display = 'block';
+        }
+        function hideAddUserForm() {
+            document.getElementById('add-user-form').style.display = 'none';
+        }
+
+        async function createUser() {
+            const username = document.getElementById('new-user-username').value.trim();
+            const password = document.getElementById('new-user-password').value.trim();
+            const display_name = document.getElementById('new-user-display').value.trim();
+            const role = document.getElementById('new-user-role').value;
+            const errEl = document.getElementById('add-user-error');
+            if (!username || !password) { errEl.textContent = 'Username and password required'; errEl.style.display = 'block'; return; }
+            errEl.style.display = 'none';
+            try {
+                const res = await apiFetch(apiUrl('/api/users'), {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({username, password, role, display_name}),
+                });
+                const data = await res.json();
+                if (!res.ok) { errEl.textContent = data.error || 'Failed to create user'; errEl.style.display = 'block'; return; }
+                hideAddUserForm();
+                document.getElementById('new-user-username').value = '';
+                document.getElementById('new-user-password').value = '';
+                document.getElementById('new-user-display').value = '';
+                loadUsers();
+            } catch (e) { errEl.textContent = e.message; errEl.style.display = 'block'; }
+        }
+
+        async function updateUserRole(uid) {
+            const role = document.getElementById(`role-sel-${uid}`).value;
+            await apiFetch(apiUrl(`/api/users/${uid}`), {
+                method: 'PATCH',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({role}),
+            });
+            loadUsers();
+        }
+
+        async function deactivateUser(uid) {
+            if (!confirm('Deactivate this user?')) return;
+            await apiFetch(apiUrl(`/api/users/${uid}`), {method: 'DELETE'});
+            loadUsers();
+        }
+
+        async function activateUser(uid) {
+            await apiFetch(apiUrl(`/api/users/${uid}`), {
+                method: 'PATCH',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({is_active: 1}),
+            });
+            loadUsers();
+        }
+
+        // Load users when config tab is opened
+        const _origSwitchTab = window.switchTab;
+        // (We'll hook into switchTab below after it's defined)
 
         // Chat functionality
         let chatHistory = [];
@@ -2641,7 +3416,8 @@
             try {
                 const requestBody = {
                     message: message,
-                    history: chatHistory.slice(-10) // Last 10 messages for context
+                    history: chatHistory.slice(-10), // Last 10 messages for context
+                    session_id: currentSessionId,
                 };
 
                 // Add document type filter if selected
@@ -2649,11 +3425,24 @@
                     requestBody.document_type = documentTypeFilter.value;
                 }
 
-                const response = await fetch('api/chat', {
+                const response = await apiFetch(apiUrl('/api/chat'), {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify(requestBody)
                 });
+
+                // Detect session expiry: redirected to login page
+                if (response.redirected && response.url.includes('/login')) {
+                    hideTypingIndicator();
+                    addChatMessage('assistant', '⚠️ Your session has expired. Please [reload the page](' + window.location.href + ') and log in again.');
+                    return;
+                }
+
+                if (!response.ok && response.status === 401) {
+                    hideTypingIndicator();
+                    window.location.href = apiUrl('/login');
+                    return;
+                }
 
                 const data = await response.json();
 
@@ -2661,6 +3450,17 @@
 
                 if (data.response) {
                     addChatMessage('assistant', data.response);
+                    // Track session and update sidebar
+                    if (data.session_id) {
+                        const wasNew = !currentSessionId;
+                        currentSessionId = data.session_id;
+                        if (wasNew) {
+                            // Auto-title: update header from first message
+                            const autoTitle = message.slice(0, 60);
+                            document.getElementById('active-session-title').textContent = autoTitle;
+                        }
+                        loadSessions();
+                    }
                 } else {
                     addChatMessage('assistant', 'Sorry, I encountered an error: ' + (data.error || 'Unknown error'));
                 }
@@ -2686,22 +3486,8 @@
         }
 
         function clearChat() {
-            if (!confirm('Clear chat history?')) return;
-
-            const messagesDiv = document.getElementById('chat-messages');
-            messagesDiv.innerHTML = `
-                <div class="chat-message assistant">
-                    <div class="message-bubble">
-                        <div>Chat cleared. How can I help you?</div>
-                    </div>
-                </div>
-                <div class="chat-suggestions">
-                    <div class="suggestion-chip" onclick="sendSuggestion('Show me all high-risk documents')">Show me all high-risk documents</div>
-                    <div class="suggestion-chip" onclick="sendSuggestion('What anomalies were most common?')">What anomalies were most common?</div>
-                    <div class="suggestion-chip" onclick="sendSuggestion('Generate a summary of all analyzed documents')">Generate a summary</div>
-                </div>
-            `;
-            chatHistory = [];
+            if (!confirm('Start a new chat? The current session will remain in the sidebar.')) return;
+            newChat();
         }
 
         // Initial load
@@ -2727,7 +3513,7 @@
             modalBody.innerHTML = '<div class="loading">Loading evidence...</div>';
 
             try {
-                const response = await fetch(apiUrl(`/api/tag-evidence/${docId}`));
+                const response = await apiFetch(apiUrl(`/api/tag-evidence/${docId}`));
                 const data = await response.json();
 
                 if (data.error) {
@@ -2854,14 +3640,14 @@
         // Project Selector Functions
         async function loadProjectSelector() {
             try {
-                const response = await fetch(apiUrl('/api/projects'));
+                const response = await apiFetch(apiUrl('/api/projects'));
                 const data = await response.json();
 
                 const selector = document.getElementById('project-selector');
                 if (!selector) return;
 
                 // Get current project
-                const currentResponse = await fetch(apiUrl('/api/current-project'));
+                const currentResponse = await apiFetch(apiUrl('/api/current-project'));
                 const currentProject = await currentResponse.json();
 
                 // Populate dropdown
@@ -2884,7 +3670,7 @@
             const projectSlug = selector.value;
 
             try {
-                const response = await fetch(apiUrl('/api/current-project'), {
+                const response = await apiFetch(apiUrl('/api/current-project'), {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ project_slug: projectSlug })
@@ -2904,6 +3690,8 @@
 
         // Load project selector on page load
         loadProjectSelector();
+        // Load chat sessions on page load
+        loadSessions();
     </script>
 
     <!-- Tag Evidence Modal -->
@@ -2918,5 +3706,29 @@
             </div>
         </div>
     </div>
+
+    <!-- Share Modal -->
+    <div id="share-modal">
+        <div class="share-modal-box">
+            <h3>🔗 Share this Chat</h3>
+            <div class="share-input-row">
+                <input type="text" id="share-username-input" placeholder="Enter username to share with...">
+                <button class="btn btn-primary" onclick="addShare()">Share</button>
+            </div>
+            <div id="share-error" style="color: #e74c3c; font-size: 13px; margin-bottom: 8px; display:none;"></div>
+            <div id="share-list-container">
+                <div style="font-size: 13px; color: #666; margin-bottom: 6px;">Currently shared with:</div>
+                <div class="share-list" id="share-list">
+                    <div style="color: #999; font-size: 13px;">No shares yet</div>
+                </div>
+            </div>
+            <div style="margin-top: 20px; text-align: right;">
+                <button class="btn" onclick="closeShareModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    </div><!-- end #main-content -->
+</div><!-- end #app-layout -->
 </body>
 </html>

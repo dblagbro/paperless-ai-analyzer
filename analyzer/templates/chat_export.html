@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ session_title }} — Chat Export</title>
+    <style>
+        @page {
+            margin: 2cm 2.5cm;
+            @top-right { content: "Paperless AI Analyzer"; font-size: 9pt; color: #888; }
+            @bottom-center { content: "Page " counter(page) " of " counter(pages); font-size: 9pt; color: #888; }
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+            font-size: 11pt;
+            line-height: 1.6;
+            color: #222;
+        }
+
+        .export-header {
+            border-bottom: 2px solid #2c3e50;
+            padding-bottom: 16px;
+            margin-bottom: 28px;
+        }
+
+        .export-header h1 {
+            font-size: 18pt;
+            color: #2c3e50;
+            margin: 0 0 6px;
+        }
+
+        .export-meta {
+            font-size: 9pt;
+            color: #666;
+        }
+
+        .export-meta span { margin-right: 20px; }
+
+        .message {
+            margin-bottom: 20px;
+            page-break-inside: avoid;
+        }
+
+        .message-header {
+            font-size: 9pt;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 6px;
+        }
+
+        .message.user .message-header { color: #2980b9; }
+        .message.assistant .message-header { color: #27ae60; }
+
+        .message-body {
+            background: #f8f9fa;
+            border-left: 3px solid #ddd;
+            padding: 10px 14px;
+            border-radius: 0 4px 4px 0;
+        }
+
+        .message.user .message-body { border-left-color: #2980b9; background: #eaf4fb; }
+        .message.assistant .message-body { border-left-color: #27ae60; background: #eafaf1; }
+
+        /* Markdown-rendered content styling */
+        .message-body p { margin: 0 0 8px; }
+        .message-body p:last-child { margin-bottom: 0; }
+        .message-body ul, .message-body ol { padding-left: 20px; margin: 6px 0; }
+        .message-body li { margin-bottom: 3px; }
+        .message-body strong { font-weight: 700; }
+        .message-body em { font-style: italic; }
+        .message-body code {
+            font-family: 'Courier New', monospace;
+            font-size: 9.5pt;
+            background: #f0f0f0;
+            padding: 1px 4px;
+            border-radius: 3px;
+        }
+        .message-body pre {
+            background: #f0f0f0;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-size: 9pt;
+        }
+        .message-body pre code { background: none; padding: 0; }
+        .message-body h1, .message-body h2, .message-body h3 {
+            margin: 10px 0 6px;
+            color: #2c3e50;
+        }
+        .message-body table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 8px 0;
+            font-size: 9.5pt;
+        }
+        .message-body th, .message-body td {
+            border: 1px solid #ccc;
+            padding: 5px 8px;
+            text-align: left;
+        }
+        .message-body th { background: #e8eaed; font-weight: 700; }
+        .message-body blockquote {
+            border-left: 4px solid #ccc;
+            margin: 8px 0;
+            padding: 4px 12px;
+            color: #555;
+        }
+
+        .divider {
+            border: none;
+            border-top: 1px solid #e0e0e0;
+            margin: 16px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="export-header">
+        <h1>{{ session_title }}</h1>
+        <div class="export-meta">
+            <span><strong>User:</strong> {{ username }}</span>
+            <span><strong>Exported:</strong> {{ export_date }}</span>
+            <span><strong>Messages:</strong> {{ messages|length }}</span>
+            {% if document_type %}<span><strong>Filter:</strong> {{ document_type }}</span>{% endif %}
+        </div>
+    </div>
+
+    {% for msg in messages %}
+    <div class="message {{ msg.role }}">
+        <div class="message-header">
+            {% if msg.role == 'user' %}You{% else %}AI Assistant{% endif %}
+            <span style="font-weight:400; text-transform:none; letter-spacing:0; color:#999; margin-left:8px;">{{ msg.created_at }}</span>
+        </div>
+        <div class="message-body">{{ msg.html_content|safe }}</div>
+    </div>
+    {% if not loop.last %}<hr class="divider">{% endif %}
+    {% endfor %}
+</body>
+</html>
