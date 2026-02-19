@@ -1941,6 +1941,7 @@
                                style="flex:1; min-width:180px; padding:7px 12px; border:1px solid #ddd; border-radius:4px; font-size:13px;" />
                         <span id="vs-count-label" style="font-size:13px; color:#666; white-space:nowrap;"></span>
                         <button class="btn btn-small" onclick="loadVectorStoreDocuments()">↻ Refresh</button>
+                        <button class="btn btn-small" onclick="triggerReembedStale()" id="btn-reembed-stale" title="Re-analyze documents whose OCR content changed after they were first embedded">⟳ Re-embed Stale</button>
                         <button class="btn btn-warning" onclick="confirmClearVectorStore()">Clear All</button>
                     </div>
                     <div id="vector-store-manager">
@@ -3439,6 +3440,25 @@
                 }
             } catch (error) {
                 alert('❌ Failed to clear vector store: ' + error.message);
+            }
+        }
+
+        async function triggerReembedStale() {
+            const btn = document.getElementById('btn-reembed-stale');
+            const orig = btn ? btn.textContent : '';
+            if (btn) { btn.disabled = true; btn.textContent = '⏳ Checking…'; }
+            try {
+                const response = await apiFetch(apiUrl('/api/vector/reembed-stale'), { method: 'POST' });
+                const data = await response.json();
+                if (data.success) {
+                    alert('✅ ' + data.message);
+                } else {
+                    alert('❌ Error: ' + (data.error || 'Unknown error'));
+                }
+            } catch (error) {
+                alert('❌ Failed to start stale check: ' + error.message);
+            } finally {
+                if (btn) { btn.disabled = false; btn.textContent = orig; }
             }
         }
 

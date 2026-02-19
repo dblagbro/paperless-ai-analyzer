@@ -114,6 +114,9 @@ class DocumentAnalyzer:
         self.reanalysis_delay_seconds = 300  # 5 minutes after last doc before re-analyzing
         self.documents_processed_this_cycle = 0
 
+        # v2.0.4: Stale embedding detection
+        self._stale_check_counter = 0  # Incremented each poll; triggers check every 10 polls
+
         self.archive_path = config.get('archive_path', '/paperless/media/documents/archive')
         logger.info("DocumentAnalyzer initialization complete")
 
@@ -537,8 +540,105 @@ Format the output as structured text that preserves the layout and relationships
             # v1.5.0: Check if we should trigger automatic re-analysis
             self.check_and_trigger_reanalysis()
 
+            # v2.0.4: Periodic stale embedding check (every 10 idle polls, skip when busy or reprocessing)
+            # Only runs when there are no new docs to process, to avoid concurrent OpenAI calls.
+            if not reprocess_mode and processed_count == 0:
+                self._stale_check_counter += 1
+                if self._stale_check_counter % 10 == 1:  # 1st, 11th, 21st… idle poll
+                    import threading
+                    threading.Thread(target=self.check_stale_embeddings, daemon=True).start()
+
         except Exception as e:
             logger.error(f"Failed to poll documents: {e}", exc_info=True)
+
+    def check_stale_embeddings(self) -> int:
+        """
+        v2.0.4: Detect and re-analyze documents whose Chroma embeddings are stale.
+
+        An embedding is stale when:
+          - Its stored 'paperless_modified' in Chroma is older than the current Paperless
+            modified timestamp (OCR completed after the document was first embedded), OR
+          - No 'paperless_modified' is stored (embedded before v2.0.4) AND the Chroma
+            document text is suspiciously short (< 200 chars — indicates empty OCR at
+            embed time).
+
+        To avoid flooding the Paperless API, only checks documents modified within the
+        past 7 days (or with short content), and caps at 50 re-analyses per call.
+
+        Returns: number of documents re-analyzed.
+        """
+        if not self.vector_store or not self.vector_store.enabled:
+            return 0
+
+        try:
+            from datetime import timezone, timedelta
+            all_data = self.vector_store.collection.get(include=['metadatas', 'documents'])
+            if not all_data['ids']:
+                return 0
+
+            now = datetime.now(timezone.utc)
+            recent_cutoff = now - timedelta(days=7)
+
+            candidates = []  # list of (doc_id, stored_modified)
+            for i, chroma_id in enumerate(all_data['ids']):
+                meta = all_data['metadatas'][i]
+                stored_modified = meta.get('paperless_modified', '')
+                doc_text = all_data['documents'][i] if all_data.get('documents') else ''
+                doc_id = int(chroma_id)
+
+                if not stored_modified:
+                    # Embedded before v2.0.4 — only check if content looks empty/stub
+                    if len(doc_text.strip()) < 200:
+                        candidates.append((doc_id, ''))
+                else:
+                    # Embedded after v2.0.4 — only check recently modified docs
+                    try:
+                        stored_dt = datetime.fromisoformat(stored_modified.replace('Z', '+00:00'))
+                        if stored_dt.tzinfo is None:
+                            stored_dt = stored_dt.replace(tzinfo=timezone.utc)
+                        if stored_dt >= recent_cutoff:
+                            candidates.append((doc_id, stored_modified))
+                    except Exception:
+                        if len(doc_text.strip()) < 200:
+                            candidates.append((doc_id, stored_modified))
+
+            if not candidates:
+                logger.info("Stale embedding check: no candidates found")
+                return 0
+
+            # Cap to avoid Paperless API overload
+            candidates = candidates[:50]
+            logger.info(f"Stale embedding check: verifying {len(candidates)} candidate documents")
+
+            reanalyzed = 0
+            for doc_id, stored_modified in candidates:
+                try:
+                    current_doc = self.paperless.get_document(doc_id)
+                    current_modified = current_doc.get('modified', '')
+                    current_content_len = len(current_doc.get('content', '').strip())
+
+                    is_stale = False
+                    if stored_modified and current_modified > stored_modified:
+                        logger.info(f"Stale doc {doc_id}: modified {stored_modified} → {current_modified}")
+                        is_stale = True
+                    elif not stored_modified and current_content_len >= 200:
+                        logger.info(f"Stale doc {doc_id}: was empty OCR, now {current_content_len} chars")
+                        is_stale = True
+
+                    if is_stale:
+                        logger.info(f"Re-analyzing stale document {doc_id}: {current_doc.get('title', '?')}")
+                        self.analyze_document(current_doc)
+                        reanalyzed += 1
+
+                except Exception as e:
+                    logger.warning(f"Stale check failed for doc {doc_id}: {e}")
+
+            logger.info(f"Stale embedding check complete: {reanalyzed}/{len(candidates)} documents re-analyzed")
+            return reanalyzed
+
+        except Exception as e:
+            logger.error(f"check_stale_embeddings failed: {e}", exc_info=True)
+            return 0
 
     def analyze_document(self, document: Dict[str, Any]) -> None:
         """
@@ -885,6 +985,7 @@ Format the output as structured text that preserves the layout and relationships
                         'risk_score': risk_score,
                         'anomalies': deterministic_results.get('anomalies_found', []),
                         'timestamp': datetime.utcnow().isoformat(),
+                        'paperless_modified': document.get('modified', ''),  # v2.0.4: track Paperless modified time for stale detection
                         'document_type': document_type,
                         'brief_summary': doc_summary.get('brief', ''),
                         'full_summary': doc_summary.get('full', '')
