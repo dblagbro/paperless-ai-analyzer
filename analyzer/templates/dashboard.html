@@ -680,6 +680,11 @@
             border-radius: 20px;
             font-size: 14px;
             outline: none;
+            resize: none;
+            overflow-y: auto;
+            max-height: 120px;
+            line-height: 1.4;
+            font-family: inherit;
         }
 
         .chat-input:focus {
@@ -1759,7 +1764,7 @@
                             <span id="type-breakdown" style="font-size: 12px; color: #999;"></span>
                         </div>
                         <div class="chat-input-container">
-                            <input type="text" class="chat-input" id="chat-input" placeholder="Ask me anything about your documents..." onkeypress="handleChatKeypress(event)">
+                            <textarea class="chat-input" id="chat-input" rows="1" placeholder="Ask me anything about your documents… (Enter to send, Ctrl+Enter for new line)" onkeydown="handleChatKeypress(event)"></textarea>
                             <button class="chat-send-btn" id="chat-send-btn" onclick="sendChatMessage()">Send</button>
                         </div>
                     </div>
@@ -4213,7 +4218,7 @@
                 const active = s.id === currentSessionId ? ' active' : '';
                 const sharedBadge = s.is_shared ? '<span class="session-badge-shared">shared</span>' : '';
                 return `<div class="session-item${active}" data-session-id="${s.id}" onclick="loadSession('${s.id}')">
-                    <span class="session-title">${escapeHtml(s.title)}${sharedBadge}</span>
+                    <span class="session-title">title: ${escapeHtml(s.title)}${sharedBadge}</span>
                     <span class="session-meta">${formatDate(s.updated_at)}</span>
                     <div class="session-actions" onclick="event.stopPropagation()">
                         <button class="session-action-btn" title="Rename" onclick="renameSessionPrompt('${s.id}', '${escapeHtml(s.title).replace(/'/g, "\\'")}')">✏️</button>
@@ -4645,9 +4650,11 @@
         }
 
         function handleChatKeypress(event) {
-            if (event.key === 'Enter') {
+            if (event.key === 'Enter' && !event.ctrlKey) {
+                event.preventDefault();
                 sendChatMessage();
             }
+            // Ctrl+Enter falls through to default textarea behaviour (inserts newline)
         }
 
         function sendSuggestion(text) {
