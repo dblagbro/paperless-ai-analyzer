@@ -4,6 +4,22 @@ All notable changes to Paperless AI Analyzer are documented here.
 
 ---
 
+## [2.0.3] — 2026-02-19
+
+### Upload tab — multi-file / folder URL support
+
+- **File or Folder URL** — The URL mode now accepts a directory URL in addition to a single file link. When a folder/index URL is entered, the backend fetches the HTML page, parses all `<a href>` links, and filters to compatible document types (PDF, images, Word, Excel, ODT, TXT, EML, and more). Executables, binaries, media files, and archives are excluded.
+- **File-picker panel** — A checklist panel appears showing discovered files with coloured extension badges, filename, and file size. All files are pre-checked; a "Select all / none" toggle and per-file checkboxes let you choose exactly what to upload. Files upload sequentially with per-row ✅ / ❌ / ⏳ status icons.
+- **New backend route** `POST /api/upload/scan-url` — probes a URL, returns `{type: "single"}` or `{type: "directory", files: [...]}`.
+
+### Bug fixes
+
+- **Help panel on AI Chat tab** — The `switchTab` function was identifying the active tab button via text-content matching with an incorrect `replace('-', ' & ')` transform, so `ai-chat` never matched `💬 AI Chat`. Replaced with `onclick`-attribute matching, which is exact for all tabs.
+- **Help button label** — Button now shows **"? Help: Off"** / **"? Help: On"** to make the toggle state obvious.
+- **Analyzed count persists across restarts** — `total_analyzed` was an in-memory counter rebuilt from the anomaly-detector's Paperless tag (applied by a different service). Added `processed_documents` table to `app.db`; every document analyzed by the AI is recorded there. On startup the count is loaded from the database instead of querying Paperless tags, so restarts no longer reset the counter.
+
+---
+
 ## [2.0.2] — 2026-02-19
 
 ### About / Help / Bug Report
