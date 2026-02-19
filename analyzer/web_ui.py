@@ -8,11 +8,14 @@ import os
 import json
 import logging
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, Any, List
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, render_template, jsonify, request, redirect, url_for, make_response
+from flask_login import login_required, login_user, logout_user, current_user
+from werkzeug.security import check_password_hash
 from threading import Thread, Lock
 from collections import deque
+from functools import wraps
 
 logger = logging.getLogger(__name__)
 
@@ -46,8 +49,121 @@ ui_state = {
 
 app = Flask(__name__, template_folder='/app/analyzer/templates', static_folder='/app/analyzer/static')
 
-# Configure session secret key (v1.5.0 for project tracking)
-app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'dev-secret-key-change-in-production')
+
+def _load_or_generate_secret_key() -> str:
+    """Load secret key from env var, persistent file, or generate a new one.
+
+    Priority:
+      1. FLASK_SECRET_KEY env var (explicit override)
+      2. /app/data/.flask_secret_key file (auto-generated on first run, persists across restarts)
+      3. Generate a new cryptographically random key, save it, and use it
+    """
+    # 1. Explicit env var always wins
+    env_key = os.environ.get('FLASK_SECRET_KEY', '').strip()
+    if env_key:
+        return env_key
+
+    # 2. Persistent file in the data volume
+    key_file = Path('/app/data/.flask_secret_key')
+    try:
+        if key_file.exists():
+            stored = key_file.read_text().strip()
+            if stored:
+                return stored
+    except Exception:
+        pass
+
+    # 3. Generate, persist, and return
+    import secrets
+    new_key = secrets.token_hex(32)  # 256-bit random key
+    try:
+        key_file.parent.mkdir(parents=True, exist_ok=True)
+        key_file.write_text(new_key)
+        key_file.chmod(0o600)
+        logger.info("Generated new Flask secret key and saved to /app/data/.flask_secret_key")
+    except Exception as e:
+        logger.warning(f"Could not persist Flask secret key: {e} — key will change on restart")
+    return new_key
+
+
+app.secret_key = _load_or_generate_secret_key()
+# Sessions last 7 days (survive browser close)
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=7)
+# Unique cookie names per deployment so that prod and dev on the same domain
+# do not overwrite each other's session/remember cookies.
+_url_prefix = os.environ.get('URL_PREFIX', '').strip('/')
+_cookie_suffix = _url_prefix.replace('-', '_').replace('/', '_') if _url_prefix else 'paperless'
+app.config['SESSION_COOKIE_NAME'] = f'{_cookie_suffix}_session'
+app.config['REMEMBER_COOKIE_NAME'] = f'{_cookie_suffix}_remember_token'
+if _url_prefix:
+    app.config['SESSION_COOKIE_PATH'] = f'/{_url_prefix}/'
+    app.config['REMEMBER_COOKIE_PATH'] = f'/{_url_prefix}/'
+
+
+class _ReverseProxied:
+    """WSGI middleware that reads X-Script-Name from nginx and sets SCRIPT_NAME.
+
+    When nginx strips a sub-path prefix (e.g. /paperless-ai-analyzer-dev)
+    before proxying, Flask never sees it and generates bare URLs like /login.
+    This middleware restores the prefix into the WSGI environ so that
+    url_for() automatically includes it in every generated URL.
+    """
+    def __init__(self, wsgi_app):
+        self.app = wsgi_app
+
+    def __call__(self, environ, start_response):
+        script_name = os.environ.get('URL_PREFIX', '').rstrip('/')
+        if script_name:
+            environ['SCRIPT_NAME'] = script_name
+            # nginx already stripped the prefix from PATH_INFO, so don't strip again
+        return self.app(environ, start_response)
+
+
+app.wsgi_app = _ReverseProxied(app.wsgi_app)
+
+# Auth setup
+from analyzer.auth import login_manager
+from analyzer.db import (
+    init_db, get_user_by_username, get_user_by_id, update_last_login,
+    get_sessions, get_all_sessions_by_user, create_session, get_session,
+    get_messages, append_message, update_session_title, delete_session,
+    share_session, unshare_session, get_session_shares, can_access_session,
+    list_users, create_user as db_create_user, update_user as db_update_user,
+)
+login_manager.init_app(app)
+
+
+@app.before_request
+def make_session_permanent():
+    """Make every session permanent so the cookie survives browser close/reopen."""
+    from flask import session as flask_session
+    flask_session.permanent = True
+
+
+@app.after_request
+def add_no_cache(response):
+    """Prevent browsers from caching the dashboard or API responses."""
+    if request.path.startswith('/api/') or request.path == '/':
+        response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+    return response
+
+
+def admin_required(f):
+    """Decorator: requires logged-in admin user, returns 403 otherwise."""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not current_user.is_authenticated or not current_user.is_admin:
+            return jsonify({'error': 'Admin access required'}), 403
+        return f(*args, **kwargs)
+    return decorated
+
+
+@app.context_processor
+def inject_user():
+    is_admin = current_user.is_authenticated and current_user.is_admin
+    return {'current_user': current_user, 'is_admin': is_admin}
 
 
 def initialize_ui_state():
@@ -166,19 +282,56 @@ def create_app(state_manager, profile_loader, paperless_client,
     app.llm_client = llm_client
     app.smart_uploader = smart_uploader
 
+    # Initialize auth database (idempotent)
+    init_db()
+
     # Initialize UI state from existing documents
     initialize_ui_state()
 
     return app
 
 
+@app.route('/login', methods=['GET', 'POST'])
+def login_page():
+    """Login page."""
+    if current_user.is_authenticated:
+        return redirect(url_for('index'))
+
+    error = None
+    username_val = ''
+    if request.method == 'POST':
+        username_val = request.form.get('username', '').strip()
+        password = request.form.get('password', '')
+        row = get_user_by_username(username_val)
+        if row and check_password_hash(row['password_hash'], password):
+            from analyzer.auth import User
+            user = User(row)
+            login_user(user, remember=True)
+            update_last_login(user.id)
+            next_page = request.args.get('next') or url_for('index')
+            return redirect(next_page)
+        error = 'Invalid username or password.'
+
+    return render_template('login.html', error=error, username=username_val)
+
+
+@app.route('/logout')
+@login_required
+def logout():
+    """Log out current user."""
+    logout_user()
+    return redirect(url_for('login_page'))
+
+
 @app.route('/')
+@login_required
 def index():
     """Main dashboard page."""
     return render_template('dashboard.html')
 
 
 @app.route('/api/status')
+@login_required
 def api_status():
     """Get current analyzer status."""
     with ui_state['lock']:
@@ -201,6 +354,7 @@ def api_status():
 
 
 @app.route('/api/recent')
+@login_required
 def api_recent():
     """Get recent analysis results."""
     with ui_state['lock']:
@@ -210,6 +364,7 @@ def api_recent():
 
 
 @app.route('/api/profiles')
+@login_required
 def api_profiles():
     """Get profile information."""
     active_profiles = []
@@ -239,6 +394,7 @@ def api_profiles():
 
 
 @app.route('/api/staging/<filename>')
+@login_required
 def api_staging_profile(filename):
     """Get staging profile content."""
     staging_file = Path('/app/profiles/staging') / filename
@@ -255,6 +411,7 @@ def api_staging_profile(filename):
 
 
 @app.route('/api/staging/<filename>/activate', methods=['POST'])
+@login_required
 def api_activate_staging_profile(filename):
     """Activate a staging profile by moving it to active profiles."""
     staging_file = Path('/app/profiles/staging') / filename
@@ -278,6 +435,7 @@ def api_activate_staging_profile(filename):
 
 
 @app.route('/api/staging/activate-all', methods=['POST'])
+@login_required
 def api_activate_all_staging_profiles():
     """Activate all staging profiles at once."""
     staging_dir = Path('/app/profiles/staging')
@@ -306,6 +464,7 @@ def api_activate_all_staging_profiles():
 
 
 @app.route('/api/staging/<filename>/delete', methods=['POST'])
+@login_required
 def api_delete_staging_profile(filename):
     """Delete a staging profile."""
     staging_file = Path('/app/profiles/staging') / filename
@@ -326,6 +485,7 @@ def api_delete_staging_profile(filename):
 
 
 @app.route('/api/active/<filename>', methods=['GET'])
+@login_required
 def api_get_active_profile(filename):
     """Get an active profile's content."""
     active_file = Path('/app/profiles/active') / filename
@@ -343,6 +503,7 @@ def api_get_active_profile(filename):
 
 
 @app.route('/api/active/<filename>/rename', methods=['POST'])
+@login_required
 def api_rename_active_profile(filename):
     """Rename an active profile (update display_name)."""
     active_file = Path('/app/profiles/active') / filename
@@ -378,6 +539,7 @@ def api_rename_active_profile(filename):
 
 
 @app.route('/api/active/<filename>/delete', methods=['POST'])
+@login_required
 def api_delete_active_profile(filename):
     """Delete an active profile."""
     active_file = Path('/app/profiles/active') / filename
@@ -398,6 +560,7 @@ def api_delete_active_profile(filename):
 
 
 @app.route('/api/active/duplicates', methods=['GET'])
+@login_required
 def api_detect_duplicates():
     """Detect duplicate profiles in active directory."""
     active_dir = Path('/app/profiles/active')
@@ -526,6 +689,7 @@ def api_detect_duplicates():
 
 
 @app.route('/api/active/duplicates/remove', methods=['POST'])
+@login_required
 def api_remove_duplicates():
     """Remove specified duplicate profiles."""
     try:
@@ -580,6 +744,7 @@ def api_remove_duplicates():
 
 
 @app.route('/api/reload-profiles', methods=['POST'])
+@login_required
 def api_reload_profiles():
     """Reload all active profiles without restarting the container."""
     try:
@@ -611,6 +776,7 @@ def api_reload_profiles():
 
 
 @app.route('/api/chat', methods=['POST'])
+@login_required
 def api_chat():
     """Chat with AI about documents using RAG (semantic search)."""
     try:
@@ -618,9 +784,22 @@ def api_chat():
         user_message = data.get('message', '').strip()
         history = data.get('history', [])
         document_type = data.get('document_type', None)  # Optional filter by document type
+        session_id = data.get('session_id', None)
 
         if not user_message:
             return jsonify({'error': 'Message required'}), 400
+
+        # Resolve or create a chat session
+        if session_id:
+            sess = get_session(session_id)
+            if not sess or not can_access_session(session_id, current_user.id):
+                session_id = None  # Fall through to create new
+        if not session_id:
+            session_id = create_session(
+                current_user.id,
+                title='New Chat',
+                document_type=document_type,
+            )
 
         # Get stats
         with ui_state['lock']:
@@ -1009,14 +1188,28 @@ LEDGER AND REPORT GENERATION:
                 continue
 
         if ai_response is None:
-            attempted_str = ", ".join(attempted) if attempted else "no models"
-            raise Exception(f"No available models found. Tried: {attempted_str}. Last error: {last_error}")
+            if not attempted:
+                raise Exception("No AI API key configured. Please go to the Configuration tab → AI Configuration and add an API key.")
+            attempted_str = ", ".join(attempted)
+            raise Exception(f"No available models responded. Tried: {attempted_str}. Last error: {last_error}")
 
         logger.info(f"Chat query: {user_message[:100]}")
 
+        # Persist messages to the session
+        append_message(session_id, 'user', user_message)
+        append_message(session_id, 'assistant', ai_response)
+
+        # Auto-title: set from first user message if still 'New Chat'
+        current_sess = get_session(session_id)
+        if current_sess and current_sess['title'] == 'New Chat':
+            auto_title = user_message[:60].strip()
+            if auto_title:
+                update_session_title(session_id, auto_title)
+
         return jsonify({
             'response': ai_response,
-            'success': True
+            'success': True,
+            'session_id': session_id,
         })
 
     except Exception as e:
@@ -1025,6 +1218,7 @@ LEDGER AND REPORT GENERATION:
 
 
 @app.route('/api/vector/types', methods=['GET'])
+@login_required
 def api_vector_types():
     """Get list of all document types in vector store."""
     try:
@@ -1049,6 +1243,7 @@ def api_vector_types():
 
 
 @app.route('/api/vector/delete/<int:document_id>', methods=['POST'])
+@login_required
 def api_vector_delete_document(document_id):
     """Delete a specific document from vector store."""
     try:
@@ -1074,6 +1269,7 @@ def api_vector_delete_document(document_id):
 
 
 @app.route('/api/vector/delete-document', methods=['POST'])
+@login_required
 def api_vector_delete_document_json():
     """Delete a specific document from vector store (JSON body)."""
     try:
@@ -1105,6 +1301,7 @@ def api_vector_delete_document_json():
 
 
 @app.route('/api/vector/delete-by-type', methods=['POST'])
+@login_required
 def api_vector_delete_by_type():
     """Delete all documents of a specific type from vector store."""
     try:
@@ -1134,6 +1331,7 @@ def api_vector_delete_by_type():
 
 
 @app.route('/api/vector/clear', methods=['POST'])
+@login_required
 def api_vector_clear():
     """Clear all documents from vector store."""
     try:
@@ -1159,6 +1357,7 @@ def api_vector_clear():
 
 
 @app.route('/api/vector/documents', methods=['GET'])
+@login_required
 def api_vector_documents():
     """Get all documents from vector store with details, grouped by type."""
     try:
@@ -1207,6 +1406,7 @@ def api_vector_documents():
 
 
 @app.route('/api/settings/poll-interval', methods=['POST'])
+@login_required
 def api_settings_poll_interval():
     """Update the poll interval setting."""
     try:
@@ -1326,6 +1526,7 @@ def save_ai_config(config):
 
 
 @app.route('/api/ai-config', methods=['GET'])
+@login_required
 def api_ai_config_get():
     """Get current AI configuration."""
     try:
@@ -1340,6 +1541,7 @@ def api_ai_config_get():
 
 
 @app.route('/api/ai-config', methods=['POST'])
+@login_required
 def api_ai_config_save():
     """Save AI configuration."""
     try:
@@ -1368,6 +1570,7 @@ def api_ai_config_save():
 
 
 @app.route('/api/ai-config/test', methods=['POST'])
+@login_required
 def api_ai_config_test():
     """Test an AI provider/model configuration."""
     try:
@@ -1456,6 +1659,7 @@ def api_ai_config_test():
 
 
 @app.route('/api/trigger', methods=['POST'])
+@login_required
 def api_trigger():
     """Manually trigger analysis of a document."""
     data = request.json
@@ -1484,6 +1688,7 @@ def api_trigger():
 
 
 @app.route('/api/logs')
+@login_required
 def api_logs():
     """Get recent log entries from the running process."""
     try:
@@ -1522,6 +1727,7 @@ def api_logs():
 
 
 @app.route('/api/reprocess', methods=['POST'])
+@login_required
 def api_reprocess():
     """Reset state and reprocess all documents."""
     try:
@@ -1544,6 +1750,7 @@ def api_reprocess():
 
 
 @app.route('/api/reprocess/<int:doc_id>', methods=['POST'])
+@login_required
 def api_reprocess_document(doc_id):
     """Reprocess a specific document by removing it from state."""
     try:
@@ -1562,7 +1769,39 @@ def api_reprocess_document(doc_id):
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/change-password', methods=['POST'])
+@login_required
+def api_change_password():
+    """Allow the current user to change their own password."""
+    from analyzer.db import get_user_by_id
+    from werkzeug.security import check_password_hash, generate_password_hash
+    import sqlite3
+    data = request.json or {}
+    current_pw = data.get('current_password', '').strip()
+    new_pw = data.get('new_password', '').strip()
+    if not current_pw or not new_pw:
+        return jsonify({'success': False, 'error': 'Both fields are required'}), 400
+    if len(new_pw) < 6:
+        return jsonify({'success': False, 'error': 'New password must be at least 6 characters'}), 400
+    row = get_user_by_id(current_user.id)
+    if not row or not check_password_hash(row['password_hash'], current_pw):
+        return jsonify({'success': False, 'error': 'Current password is incorrect'}), 403
+    try:
+        from analyzer.db import DB_PATH
+        conn = sqlite3.connect(DB_PATH)
+        conn.execute('UPDATE users SET password_hash=? WHERE id=?',
+                     (generate_password_hash(new_pw), current_user.id))
+        conn.commit()
+        conn.close()
+        logger.info(f"Password changed for user {current_user.username}")
+        return jsonify({'success': True})
+    except Exception as e:
+        logger.error(f"Failed to change password: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/api/llm/status')
+@login_required
 def api_llm_status():
     """Get LLM configuration status."""
     import os
@@ -1579,6 +1818,7 @@ def api_llm_status():
 
 
 @app.route('/api/llm/test', methods=['POST'])
+@login_required
 def api_llm_test():
     """Test an LLM API key."""
     data = request.json
@@ -1651,6 +1891,7 @@ def api_llm_test():
 
 
 @app.route('/api/llm/save', methods=['POST'])
+@login_required
 def api_llm_save():
     """Save LLM configuration and restart container."""
     data = request.json
@@ -1705,6 +1946,7 @@ def api_llm_save():
 
 
 @app.route('/api/search')
+@login_required
 def api_search():
     """Search analysis results."""
     query = request.args.get('q', '').lower()
@@ -1741,6 +1983,7 @@ def api_search():
 
 
 @app.route('/api/tag-evidence/<int:doc_id>')
+@login_required
 def api_tag_evidence(doc_id):
     """
     Get enhanced tag evidence for a specific document.
@@ -2053,6 +2296,7 @@ def api_tag_evidence(doc_id):
 # ==================== Project Management API (v1.5.0) ====================
 
 @app.route('/api/projects', methods=['GET'])
+@login_required
 def api_list_projects():
     """List all projects."""
     if not app.project_manager:
@@ -2078,6 +2322,7 @@ def api_list_projects():
 
 
 @app.route('/api/projects', methods=['POST'])
+@login_required
 def api_create_project():
     """Create new project."""
     if not app.project_manager:
@@ -2121,6 +2366,7 @@ def api_create_project():
 
 
 @app.route('/api/projects/<slug>', methods=['GET'])
+@login_required
 def api_get_project(slug):
     """Get project details."""
     if not app.project_manager:
@@ -2143,6 +2389,7 @@ def api_get_project(slug):
 
 
 @app.route('/api/projects/<slug>', methods=['PUT'])
+@login_required
 def api_update_project(slug):
     """Update project metadata."""
     if not app.project_manager:
@@ -2163,6 +2410,7 @@ def api_update_project(slug):
 
 
 @app.route('/api/projects/<slug>', methods=['DELETE'])
+@login_required
 def api_delete_project(slug):
     """Delete project."""
     if not app.project_manager:
@@ -2195,6 +2443,7 @@ def api_delete_project(slug):
 
 
 @app.route('/api/projects/<slug>/archive', methods=['POST'])
+@login_required
 def api_archive_project(slug):
     """Archive project."""
     if not app.project_manager:
@@ -2213,6 +2462,7 @@ def api_archive_project(slug):
 
 
 @app.route('/api/projects/<slug>/unarchive', methods=['POST'])
+@login_required
 def api_unarchive_project(slug):
     """Unarchive project."""
     if not app.project_manager:
@@ -2231,6 +2481,7 @@ def api_unarchive_project(slug):
 
 
 @app.route('/api/current-project', methods=['GET'])
+@login_required
 def api_get_current_project():
     """Get currently selected project from session."""
     if not app.project_manager:
@@ -2254,6 +2505,7 @@ def api_get_current_project():
 
 
 @app.route('/api/current-project', methods=['POST'])
+@login_required
 def api_set_current_project():
     """Set current project in session."""
     if not app.project_manager:
@@ -2283,6 +2535,7 @@ def api_set_current_project():
 
 
 @app.route('/api/orphan-documents', methods=['GET'])
+@login_required
 def api_list_orphan_documents():
     """List documents without project tag."""
     if not app.paperless_client:
@@ -2310,6 +2563,7 @@ def api_list_orphan_documents():
 
 
 @app.route('/api/assign-project', methods=['POST'])
+@login_required
 def api_assign_project_to_documents():
     """Assign project to one or more documents."""
     if not app.paperless_client or not app.project_manager:
@@ -2360,6 +2614,7 @@ def api_assign_project_to_documents():
 
 
 @app.route('/api/projects/<slug>/reanalyze', methods=['POST'])
+@login_required
 def api_reanalyze_project(slug):
     """Manually trigger re-analysis of all documents in a project with full context."""
     if not app.project_manager or not app.document_analyzer:
@@ -2397,6 +2652,7 @@ def api_reanalyze_project(slug):
 
 
 @app.route('/api/projects/migrate-documents', methods=['POST'])
+@login_required
 def api_migrate_documents():
     """Migrate documents from one project to another."""
     if not app.project_manager or not app.paperless_client:
@@ -2510,6 +2766,7 @@ def api_migrate_documents():
 
 
 @app.route('/api/upload/from-url', methods=['POST'])
+@login_required
 def api_upload_from_url():
     """Download file from URL and analyze with AI."""
     if not app.smart_uploader:
@@ -2568,6 +2825,7 @@ def api_upload_from_url():
 
 
 @app.route('/api/upload/analyze', methods=['POST'])
+@login_required
 def api_analyze_upload():
     """Analyze uploaded file and extract metadata."""
     if not app.smart_uploader:
@@ -2611,6 +2869,7 @@ def api_analyze_upload():
 
 
 @app.route('/api/upload/submit', methods=['POST'])
+@login_required
 def api_submit_upload():
     """Submit analyzed file to Paperless with metadata."""
     if not app.smart_uploader:
@@ -2673,6 +2932,7 @@ def api_submit_upload():
 
 
 @app.route('/api/llm-usage/stats', methods=['GET'])
+@login_required
 def api_get_llm_usage_stats():
     """Get LLM usage statistics."""
     try:
@@ -2693,6 +2953,7 @@ def api_get_llm_usage_stats():
 
 
 @app.route('/api/llm-usage/recent', methods=['GET'])
+@login_required
 def api_get_recent_llm_calls():
     """Get recent LLM API calls."""
     try:
@@ -2713,6 +2974,7 @@ def api_get_recent_llm_calls():
 
 
 @app.route('/api/llm-usage/pricing', methods=['GET'])
+@login_required
 def api_get_llm_pricing():
     """Get current LLM pricing information."""
     try:
@@ -2743,6 +3005,309 @@ def health():
             return jsonify({'status': 'unhealthy', 'reason': 'paperless_api_unreachable'}), 503
     except Exception as e:
         return jsonify({'status': 'unhealthy', 'reason': str(e)}), 503
+
+
+# ---------------------------------------------------------------------------
+# Chat Session Routes
+# ---------------------------------------------------------------------------
+
+@app.route('/api/chat/sessions', methods=['GET'])
+@login_required
+def api_chat_sessions_list():
+    """List chat sessions: own + shared. Admin sees all grouped by user."""
+    try:
+        if current_user.is_admin:
+            rows = get_all_sessions_by_user()
+            # Group by owner
+            by_user = {}
+            for r in rows:
+                owner = r['owner_username']
+                if owner not in by_user:
+                    by_user[owner] = []
+                by_user[owner].append({
+                    'id': r['id'],
+                    'title': r['title'],
+                    'document_type': r['document_type'],
+                    'created_at': r['created_at'],
+                    'updated_at': r['updated_at'],
+                    'owner_username': r['owner_username'],
+                    'is_shared': False,
+                    'is_own': r['user_id'] == current_user.id,
+                })
+            return jsonify({'sessions_by_user': by_user, 'is_admin': True})
+        else:
+            rows = get_sessions(current_user.id)
+            sessions = [{
+                'id': r['id'],
+                'title': r['title'],
+                'document_type': r['document_type'],
+                'created_at': r['created_at'],
+                'updated_at': r['updated_at'],
+                'owner_username': r['owner_username'],
+                'is_shared': bool(r['is_shared']),
+                'is_own': r['user_id'] == current_user.id,
+            } for r in rows]
+            return jsonify({'sessions': sessions, 'is_admin': False})
+    except Exception as e:
+        logger.error(f"List sessions error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/chat/sessions', methods=['POST'])
+@login_required
+def api_chat_sessions_create():
+    """Create a new chat session."""
+    try:
+        data = request.json or {}
+        title = data.get('title', 'New Chat')
+        document_type = data.get('document_type')
+        session_id = create_session(current_user.id, title=title, document_type=document_type)
+        return jsonify({'session_id': session_id, 'title': title})
+    except Exception as e:
+        logger.error(f"Create session error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/chat/sessions/<session_id>', methods=['GET'])
+@login_required
+def api_chat_session_get(session_id):
+    """Get session details + messages."""
+    try:
+        session = get_session(session_id)
+        if not session:
+            return jsonify({'error': 'Session not found'}), 404
+        # Check access
+        if not current_user.is_admin and not can_access_session(session_id, current_user.id):
+            return jsonify({'error': 'Access denied'}), 403
+        msgs = get_messages(session_id)
+        shares = get_session_shares(session_id)
+        return jsonify({
+            'session': {
+                'id': session['id'],
+                'title': session['title'],
+                'document_type': session['document_type'],
+                'created_at': session['created_at'],
+                'updated_at': session['updated_at'],
+                'user_id': session['user_id'],
+                'is_owner': session['user_id'] == current_user.id,
+            },
+            'messages': [{'role': m['role'], 'content': m['content'], 'created_at': m['created_at']} for m in msgs],
+            'shared_with': [{'id': s['id'], 'username': s['username']} for s in shares],
+        })
+    except Exception as e:
+        logger.error(f"Get session error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/chat/sessions/<session_id>', methods=['DELETE'])
+@login_required
+def api_chat_session_delete(session_id):
+    """Delete a session (owner or admin only)."""
+    try:
+        session = get_session(session_id)
+        if not session:
+            return jsonify({'error': 'Session not found'}), 404
+        if not current_user.is_admin and session['user_id'] != current_user.id:
+            return jsonify({'error': 'Access denied'}), 403
+        delete_session(session_id)
+        return jsonify({'success': True})
+    except Exception as e:
+        logger.error(f"Delete session error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/chat/sessions/<session_id>', methods=['PATCH'])
+@login_required
+def api_chat_session_rename(session_id):
+    """Rename a session title."""
+    try:
+        session = get_session(session_id)
+        if not session:
+            return jsonify({'error': 'Session not found'}), 404
+        if not current_user.is_admin and session['user_id'] != current_user.id:
+            return jsonify({'error': 'Access denied'}), 403
+        data = request.json or {}
+        title = data.get('title', '').strip()
+        if not title:
+            return jsonify({'error': 'Title required'}), 400
+        update_session_title(session_id, title)
+        return jsonify({'success': True, 'title': title})
+    except Exception as e:
+        logger.error(f"Rename session error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/chat/sessions/<session_id>/share', methods=['POST'])
+@login_required
+def api_chat_session_share(session_id):
+    """Share session with a user by username."""
+    try:
+        session = get_session(session_id)
+        if not session:
+            return jsonify({'error': 'Session not found'}), 404
+        if not current_user.is_admin and session['user_id'] != current_user.id:
+            return jsonify({'error': 'Access denied'}), 403
+        data = request.json or {}
+        target_username = data.get('username', '').strip()
+        if not target_username:
+            return jsonify({'error': 'Username required'}), 400
+        target_user = get_user_by_username(target_username)
+        if not target_user:
+            return jsonify({'error': f"User '{target_username}' not found"}), 404
+        if target_user['id'] == session['user_id']:
+            return jsonify({'error': 'Cannot share with the owner'}), 400
+        share_session(session_id, target_user['id'], current_user.id)
+        return jsonify({'success': True, 'shared_with': target_username})
+    except Exception as e:
+        logger.error(f"Share session error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/chat/sessions/<session_id>/share/<int:uid>', methods=['DELETE'])
+@login_required
+def api_chat_session_unshare(session_id, uid):
+    """Remove share from a user."""
+    try:
+        session = get_session(session_id)
+        if not session:
+            return jsonify({'error': 'Session not found'}), 404
+        if not current_user.is_admin and session['user_id'] != current_user.id:
+            return jsonify({'error': 'Access denied'}), 403
+        unshare_session(session_id, uid)
+        return jsonify({'success': True})
+    except Exception as e:
+        logger.error(f"Unshare session error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/chat/sessions/<session_id>/export', methods=['GET'])
+@login_required
+def api_chat_session_export(session_id):
+    """Export chat session as PDF."""
+    try:
+        import mistune
+        import weasyprint
+
+        session = get_session(session_id)
+        if not session:
+            return jsonify({'error': 'Session not found'}), 404
+        if not current_user.is_admin and not can_access_session(session_id, current_user.id):
+            return jsonify({'error': 'Access denied'}), 403
+
+        msgs = get_messages(session_id)
+        md = mistune.create_markdown(plugins=['table', 'strikethrough'])
+
+        messages_with_html = []
+        for m in msgs:
+            messages_with_html.append({
+                'role': m['role'],
+                'content': m['content'],
+                'html_content': md(m['content']),
+                'created_at': m['created_at'],
+            })
+
+        html_content = render_template(
+            'chat_export.html',
+            session_title=session['title'],
+            username=current_user.display_name,
+            export_date=datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC'),
+            document_type=session['document_type'],
+            messages=messages_with_html,
+        )
+
+        pdf_bytes = weasyprint.HTML(string=html_content).write_pdf()
+        response = make_response(pdf_bytes)
+        response.headers['Content-Type'] = 'application/pdf'
+        safe_title = ''.join(c for c in session['title'] if c.isalnum() or c in ' -_')[:40]
+        response.headers['Content-Disposition'] = (
+            f'attachment; filename="chat-{session_id[:8]}-{safe_title}.pdf"'
+        )
+        return response
+    except Exception as e:
+        logger.error(f"Export session error: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+# ---------------------------------------------------------------------------
+# User Management Routes (admin only)
+# ---------------------------------------------------------------------------
+
+@app.route('/api/users', methods=['GET'])
+@login_required
+@admin_required
+def api_users_list():
+    """List all users (admin only)."""
+    try:
+        rows = list_users()
+        users = [{
+            'id': r['id'],
+            'username': r['username'],
+            'display_name': r['display_name'],
+            'role': r['role'],
+            'created_at': r['created_at'],
+            'last_login': r['last_login'],
+            'is_active': bool(r['is_active']),
+        } for r in rows]
+        return jsonify({'users': users})
+    except Exception as e:
+        logger.error(f"List users error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/users', methods=['POST'])
+@login_required
+@admin_required
+def api_users_create():
+    """Create a new user (admin only)."""
+    try:
+        data = request.json or {}
+        username = data.get('username', '').strip()
+        password = data.get('password', '').strip()
+        role = data.get('role', 'basic')
+        display_name = data.get('display_name', '').strip() or username
+        if not username or not password:
+            return jsonify({'error': 'username and password required'}), 400
+        if role not in ('basic', 'admin'):
+            return jsonify({'error': 'role must be basic or admin'}), 400
+        if get_user_by_username(username):
+            return jsonify({'error': f"User '{username}' already exists"}), 409
+        db_create_user(username, password, role=role, display_name=display_name)
+        return jsonify({'success': True, 'username': username}), 201
+    except Exception as e:
+        logger.error(f"Create user error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/users/<int:uid>', methods=['PATCH'])
+@login_required
+@admin_required
+def api_users_update(uid):
+    """Update user role / display_name / password (admin only)."""
+    try:
+        data = request.json or {}
+        allowed = {k: v for k, v in data.items() if k in ('role', 'display_name', 'password')}
+        if 'role' in allowed and allowed['role'] not in ('basic', 'admin'):
+            return jsonify({'error': 'role must be basic or admin'}), 400
+        db_update_user(uid, **allowed)
+        return jsonify({'success': True})
+    except Exception as e:
+        logger.error(f"Update user error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/users/<int:uid>', methods=['DELETE'])
+@login_required
+@admin_required
+def api_users_deactivate(uid):
+    """Soft-delete a user by setting is_active=0 (admin only)."""
+    try:
+        if uid == current_user.id:
+            return jsonify({'error': 'Cannot deactivate yourself'}), 400
+        db_update_user(uid, is_active=0)
+        return jsonify({'success': True})
+    except Exception as e:
+        logger.error(f"Deactivate user error: {e}")
+        return jsonify({'error': str(e)}), 500
 
 
 def update_ui_stats(analysis_result: Dict[str, Any]) -> None:

@@ -10,6 +10,14 @@ RUN apt-get update && apt-get install -y \
     libxext6 \
     libxrender-dev \
     libgomp1 \
+    libpango-1.0-0 \
+    libharfbuzz0b \
+    libpangoft2-1.0-0 \
+    libpangocairo-1.0-0 \
+    libcairo2 \
+    libgdk-pixbuf-2.0-0 \
+    libffi-dev \
+    shared-mime-info \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
@@ -22,6 +30,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY analyzer/ ./analyzer/
 COPY profiles/ ./profiles/
+COPY manage_users.py ./manage_users.py
 
 # Create data directory for state persistence
 RUN mkdir -p /app/data
