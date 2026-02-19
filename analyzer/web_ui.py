@@ -1417,6 +1417,30 @@ def api_vector_documents():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/vector/reembed-stale', methods=['POST'])
+@login_required
+def api_vector_reembed_stale():
+    """Trigger a stale-embedding check: re-analyze docs whose OCR content changed after embedding."""
+    try:
+        if not hasattr(app, 'document_analyzer') or not app.document_analyzer:
+            return jsonify({'error': 'Analyzer not running'}), 503
+
+        def _run():
+            try:
+                count = app.document_analyzer.check_stale_embeddings()
+                logger.info(f"Manual stale embedding check complete: {count} re-analyzed")
+            except Exception as e:
+                logger.error(f"Manual stale embedding check failed: {e}")
+
+        from threading import Thread
+        Thread(target=_run, daemon=True).start()
+        return jsonify({'success': True, 'message': 'Stale embedding check started in background — check logs for progress'})
+
+    except Exception as e:
+        logger.error(f"Failed to start stale embedding check: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/settings/poll-interval', methods=['POST'])
 @login_required
 def api_settings_poll_interval():

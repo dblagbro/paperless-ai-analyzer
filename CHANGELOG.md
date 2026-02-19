@@ -4,6 +4,24 @@ All notable changes to Paperless AI Analyzer are documented here.
 
 ---
 
+## [2.0.4] — 2026-02-19
+
+### Stale RAG embedding detection
+
+When a document is embedded in the vector store (Chroma) before Paperless OCR has completed, the embedding captures empty or near-empty content. Once OCR finishes, Paperless updates the document's `modified` timestamp — but the vector store entry is never refreshed automatically.
+
+This release adds automatic detection and repair of stale embeddings:
+
+- **`paperless_modified` field in Chroma metadata** — every new embedding stores the Paperless document's `modified` ISO timestamp. This lets the analyzer compare what was current at embed time vs what Paperless reports now.
+- **`check_stale_embeddings()` method** — scans all Chroma entries and re-analyzes (and re-embeds) documents where:
+  - The stored `paperless_modified` is older than the current Paperless `modified` (OCR or an edit updated the document after embedding), OR
+  - No `paperless_modified` is stored (embedded before v2.0.4) AND the Chroma document text is < 200 characters (indicating empty OCR at embed time).
+  - Caps at 50 documents per run and filters to docs modified within the past 7 days to avoid flooding the Paperless API.
+- **Periodic auto-check** — fires on the 1st incremental poll after reprocess-all completes, then every 10 subsequent polls (roughly every 5 minutes with the default 30 s poll interval). Skipped during active reprocess-all runs.
+- **Manual trigger** — `POST /api/vector/reembed-stale` endpoint + **⟳ Re-embed Stale** button in Config → Vector Store Management.
+
+---
+
 ## [2.0.3] — 2026-02-19
 
 ### Upload tab — multi-file / folder URL support
