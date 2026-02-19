@@ -129,6 +129,7 @@ from analyzer.db import (
     get_messages, append_message, update_session_title, delete_session,
     share_session, unshare_session, get_session_shares, can_access_session,
     list_users, create_user as db_create_user, update_user as db_update_user,
+    log_import, get_import_history,
 )
 login_manager.init_app(app)
 
@@ -2765,16 +2766,103 @@ def api_migrate_documents():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/upload/transform-url', methods=['POST'])
+@login_required
+def api_transform_upload_url():
+    """Transform a cloud share link into a direct download URL.
+
+    Supports Google Drive, Google Docs/Sheets/Slides, Dropbox, and OneDrive.
+    For all other URLs the input is passed through unchanged.
+    """
+    import re as _re
+    try:
+        data = request.json or {}
+        raw_url = data.get('url', '').strip()
+        if not raw_url:
+            return jsonify({'error': 'url is required'}), 400
+
+        service = 'generic'
+        direct_url = raw_url
+        filename_hint = None
+
+        # ── Google Drive file ──────────────────────────────────────────
+        m = _re.match(
+            r'https://drive\.google\.com/file/d/([^/?#]+)',
+            raw_url, _re.IGNORECASE
+        )
+        if m:
+            file_id = m.group(1)
+            direct_url = f'https://drive.google.com/uc?export=download&id={file_id}'
+            service = 'google_drive'
+
+        # ── Google Docs / Sheets / Slides ──────────────────────────────
+        if service == 'generic':
+            m = _re.match(
+                r'https://docs\.google\.com/(document|spreadsheets|presentation)/d/([^/?#]+)',
+                raw_url, _re.IGNORECASE
+            )
+            if m:
+                doc_type = m.group(1)
+                file_id = m.group(2)
+                fmt_map = {
+                    'document': 'pdf',
+                    'spreadsheets': 'pdf',
+                    'presentation': 'pdf',
+                }
+                fmt = fmt_map.get(doc_type, 'pdf')
+                direct_url = (
+                    f'https://docs.google.com/{doc_type}/d/{file_id}/export?format={fmt}'
+                )
+                service = 'google_drive'
+                filename_hint = f'document.{fmt}'
+
+        # ── Dropbox ────────────────────────────────────────────────────
+        if service == 'generic' and 'dropbox.com' in raw_url.lower():
+            direct_url = _re.sub(r'[?&]dl=0', lambda m2: m2.group(0).replace('dl=0', 'dl=1'), raw_url)
+            if 'dl=1' not in direct_url:
+                sep = '&' if '?' in direct_url else '?'
+                direct_url = direct_url + sep + 'dl=1'
+            service = 'dropbox'
+
+        # ── OneDrive 1drv.ms ──────────────────────────────────────────
+        if service == 'generic' and '1drv.ms' in raw_url.lower():
+            service = 'onedrive'
+            # RemoteFileDownloader follows the redirect; pass through unchanged
+
+        logger.info(f"transform-url: {service} → {direct_url[:80]}")
+        return jsonify({
+            'direct_url': direct_url,
+            'service': service,
+            'filename_hint': filename_hint,
+        })
+
+    except Exception as e:
+        logger.error(f"transform-url error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/upload/history', methods=['GET'])
+@login_required
+def api_upload_history():
+    """Return the last 20 import history rows for the current user."""
+    try:
+        rows = get_import_history(current_user.id)
+        return jsonify({'history': [dict(r) for r in rows]})
+    except Exception as e:
+        logger.error(f"Failed to fetch upload history: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/upload/from-url', methods=['POST'])
 @login_required
 def api_upload_from_url():
-    """Download file from URL and analyze with AI."""
-    if not app.smart_uploader:
-        return jsonify({'error': 'Smart upload not available (LLM disabled)'}), 503
-
+    """Download file from URL and upload to Paperless."""
     try:
         data = request.json
         url = data.get('url')
+        source = data.get('source', 'url')          # e.g. 'google_drive', 'dropbox', 'url'
+        project_slug = data.get('project_slug')     # optional: set when smart metadata confirmed
+        metadata_in = data.get('metadata', {})      # optional: AI metadata from prior analyze step
         auth_type = data.get('auth_type', 'none')
         username = data.get('username')
         password = data.get('password')
@@ -2784,11 +2872,9 @@ def api_upload_from_url():
         if not url:
             return jsonify({'error': 'URL is required'}), 400
 
-        # Initialize downloader
+        # Download file
         from analyzer.remote_downloader import RemoteFileDownloader
         downloader = RemoteFileDownloader()
-
-        # Download file
         try:
             file_path, download_metadata = downloader.download_from_url(
                 url=url,
@@ -2799,28 +2885,54 @@ def api_upload_from_url():
                 custom_headers=custom_headers
             )
         except Exception as e:
+            log_import(current_user.id, source, url, url=url,
+                       status='error', error=f'Download failed: {str(e)}')
             return jsonify({'error': f'Download failed: {str(e)}'}), 400
 
-        # Analyze document with AI
-        import asyncio
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+        filename = download_metadata.get('filename', 'document')
+
         try:
-            metadata = loop.run_until_complete(app.smart_uploader.analyze_document(file_path))
+            # If smart metadata confirmed (project_slug + metadata provided), use SmartUploader
+            if project_slug and metadata_in and app.smart_uploader:
+                import asyncio
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    result = loop.run_until_complete(
+                        app.smart_uploader.upload_to_paperless(file_path, project_slug, metadata_in)
+                    )
+                finally:
+                    loop.close()
+                title = metadata_in.get('suggested_title') or filename
+            else:
+                # Direct upload without AI metadata
+                result = app.paperless_client.upload_document(file_path, title=filename)
+                title = filename
         finally:
-            loop.close()
+            downloader.cleanup(file_path)
 
-        # Add download metadata
-        metadata['download_info'] = download_metadata
-
-        # Clean up downloaded file
-        downloader.cleanup(file_path)
-
-        logger.info(f"Analyzed document from URL: {download_metadata['filename']}")
-        return jsonify(metadata)
+        if result:
+            doc_id = result.get('id')
+            logger.info(f"Uploaded from URL ({source}): {filename}")
+            log_import(current_user.id, source, title, url=url,
+                       doc_id=doc_id, status='uploaded')
+            return jsonify({'success': True, 'document_id': doc_id, 'title': title})
+        else:
+            log_import(current_user.id, source, filename, url=url,
+                       status='error', error='Upload to Paperless failed')
+            return jsonify({'error': 'Upload failed'}), 500
 
     except Exception as e:
         logger.error(f"Failed to upload from URL: {e}")
+        try:
+            _lc = locals()
+            log_import(current_user.id,
+                       _lc.get('source', 'url'),
+                       _lc.get('url', 'unknown'),
+                       url=_lc.get('url'),
+                       status='error', error=str(e))
+        except Exception:
+            pass
         return jsonify({'error': str(e)}), 500
 
 
@@ -2871,10 +2983,7 @@ def api_analyze_upload():
 @app.route('/api/upload/submit', methods=['POST'])
 @login_required
 def api_submit_upload():
-    """Submit analyzed file to Paperless with metadata."""
-    if not app.smart_uploader:
-        return jsonify({'error': 'Smart upload not available (LLM disabled)'}), 503
-
+    """Submit file to Paperless. Supports direct upload and smart-metadata upload."""
     try:
         # Check if file was uploaded
         if 'file' not in request.files:
@@ -2884,15 +2993,11 @@ def api_submit_upload():
         if file.filename == '':
             return jsonify({'error': 'No file selected'}), 400
 
-        # Get metadata from form data
+        # Get optional metadata from form data
         project_slug = request.form.get('project_slug')
-        if not project_slug:
-            return jsonify({'error': 'project_slug is required'}), 400
-
-        # Parse metadata JSON from form
-        import json
+        import json as _json
         metadata_json = request.form.get('metadata', '{}')
-        metadata = json.loads(metadata_json)
+        metadata = _json.loads(metadata_json)
 
         # Save file temporarily
         import tempfile
@@ -2901,33 +3006,52 @@ def api_submit_upload():
         file_path = os.path.join(temp_dir, file.filename)
         file.save(file_path)
 
-        # Upload to Paperless
-        import asyncio
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
         try:
-            result = loop.run_until_complete(
-                app.smart_uploader.upload_to_paperless(file_path, project_slug, metadata)
-            )
+            # Smart metadata path: project_slug + metadata provided → use SmartUploader
+            if project_slug and metadata and app.smart_uploader:
+                import asyncio
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    result = loop.run_until_complete(
+                        app.smart_uploader.upload_to_paperless(file_path, project_slug, metadata)
+                    )
+                finally:
+                    loop.close()
+                title = metadata.get('suggested_title') or file.filename
+            else:
+                # Direct upload without AI metadata
+                result = app.paperless_client.upload_document(
+                    file_path, title=file.filename.rsplit('.', 1)[0]
+                )
+                title = file.filename
         finally:
-            loop.close()
-
-        # Clean up temp file
-        os.remove(file_path)
-        os.rmdir(temp_dir)
+            os.remove(file_path)
+            try:
+                os.rmdir(temp_dir)
+            except OSError:
+                pass
 
         if result:
-            logger.info(f"Uploaded {file.filename} to project '{project_slug}'")
-            return jsonify({
-                'success': True,
-                'document_id': result.get('id'),
-                'title': metadata.get('suggested_title')
-            })
+            doc_id = result.get('id')
+            logger.info(f"Uploaded {file.filename} (project={project_slug or 'none'})")
+            log_import(current_user.id, 'file', title,
+                       doc_id=doc_id, status='uploaded')
+            return jsonify({'success': True, 'document_id': doc_id, 'title': title})
         else:
+            log_import(current_user.id, 'file', file.filename,
+                       status='error', error='Upload to Paperless failed')
             return jsonify({'error': 'Upload failed'}), 500
 
     except Exception as e:
         logger.error(f"Failed to submit upload: {e}")
+        try:
+            fname = request.files.get('file', None)
+            log_import(current_user.id, 'file',
+                       fname.filename if fname else 'unknown',
+                       status='error', error=str(e))
+        except Exception:
+            pass
         return jsonify({'error': str(e)}), 500
 
 

@@ -63,6 +63,18 @@ def init_db():
                 created_at           TEXT    NOT NULL DEFAULT (datetime('now')),
                 UNIQUE(session_id, shared_with_user_id)
             );
+
+            CREATE TABLE IF NOT EXISTS import_history (
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id           INTEGER REFERENCES users(id),
+                source            TEXT,
+                filename          TEXT,
+                original_url      TEXT,
+                paperless_doc_id  INTEGER,
+                status            TEXT NOT NULL DEFAULT 'uploaded',
+                error_msg         TEXT,
+                created_at        TEXT NOT NULL DEFAULT (datetime('now'))
+            );
         """)
     logger.info("Database initialized (tables created if not exist)")
 
@@ -251,3 +263,32 @@ def can_access_session(session_id: str, user_id: int) -> bool:
             )
         """, (session_id, user_id, user_id)).fetchone()
         return row is not None
+
+
+# ---------------------------------------------------------------------------
+# Import history
+# ---------------------------------------------------------------------------
+
+def log_import(user_id: int, source: str, filename: str, url: str = None,
+               doc_id: int = None, status: str = 'uploaded', error: str = None):
+    """Record an import attempt in import_history."""
+    with _get_conn() as conn:
+        conn.execute(
+            """INSERT INTO import_history
+               (user_id, source, filename, original_url, paperless_doc_id, status, error_msg)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (user_id, source, filename, url, doc_id, status, error)
+        )
+
+
+def get_import_history(user_id: int, limit: int = 20):
+    """Return the most recent imports for a user, newest first."""
+    with _get_conn() as conn:
+        return conn.execute(
+            """SELECT id, source, filename, original_url, paperless_doc_id, status, error_msg, created_at
+               FROM import_history
+               WHERE user_id = ?
+               ORDER BY created_at DESC, id DESC
+               LIMIT ?""",
+            (user_id, limit)
+        ).fetchall()

@@ -4,6 +4,29 @@ All notable changes to Paperless AI Analyzer are documented here.
 
 ---
 
+## [2.0.1] — 2026-02-19
+
+### Upload Tab Redesign
+
+- Three-mode upload card: **File** (drag-and-drop), **URL** (with Basic/Token auth), **Cloud Link** (Google Drive, Dropbox, OneDrive share links auto-transformed to direct downloads)
+- New `POST /api/upload/transform-url` endpoint — detects and rewrites cloud share links (Google Drive file/Docs/Sheets/Slides, Dropbox `?dl=0→dl=1`, OneDrive `1drv.ms` pass-through)
+- New `GET /api/upload/history` endpoint — returns last 20 imports per user
+- Upload now routes through the analyzer backend (`SmartUploader` / `paperless_client.upload_document`) instead of posting directly to Paperless
+- Optional **Smart Metadata** toggle — AI analyzes document before upload and shows a preview card (title, type, tags, suggested project) for confirmation before submitting
+- **Import history panel** below the upload card — filename, color-coded source badge (file / url / google_drive / dropbox / onedrive), timestamp, status; auto-refreshes every 10 s when the tab is active
+- New `import_history` table in `app.db` with `log_import()` and `get_import_history()` helpers
+
+### Manage Projects Tab Redesign
+
+- **New Project button** in tab header — opens a modal with name, auto-generated slug (editable before save, locked after), description, and color swatch picker (10 presets + custom color input)
+- Per-project **Edit** button — updates name, description, and color via `PUT /api/projects/<slug>`
+- Per-project **Move Documents** button — opens a modal to migrate all or specific documents (by comma-separated IDs) from one project to another; calls the existing `POST /api/projects/migrate-documents` background job
+- Per-project **Archive / Restore** toggle — soft-archives projects with a visual "Archived" badge and reduced opacity
+- Per-project **Delete** button (suppressed for the `default` project) — confirmation modal with option to also remove analyzer state and vector data
+- Project cards now show slug chip, storage size, and creation date alongside document count
+
+---
+
 ## [2.0.0] — 2026-02-19
 
 ### Major: Multi-User Authentication & Persistent Chat
