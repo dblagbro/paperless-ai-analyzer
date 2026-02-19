@@ -295,6 +295,38 @@
             to { opacity: 1; transform: translateY(0); }
         }
 
+        /* Configuration sub-tabs */
+        .config-sub-nav {
+            display: flex;
+            gap: 2px;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #dee2e6;
+            padding-bottom: 0;
+            flex-wrap: wrap;
+        }
+        .config-sub-btn {
+            background: none;
+            border: 1px solid transparent;
+            border-bottom: 3px solid transparent;
+            margin-bottom: -2px;
+            padding: 8px 20px;
+            cursor: pointer;
+            font-size: 14px;
+            color: #555;
+            border-radius: 6px 6px 0 0;
+            transition: all 0.15s;
+            white-space: nowrap;
+        }
+        .config-sub-btn:hover { background: #f0f4f8; color: #333; }
+        .config-sub-btn.active {
+            color: #2980b9;
+            border-bottom-color: #2980b9;
+            font-weight: 600;
+            background: #f8fbff;
+        }
+        .config-sub-content { display: none; }
+        .config-sub-content.active { display: block; animation: fadeIn 0.2s; }
+
         .empty-state {
             text-align: center;
             padding: 40px;
@@ -1359,22 +1391,237 @@
 
             <!-- Manage Projects Tab -->
             <div id="tab-projects" class="tab-content">
-                <h2>📁 Manage Projects</h2>
-                <p style="color: #666; margin-bottom: 20px;">Organize documents into projects for better analysis and cross-document reference checking.</p>
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                    <div>
+                        <h2 style="margin:0 0 4px 0;">📁 Manage Projects</h2>
+                        <p style="color:#666; margin:0; font-size:14px;">Organize documents into projects for better analysis and cross-document reference checking.</p>
+                    </div>
+                    <button class="btn btn-primary" onclick="openNewProjectModal()" style="white-space:nowrap;">+ New Project</button>
+                </div>
 
                 <div id="projects-list" class="loading">Loading projects...</div>
+            </div>
+
+            <!-- ── Project New/Edit Modal ─────────────────────────────── -->
+            <div id="proj-modal" onclick="if(event.target===this)closeProjModal()" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:1000; align-items:center; justify-content:center;">
+                <div style="background:#fff; border-radius:10px; padding:28px; width:100%; max-width:480px; box-shadow:0 8px 30px rgba(0,0,0,.2); position:relative;">
+                    <h3 id="proj-modal-title" style="margin:0 0 20px 0; color:#111;">New Project</h3>
+
+                    <label style="display:block; font-weight:600; font-size:13px; margin-bottom:5px;">Name <span style="color:#e74c3c;">*</span></label>
+                    <input type="text" id="proj-name" placeholder="e.g. Chase Bank 2026"
+                        oninput="autoSlug()"
+                        style="width:100%; box-sizing:border-box; padding:9px 12px; border:1px solid #d1d5db; border-radius:6px; font-size:14px; margin-bottom:14px;">
+
+                    <label style="display:block; font-weight:600; font-size:13px; margin-bottom:5px;">Slug</label>
+                    <input type="text" id="proj-slug" placeholder="auto-generated"
+                        style="width:100%; box-sizing:border-box; padding:9px 12px; border:1px solid #d1d5db; border-radius:6px; font-size:14px; margin-bottom:5px; font-family:monospace;">
+                    <div style="font-size:11px; color:#9ca3af; margin-bottom:14px;">Lowercase letters, numbers and hyphens only. Cannot be changed after creation.</div>
+
+                    <label style="display:block; font-weight:600; font-size:13px; margin-bottom:5px;">Description</label>
+                    <textarea id="proj-desc" rows="2" placeholder="Optional description"
+                        style="width:100%; box-sizing:border-box; padding:9px 12px; border:1px solid #d1d5db; border-radius:6px; font-size:14px; resize:vertical; margin-bottom:14px;"></textarea>
+
+                    <label style="display:block; font-weight:600; font-size:13px; margin-bottom:8px;">Color</label>
+                    <div id="proj-color-swatches" style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:6px;">
+                    </div>
+                    <input type="color" id="proj-color-custom"
+                        style="width:36px; height:28px; border:1px solid #d1d5db; border-radius:4px; cursor:pointer; padding:2px;"
+                        onchange="selectCustomColor(this.value)">
+                    <span style="font-size:12px; color:#6b7280; margin-left:6px;">or pick custom</span>
+                    <input type="hidden" id="proj-color-val" value="#3b82f6">
+
+                    <div id="proj-modal-error" style="display:none; color:#e74c3c; font-size:13px; margin-top:10px;"></div>
+
+                    <div style="display:flex; gap:10px; margin-top:20px; justify-content:flex-end;">
+                        <button onclick="closeProjModal()" style="padding:9px 18px; border:1px solid #d1d5db; border-radius:6px; background:#fff; cursor:pointer; font-size:14px;">Cancel</button>
+                        <button class="btn btn-primary" onclick="saveProject()" id="proj-save-btn" style="padding:9px 20px;">Save</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ── Move Documents Modal ──────────────────────────────── -->
+            <div id="move-modal" onclick="if(event.target===this)closeMoveModal()" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:1000; align-items:center; justify-content:center;">
+                <div style="background:#fff; border-radius:10px; padding:28px; width:100%; max-width:500px; box-shadow:0 8px 30px rgba(0,0,0,.2); position:relative;">
+                    <h3 style="margin:0 0 20px 0; color:#111;">Move Documents</h3>
+
+                    <label style="display:block; font-weight:600; font-size:13px; margin-bottom:5px;">From project</label>
+                    <select id="move-source" onchange="updateMovePreview()"
+                        style="width:100%; padding:9px 12px; border:1px solid #d1d5db; border-radius:6px; font-size:14px; margin-bottom:14px;"></select>
+
+                    <label style="display:block; font-weight:600; font-size:13px; margin-bottom:5px;">To project</label>
+                    <select id="move-dest" onchange="updateMovePreview()"
+                        style="width:100%; padding:9px 12px; border:1px solid #d1d5db; border-radius:6px; font-size:14px; margin-bottom:14px;"></select>
+
+                    <div style="margin-bottom:14px;">
+                        <label style="font-weight:600; font-size:13px; display:block; margin-bottom:8px;">Which documents?</label>
+                        <label style="display:flex; align-items:center; gap:8px; font-size:14px; margin-bottom:8px; cursor:pointer;">
+                            <input type="radio" name="move-scope" value="all" checked onchange="toggleMoveIds()"> Move <strong id="move-all-count">all</strong> documents in source project
+                        </label>
+                        <label style="display:flex; align-items:center; gap:8px; font-size:14px; cursor:pointer;">
+                            <input type="radio" name="move-scope" value="specific" onchange="toggleMoveIds()"> Specify document IDs
+                        </label>
+                        <div id="move-ids-wrap" style="display:none; margin-top:8px;">
+                            <input type="text" id="move-doc-ids" placeholder="Comma-separated IDs, e.g. 12,45,67"
+                                style="width:100%; box-sizing:border-box; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px; font-size:13px;">
+                            <div style="font-size:11px; color:#9ca3af; margin-top:3px;">Find document IDs in Paperless or the Overview tab</div>
+                        </div>
+                    </div>
+
+                    <div id="move-preview" style="background:#f0f9ff; border:1px solid #bae6fd; border-radius:6px; padding:10px 14px; font-size:13px; color:#0c4a6e; display:none;"></div>
+
+                    <div id="move-modal-error" style="display:none; color:#e74c3c; font-size:13px; margin-top:10px;"></div>
+                    <div id="move-modal-status" style="display:none; font-size:13px; margin-top:10px;"></div>
+
+                    <div style="display:flex; gap:10px; margin-top:20px; justify-content:flex-end;">
+                        <button onclick="closeMoveModal()" style="padding:9px 18px; border:1px solid #d1d5db; border-radius:6px; background:#fff; cursor:pointer; font-size:14px;">Cancel</button>
+                        <button class="btn btn-primary" onclick="confirmMove()" id="move-confirm-btn" style="padding:9px 20px;">Move Documents</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ── Delete Confirm Modal ──────────────────────────────── -->
+            <div id="del-proj-modal" onclick="if(event.target===this)closeDelProjModal()" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:1000; align-items:center; justify-content:center;">
+                <div style="background:#fff; border-radius:10px; padding:28px; width:100%; max-width:420px; box-shadow:0 8px 30px rgba(0,0,0,.2);">
+                    <h3 style="margin:0 0 12px 0; color:#b91c1c;">Delete Project</h3>
+                    <p style="font-size:14px; color:#374151; margin:0 0 14px 0;">
+                        Delete <strong id="del-proj-name"></strong>? This removes the project and its <strong id="del-proj-count"></strong> document(s) from all project tracking.
+                    </p>
+                    <label style="display:flex; align-items:center; gap:8px; font-size:14px; color:#374151; cursor:pointer; margin-bottom:18px;">
+                        <input type="checkbox" id="del-proj-data" checked style="width:15px;height:15px;">
+                        Also delete analyzer state &amp; vector data for this project
+                    </label>
+                    <input type="hidden" id="del-proj-slug">
+                    <div id="del-proj-error" style="display:none; color:#e74c3c; font-size:13px; margin-bottom:10px;"></div>
+                    <div style="display:flex; gap:10px; justify-content:flex-end;">
+                        <button onclick="closeDelProjModal()" style="padding:9px 18px; border:1px solid #d1d5db; border-radius:6px; background:#fff; cursor:pointer; font-size:14px;">Cancel</button>
+                        <button onclick="confirmDeleteProject()" style="padding:9px 18px; background:#dc2626; color:#fff; border:none; border-radius:6px; cursor:pointer; font-size:14px; font-weight:600;">Delete</button>
+                    </div>
+                </div>
             </div>
 
             <!-- Smart Upload Tab -->
             <div id="tab-upload" class="tab-content">
                 <h2>📤 Smart Upload</h2>
-                <p style="color: #666; margin-bottom: 20px;">Upload documents with AI-powered metadata extraction.</p>
+                <p style="color: #666; margin-bottom: 20px;">Upload documents to Paperless from a file, URL, or cloud share link.</p>
 
-                <div class="upload-section">
-                    <div style="background: white; padding: 25px; border-radius: 8px;">
-                        <input type="file" id="upload-file-input" accept=".pdf,.png,.jpg,.jpeg,.doc,.docx" style="margin-bottom: 15px;">
-                        <button class="btn btn-primary" onclick="handleSimpleUpload()">📤 Upload to Paperless</button>
-                        <div id="upload-status" style="margin-top: 15px;"></div>
+                <!-- Upload Source Card -->
+                <div style="background: white; border: 1px solid #e1e4e8; border-radius: 10px; overflow: hidden; margin-bottom: 24px; box-shadow: 0 1px 4px rgba(0,0,0,.06);">
+
+                    <!-- Mode tabs -->
+                    <div style="display: flex; border-bottom: 1px solid #e1e4e8; background: #f6f8fa;">
+                        <button id="umode-file" onclick="switchUploadMode('file')"
+                            style="flex:1; padding: 12px 0; border: none; background: #fff; border-bottom: 3px solid #2563eb; font-weight: 600; color: #2563eb; cursor: pointer; font-size: 14px;">
+                            📁 File
+                        </button>
+                        <button id="umode-url" onclick="switchUploadMode('url')"
+                            style="flex:1; padding: 12px 0; border: none; background: transparent; border-bottom: 3px solid transparent; font-weight: 500; color: #555; cursor: pointer; font-size: 14px;">
+                            🔗 URL
+                        </button>
+                        <button id="umode-cloud" onclick="switchUploadMode('cloud')"
+                            style="flex:1; padding: 12px 0; border: none; background: transparent; border-bottom: 3px solid transparent; font-weight: 500; color: #555; cursor: pointer; font-size: 14px;">
+                            ☁️ Cloud Link
+                        </button>
+                    </div>
+
+                    <div style="padding: 24px;">
+
+                        <!-- FILE MODE -->
+                        <div id="uinput-file">
+                            <div id="upload-dropzone"
+                                ondragover="event.preventDefault(); this.style.background='#eff6ff'; this.style.borderColor='#2563eb';"
+                                ondragleave="this.style.background=''; this.style.borderColor='#cbd5e1';"
+                                ondrop="handleDrop(event)"
+                                onclick="document.getElementById('upload-file-input').click()"
+                                style="border: 2px dashed #cbd5e1; border-radius: 8px; padding: 40px 20px; text-align: center; cursor: pointer; transition: all .2s;">
+                                <div style="font-size: 36px; margin-bottom: 8px;">📄</div>
+                                <div style="font-weight: 600; color: #374151; margin-bottom: 4px;">Drop file here or click to browse</div>
+                                <div style="font-size: 12px; color: #9ca3af;">PDF, PNG, JPG, JPEG, DOCX, HEIC</div>
+                                <div id="upload-file-name" style="margin-top: 10px; font-size: 13px; color: #2563eb; font-weight:500;"></div>
+                            </div>
+                            <input type="file" id="upload-file-input"
+                                accept=".pdf,.png,.jpg,.jpeg,.doc,.docx,.heic"
+                                style="display: none;"
+                                onchange="document.getElementById('upload-file-name').textContent = this.files[0]?.name || ''">
+                        </div>
+
+                        <!-- URL MODE -->
+                        <div id="uinput-url" style="display:none;">
+                            <label style="display:block; font-weight:600; margin-bottom:6px; color:#374151;">File URL</label>
+                            <input type="url" id="upload-url-input" placeholder="https://example.com/document.pdf"
+                                style="width:100%; box-sizing:border-box; padding:10px 12px; border:1px solid #d1d5db; border-radius:6px; font-size:14px; margin-bottom:14px;">
+
+                            <label style="display:block; font-weight:600; margin-bottom:6px; color:#374151;">Authentication</label>
+                            <select id="upload-auth-type" onchange="updateAuthFields()"
+                                style="padding:8px 12px; border:1px solid #d1d5db; border-radius:6px; font-size:14px; margin-bottom:10px;">
+                                <option value="none">None</option>
+                                <option value="basic">Username / Password</option>
+                                <option value="token">Bearer Token</option>
+                            </select>
+                            <div id="upload-auth-basic" style="display:none; margin-top:8px;">
+                                <input type="text" id="upload-auth-user" placeholder="Username"
+                                    style="width:100%; box-sizing:border-box; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px; font-size:14px; margin-bottom:8px;">
+                                <input type="password" id="upload-auth-pass" placeholder="Password"
+                                    style="width:100%; box-sizing:border-box; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px; font-size:14px;">
+                            </div>
+                            <div id="upload-auth-token" style="display:none; margin-top:8px;">
+                                <input type="text" id="upload-auth-token-val" placeholder="Bearer token"
+                                    style="width:100%; box-sizing:border-box; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px; font-size:14px;">
+                            </div>
+                        </div>
+
+                        <!-- CLOUD LINK MODE -->
+                        <div id="uinput-cloud" style="display:none;">
+                            <label style="display:block; font-weight:600; margin-bottom:6px; color:#374151;">Cloud Share Link</label>
+                            <input type="url" id="upload-cloud-input"
+                                placeholder="Paste a Google Drive, Dropbox, or OneDrive share link"
+                                style="width:100%; box-sizing:border-box; padding:10px 12px; border:1px solid #d1d5db; border-radius:6px; font-size:14px; margin-bottom:8px;">
+                            <div id="upload-cloud-detected" style="font-size:12px; color:#6b7280; min-height:18px;"></div>
+                        </div>
+
+                        <!-- Smart Metadata toggle -->
+                        <div style="margin-top:18px; display:flex; align-items:center; gap:10px;">
+                            <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:14px; color:#374151; font-weight:500;">
+                                <input type="checkbox" id="upload-smart-meta" style="width:16px; height:16px; accent-color:#2563eb;">
+                                Smart Metadata — AI analyzes before uploading (shows preview)
+                            </label>
+                        </div>
+
+                        <!-- Upload button -->
+                        <div style="margin-top:20px;">
+                            <button class="btn btn-primary" onclick="doUpload()"
+                                id="upload-submit-btn"
+                                style="padding: 10px 28px; font-size: 15px;">
+                                📤 Upload to Paperless
+                            </button>
+                        </div>
+
+                        <!-- Status -->
+                        <div id="upload-status" style="margin-top: 16px;"></div>
+
+                        <!-- Smart metadata preview card -->
+                        <div id="upload-meta-preview" style="display:none; margin-top:16px; background:#f0f9ff; border:1px solid #bae6fd; border-radius:8px; padding:16px;">
+                            <div style="font-weight:600; color:#0c4a6e; margin-bottom:10px;">AI Metadata Preview — confirm before submitting</div>
+                            <div id="upload-meta-content" style="font-size:13px; color:#374151;"></div>
+                            <div style="margin-top:14px; display:flex; gap:10px;">
+                                <button class="btn btn-primary" onclick="confirmSmartUpload()" style="padding:8px 20px;">
+                                    ✅ Confirm &amp; Upload
+                                </button>
+                                <button class="btn" onclick="cancelSmartPreview()" style="padding:8px 16px; background:#e5e7eb; color:#374151;">
+                                    Cancel
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Import History -->
+                <div style="background: white; border: 1px solid #e1e4e8; border-radius: 10px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,.06);">
+                    <div style="padding: 16px 20px; border-bottom: 1px solid #e1e4e8; display:flex; justify-content:space-between; align-items:center;">
+                        <span style="font-weight:600; color:#374151;">Recent Imports</span>
+                        <button onclick="loadImportHistory()" style="font-size:12px; border:none; background:none; color:#2563eb; cursor:pointer;">↻ Refresh</button>
+                    </div>
+                    <div id="upload-history-body" style="overflow-x:auto;">
+                        <div style="padding:20px; color:#9ca3af; font-size:13px; text-align:center;">Loading…</div>
                     </div>
                 </div>
             </div>
@@ -1456,7 +1703,19 @@
 
             <!-- Configuration Tab -->
             <div id="tab-config" class="tab-content">
-                <!-- AI Configuration Panel -->
+
+                <!-- Sub-tab navigation -->
+                <div class="config-sub-nav">
+                    <button class="config-sub-btn active" onclick="switchConfigTab('ai')" id="cfg-btn-ai">🤖 AI Settings</button>
+                    <button class="config-sub-btn" onclick="switchConfigTab('profiles')" id="cfg-btn-profiles">📄 Profiles</button>
+                    <button class="config-sub-btn" onclick="switchConfigTab('vectorstore')" id="cfg-btn-vectorstore">🗄️ Vector Store</button>
+                    {% if is_admin %}
+                    <button class="config-sub-btn" onclick="switchConfigTab('users')" id="cfg-btn-users">👥 Users</button>
+                    {% endif %}
+                </div>
+
+                <!-- ── AI Settings sub-section ── -->
+                <div id="cfg-ai" class="config-sub-content active">
                 <h2 style="margin-bottom: 15px;">🤖 AI Configuration</h2>
                 <div class="card" style="margin-bottom: 20px;">
                     <div style="margin-bottom: 15px; color: #555;">
@@ -1524,7 +1783,25 @@
                     </div>
                 </div>
 
-                <h2 style="margin-bottom: 15px;">Profile Management</h2>
+                <!-- Settings sub-section folded into AI tab -->
+                <h2 style="margin-top: 30px; padding-top: 20px; border-top: 2px solid #ecf0f1;">⚙️ Settings</h2>
+                <div class="card" style="margin-top: 15px;">
+                    <h3 style="margin-bottom: 15px; font-size: 16px;">Polling Configuration</h3>
+                    <div class="action-group">
+                        <label for="poll-interval" style="font-weight: 500;">Poll Interval (seconds):</label>
+                        <input type="number" id="poll-interval" value="30" min="5" max="3600" style="width: 100px;" />
+                        <button class="btn" onclick="updatePollInterval()">Update Interval</button>
+                    </div>
+                    <div style="font-size: 12px; color: #666; margin-top: 10px;">
+                        ℹ️ How often the analyzer checks for new documents (default: 30 seconds)
+                    </div>
+                    <div id="settings-result" style="margin-top: 10px; padding: 10px; border-radius: 4px; display: none;"></div>
+                </div>
+                </div><!-- /cfg-ai -->
+
+                <!-- ── Profiles sub-section ── -->
+                <div id="cfg-profiles" class="config-sub-content">
+                <h2 style="margin-bottom: 15px;">📄 Profile Management</h2>
                 <div class="content-grid">
                     <div class="card">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
@@ -1544,32 +1821,34 @@
                     </div>
                 </div>
 
-                <!-- Vector Store Management Section -->
-                <h2 style="margin-top: 30px; padding-top: 20px; border-top: 2px solid #ecf0f1;">🗄️ Vector Store Management</h2>
-                <div class="card" style="margin-top: 15px;">
+                </div><!-- /content-grid -->
+                </div><!-- /cfg-profiles -->
+
+                <!-- ── Vector Store sub-section ── -->
+                <div id="cfg-vectorstore" class="config-sub-content">
+                <h2 style="margin-bottom: 15px;">🗄️ Vector Store Management</h2>
+                <div class="card">
+                    <!-- Search + controls bar -->
+                    <div style="display:flex; gap:10px; align-items:center; margin-bottom:16px; flex-wrap:wrap;">
+                        <input type="text" id="vs-search" placeholder="Search by title, ID or type…"
+                               oninput="filterVsDocs()"
+                               style="flex:1; min-width:180px; padding:7px 12px; border:1px solid #ddd; border-radius:4px; font-size:13px;" />
+                        <span id="vs-count-label" style="font-size:13px; color:#666; white-space:nowrap;"></span>
+                        <button class="btn btn-small" onclick="loadVectorStoreDocuments()">↻ Refresh</button>
+                        <button class="btn btn-warning" onclick="confirmClearVectorStore()">Clear All</button>
+                    </div>
                     <div id="vector-store-manager">
-                        <div class="loading">Loading vector store documents...</div>
+                        <div class="loading">Loading vector store documents…</div>
                     </div>
+                    <!-- Pagination -->
+                    <div id="vs-pagination" style="display:none; margin-top:16px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; justify-content:center;"></div>
                 </div>
+                </div><!-- /cfg-vectorstore -->
 
-                <!-- Settings Section -->
-                <h2 style="margin-top: 30px; padding-top: 20px; border-top: 2px solid #ecf0f1;">⚙️ Settings</h2>
-                <div class="card" style="margin-top: 15px;">
-                    <h3 style="margin-bottom: 15px; font-size: 16px;">Polling Configuration</h3>
-                    <div class="action-group">
-                        <label for="poll-interval" style="font-weight: 500;">Poll Interval (seconds):</label>
-                        <input type="number" id="poll-interval" value="30" min="5" max="3600" style="width: 100px;" />
-                        <button class="btn" onclick="updatePollInterval()">Update Interval</button>
-                    </div>
-                    <div style="font-size: 12px; color: #666; margin-top: 10px;">
-                        ℹ️ How often the analyzer checks for new documents (default: 30 seconds)
-                    </div>
-                    <div id="settings-result" style="margin-top: 10px; padding: 10px; border-radius: 4px; display: none;"></div>
-                </div>
-
-                <!-- User Management (admin only) -->
+                <!-- ── Users sub-section (admin only) ── -->
                 {% if is_admin %}
-                <h2 style="margin-top: 30px; margin-bottom: 15px;">👥 User Management</h2>
+                <div id="cfg-users" class="config-sub-content">
+                <h2 style="margin-bottom: 15px;">👥 User Management</h2>
                 <div class="card" style="margin-bottom: 20px;">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
                         <span style="color: #555; font-size: 14px;">Manage user accounts and roles.</span>
@@ -1611,8 +1890,10 @@
                         </tbody>
                     </table>
                 </div>
+                </div><!-- /cfg-users -->
                 {% endif %}
-            </div>
+
+            </div><!-- /tab-config -->
 
             <!-- Debug & Tools Tab -->
             <div id="tab-tools" class="tab-content">
@@ -1657,7 +1938,120 @@
             return response;
         }
 
-        // Tab switching function
+        // ── Configuration sub-tab state ──────────────────────────────
+        let vsAllDocs = [];       // flat array: {title, doc_id, type}
+        let vsFiltered = [];
+        let vsPage = 0;
+        const VS_PAGE_SIZE = 25;
+        let vsLoaded = false;
+
+        function switchConfigTab(name) {
+            document.querySelectorAll('.config-sub-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.config-sub-content').forEach(c => c.classList.remove('active'));
+            const btn = document.getElementById('cfg-btn-' + name);
+            const pane = document.getElementById('cfg-' + name);
+            if (btn) btn.classList.add('active');
+            if (pane) pane.classList.add('active');
+            // Lazy-load vector store on first visit
+            if (name === 'vectorstore' && !vsLoaded) {
+                loadVectorStoreDocuments();
+            }
+            // Lazy-load users on first visit (admin only)
+            if (name === 'users' && typeof loadUsers === 'function') {
+                loadUsers();
+            }
+        }
+
+        function filterVsDocs() {
+            const q = (document.getElementById('vs-search')?.value || '').toLowerCase().trim();
+            vsFiltered = q
+                ? vsAllDocs.filter(d =>
+                    (d.title || '').toLowerCase().includes(q) ||
+                    String(d.doc_id).includes(q) ||
+                    (d.type || '').toLowerCase().includes(q))
+                : [...vsAllDocs];
+            vsPage = 0;
+            renderVsPage();
+        }
+
+        function renderVsPage() {
+            const container = document.getElementById('vector-store-manager');
+            const pagDiv = document.getElementById('vs-pagination');
+            const countLabel = document.getElementById('vs-count-label');
+            if (!container) return;
+
+            const total = vsFiltered.length;
+            const totalPages = Math.ceil(total / VS_PAGE_SIZE) || 1;
+            if (countLabel) countLabel.textContent = total + ' document' + (total !== 1 ? 's' : '');
+
+            if (total === 0) {
+                container.innerHTML = '<p style="color:#999;">No documents match.</p>';
+                if (pagDiv) pagDiv.style.display = 'none';
+                return;
+            }
+
+            const start = vsPage * VS_PAGE_SIZE;
+            const slice = vsFiltered.slice(start, start + VS_PAGE_SIZE);
+
+            // Group current page slice by type for display
+            const byType = {};
+            slice.forEach(d => {
+                if (!byType[d.type]) byType[d.type] = [];
+                byType[d.type].push(d);
+            });
+
+            let html = '';
+            Object.keys(byType).sort().forEach(type => {
+                const docs = byType[type];
+                html += `<div class="vector-type-section">
+                    <div class="vector-type-header">
+                        <h3>${escapeHtml(type)} <span class="vector-type-count">(${docs.length})</span></h3>
+                        <button class="btn btn-small btn-warning" onclick="confirmDeleteType('${escapeHtml(type)}')">Delete All ${escapeHtml(type)}</button>
+                    </div>
+                    <div class="vector-documents-list">`;
+                docs.forEach(doc => {
+                    html += `<div class="vector-doc-item">
+                        <div class="vector-doc-info">
+                            <div class="vector-doc-title">${escapeHtml(doc.title || 'Untitled')}</div>
+                            <div class="vector-doc-id">ID: ${doc.doc_id}</div>
+                        </div>
+                        <button class="btn btn-small btn-warning" onclick="deleteIndividualDocument(${doc.doc_id}, '${escapeHtml(doc.title || 'this document')}')">Delete</button>
+                    </div>`;
+                });
+                html += `</div></div>`;
+            });
+            container.innerHTML = html;
+
+            // Pagination controls
+            if (pagDiv) {
+                if (totalPages <= 1) {
+                    pagDiv.style.display = 'none';
+                } else {
+                    pagDiv.style.display = 'flex';
+                    let pagHtml = `<button class="btn btn-small" onclick="vsGoPage(${vsPage-1})" ${vsPage===0?'disabled':''}>◀ Prev</button>`;
+                    // Show up to 7 page buttons
+                    const maxBtns = 7, half = Math.floor(maxBtns/2);
+                    let pStart = Math.max(0, vsPage - half);
+                    let pEnd = Math.min(totalPages - 1, pStart + maxBtns - 1);
+                    if (pEnd - pStart < maxBtns - 1) pStart = Math.max(0, pEnd - maxBtns + 1);
+                    for (let p = pStart; p <= pEnd; p++) {
+                        pagHtml += `<button class="btn btn-small${p===vsPage?' active':''}" onclick="vsGoPage(${p})">${p+1}</button>`;
+                    }
+                    pagHtml += `<button class="btn btn-small" onclick="vsGoPage(${vsPage+1})" ${vsPage>=totalPages-1?'disabled':''}>Next ▶</button>`;
+                    pagHtml += `<span style="font-size:13px;color:#666;margin-left:6px;">Page ${vsPage+1} of ${totalPages}</span>`;
+                    pagDiv.innerHTML = pagHtml;
+                }
+            }
+        }
+
+        function vsGoPage(p) {
+            const totalPages = Math.ceil(vsFiltered.length / VS_PAGE_SIZE) || 1;
+            vsPage = Math.max(0, Math.min(p, totalPages - 1));
+            renderVsPage();
+            document.getElementById('cfg-vectorstore')?.scrollIntoView({behavior:'smooth', block:'start'});
+        }
+
+        // ── Tab switching function ────────────────────────────────────
         function switchTab(tabName) {
             // Hide all tabs
             document.querySelectorAll('.tab-content').forEach(tab => {
@@ -1696,13 +2090,17 @@
                     console.error('loadProjectsList is not a function!');
                 }
             }
-            // Load users when config tab is opened (admin only)
+            // Config tab: reset to AI Settings sub-tab on each visit
             if (tabName === 'config') {
-                if (typeof loadUsers === 'function') loadUsers();
+                switchConfigTab('ai');
             }
             // Check API key when AI chat tab is opened
             if (tabName === 'ai-chat') {
                 checkAiKeyStatus();
+            }
+            // Load import history when upload tab is opened
+            if (tabName === 'upload') {
+                loadImportHistory();
             }
         }
 
@@ -1967,79 +2365,576 @@
             }
         }
 
-        // Load projects list for Manage Projects tab
+        // ── Manage Projects ───────────────────────────────────────────────
+        const PROJ_COLORS = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#06b6d4','#84cc16','#f97316','#64748b'];
+        let _projEditSlug = null;   // null = new project, slug string = edit
+        let _projCache = [];        // last fetched project list
+
         async function loadProjectsList() {
-            console.log('loadProjectsList called');
             const list = document.getElementById('projects-list');
-
             try {
-                const url = apiUrl('/api/projects');
-                console.log('Fetching from:', url);
+                const res = await apiFetch(apiUrl('/api/projects'));
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                const data = await res.json();
+                _projCache = data.projects || [];
 
-                const response = await fetch(url);
-                console.log('Response status:', response.status);
-
-                if (!response.ok) {
-                    throw new Error('HTTP ' + response.status);
+                if (!_projCache.length) {
+                    list.innerHTML = '<div style="text-align:center; padding:40px; color:#999;">No projects found. Click <strong>+ New Project</strong> to get started.</div>';
+                    return;
                 }
 
-                const data = await response.json();
-                console.log('Projects data:', data);
-
-                if (data.projects && data.projects.length > 0) {
-                    list.innerHTML = data.projects.map(p => `
-                        <div style="background: white; padding: 20px; margin-bottom: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); border-left: 4px solid ${p.color || '#3498db'};">
-                            <h3 style="margin: 0 0 5px 0; color: #2c3e50;">${p.name}</h3>
-                            <p style="margin: 0 0 10px 0; color: #666; font-size: 14px;">${p.description || 'No description'}</p>
-                            <div style="margin-top: 10px; font-size: 13px; color: #888;">
-                                📄 <strong>${p.document_count}</strong> documents |
-                                💾 ${p.storage_size_mb.toFixed(2)} MB |
-                                📅 Created: ${new Date(p.created_at).toLocaleDateString()}
+                list.innerHTML = _projCache.map(p => {
+                    const color = p.color || '#3b82f6';
+                    const archived = p.is_archived;
+                    return `
+                    <div style="background:#fff; border:1px solid #e5e7eb; border-left:4px solid ${color}; border-radius:8px; padding:18px 20px; margin-bottom:12px; display:flex; align-items:center; gap:16px; ${archived ? 'opacity:.55;' : ''}">
+                        <div style="flex:1; min-width:0;">
+                            <div style="display:flex; align-items:center; gap:8px; margin-bottom:3px;">
+                                <span style="font-weight:700; font-size:15px; color:#111; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${p.name}</span>
+                                ${archived ? '<span style="font-size:11px; background:#fef3c7; color:#92400e; padding:1px 7px; border-radius:10px; font-weight:600;">Archived</span>' : ''}
+                            </div>
+                            <div style="font-size:13px; color:#6b7280; margin-bottom:6px;">${p.description || '<em style="color:#aaa;">No description</em>'}</div>
+                            <div style="font-size:12px; color:#9ca3af;">
+                                📄 <strong style="color:#374151;">${p.document_count}</strong> docs &nbsp;·&nbsp;
+                                💾 ${(p.storage_size_mb||0).toFixed(2)} MB &nbsp;·&nbsp;
+                                📅 ${new Date(p.created_at).toLocaleDateString()} &nbsp;·&nbsp;
+                                <span style="font-family:monospace; font-size:11px; background:#f3f4f6; padding:1px 6px; border-radius:4px;">${p.slug}</span>
                             </div>
                         </div>
-                    `).join('');
+                        <div style="display:flex; gap:6px; flex-shrink:0;">
+                            <button onclick="openEditProjectModal('${p.slug}')" title="Edit"
+                                style="padding:6px 11px; border:1px solid #d1d5db; border-radius:6px; background:#fff; cursor:pointer; font-size:13px;">✏️</button>
+                            <button onclick="openMoveModal('${p.slug}')" title="Move documents"
+                                style="padding:6px 11px; border:1px solid #d1d5db; border-radius:6px; background:#fff; cursor:pointer; font-size:13px;">📦 Move</button>
+                            ${archived
+                                ? `<button onclick="toggleArchiveProject('${p.slug}', false)" title="Unarchive"
+                                    style="padding:6px 11px; border:1px solid #d1d5db; border-radius:6px; background:#fff; cursor:pointer; font-size:13px;">📂 Restore</button>`
+                                : `<button onclick="toggleArchiveProject('${p.slug}', true)" title="Archive"
+                                    style="padding:6px 11px; border:1px solid #d1d5db; border-radius:6px; background:#fff; cursor:pointer; font-size:13px;">🗄️ Archive</button>`}
+                            ${p.slug !== 'default'
+                                ? `<button onclick="openDelProjModal('${p.slug}', '${p.name.replace(/'/g,"\\'")}', ${p.document_count})" title="Delete"
+                                    style="padding:6px 11px; border:1px solid #fca5a5; border-radius:6px; background:#fff; cursor:pointer; font-size:13px; color:#dc2626;">🗑️</button>`
+                                : ''}
+                        </div>
+                    </div>`;
+                }).join('');
+            } catch (e) {
+                list.innerHTML = `<div style="color:#e74c3c; padding:20px; text-align:center;"><strong>Error loading projects:</strong><br>${e.message}</div>`;
+            }
+        }
+
+        // ── New / Edit modal ───────────────────────────────────────────
+
+        function _buildColorSwatches(selectedColor) {
+            const wrap = document.getElementById('proj-color-swatches');
+            wrap.innerHTML = PROJ_COLORS.map(c =>
+                `<div onclick="selectSwatch('${c}')" style="width:26px; height:26px; border-radius:50%; background:${c}; cursor:pointer; outline:${c === selectedColor ? '3px solid #1d4ed8' : '2px solid transparent'}; outline-offset:2px; transition:outline .1s;" data-color="${c}"></div>`
+            ).join('');
+        }
+
+        function selectSwatch(color) {
+            document.getElementById('proj-color-val').value = color;
+            document.querySelectorAll('#proj-color-swatches div').forEach(el => {
+                el.style.outline = el.dataset.color === color ? '3px solid #1d4ed8' : '2px solid transparent';
+            });
+        }
+
+        function selectCustomColor(color) {
+            document.getElementById('proj-color-val').value = color;
+            document.querySelectorAll('#proj-color-swatches div').forEach(el => {
+                el.style.outline = '2px solid transparent';
+            });
+        }
+
+        function autoSlug() {
+            if (_projEditSlug) return;  // don't overwrite slug when editing
+            const name = document.getElementById('proj-name').value;
+            const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+            document.getElementById('proj-slug').value = slug;
+        }
+
+        function openNewProjectModal() {
+            _projEditSlug = null;
+            document.getElementById('proj-modal-title').textContent = 'New Project';
+            document.getElementById('proj-name').value = '';
+            document.getElementById('proj-slug').value = '';
+            document.getElementById('proj-slug').disabled = false;
+            document.getElementById('proj-desc').value = '';
+            document.getElementById('proj-modal-error').style.display = 'none';
+            const defaultColor = PROJ_COLORS[Math.floor(Math.random() * PROJ_COLORS.length)];
+            document.getElementById('proj-color-val').value = defaultColor;
+            _buildColorSwatches(defaultColor);
+            document.getElementById('proj-modal').style.display = 'flex';
+            document.getElementById('proj-name').focus();
+        }
+
+        function openEditProjectModal(slug) {
+            const p = _projCache.find(x => x.slug === slug);
+            if (!p) return;
+            _projEditSlug = slug;
+            document.getElementById('proj-modal-title').textContent = 'Edit Project';
+            document.getElementById('proj-name').value = p.name;
+            document.getElementById('proj-slug').value = p.slug;
+            document.getElementById('proj-slug').disabled = true;
+            document.getElementById('proj-desc').value = p.description || '';
+            document.getElementById('proj-modal-error').style.display = 'none';
+            const color = p.color || PROJ_COLORS[0];
+            document.getElementById('proj-color-val').value = color;
+            _buildColorSwatches(color);
+            document.getElementById('proj-modal').style.display = 'flex';
+            document.getElementById('proj-name').focus();
+        }
+
+        function closeProjModal() {
+            document.getElementById('proj-modal').style.display = 'none';
+        }
+
+        async function saveProject() {
+            const name = document.getElementById('proj-name').value.trim();
+            const slug = document.getElementById('proj-slug').value.trim();
+            const description = document.getElementById('proj-desc').value.trim();
+            const color = document.getElementById('proj-color-val').value;
+            const errDiv = document.getElementById('proj-modal-error');
+            const btn = document.getElementById('proj-save-btn');
+
+            if (!name) { errDiv.textContent = 'Name is required.'; errDiv.style.display = ''; return; }
+            if (!_projEditSlug && !slug) { errDiv.textContent = 'Slug is required.'; errDiv.style.display = ''; return; }
+            if (!_projEditSlug && !/^[a-z0-9-]+$/.test(slug)) {
+                errDiv.textContent = 'Slug must contain only lowercase letters, numbers, and hyphens.';
+                errDiv.style.display = ''; return;
+            }
+
+            btn.disabled = true; errDiv.style.display = 'none';
+
+            try {
+                let res;
+                if (_projEditSlug) {
+                    res = await apiFetch(apiUrl(`/api/projects/${_projEditSlug}`), {
+                        method: 'PUT',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({name, description, color})
+                    });
                 } else {
-                    list.innerHTML = '<div style="text-align: center; padding: 40px; color: #999;">No projects found.</div>';
+                    res = await apiFetch(apiUrl('/api/projects'), {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({name, slug, description, color})
+                    });
                 }
-            } catch (error) {
-                console.error('Error loading projects:', error);
-                if (list) {
-                    list.innerHTML = '<div style="color: #e74c3c; padding: 20px; text-align: center;"><strong>Error loading projects:</strong><br>' + error.message + '<br><small>Check browser console for details</small></div>';
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Request failed');
+                closeProjModal();
+                loadProjectsList();
+                loadProjectSelector();
+            } catch (e) {
+                errDiv.textContent = e.message;
+                errDiv.style.display = '';
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        // ── Archive / Unarchive ────────────────────────────────────────
+
+        async function toggleArchiveProject(slug, archive) {
+            const action = archive ? 'archive' : 'unarchive';
+            try {
+                const res = await apiFetch(apiUrl(`/api/projects/${slug}/${action}`), {method: 'POST'});
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Request failed');
+                loadProjectsList();
+                loadProjectSelector();
+            } catch (e) {
+                alert('Error: ' + e.message);
+            }
+        }
+
+        // ── Delete modal ───────────────────────────────────────────────
+
+        function openDelProjModal(slug, name, docCount) {
+            document.getElementById('del-proj-slug').value = slug;
+            document.getElementById('del-proj-name').textContent = name;
+            document.getElementById('del-proj-count').textContent = docCount;
+            document.getElementById('del-proj-data').checked = true;
+            document.getElementById('del-proj-error').style.display = 'none';
+            document.getElementById('del-proj-modal').style.display = 'flex';
+        }
+
+        function closeDelProjModal() {
+            document.getElementById('del-proj-modal').style.display = 'none';
+        }
+
+        async function confirmDeleteProject() {
+            const slug = document.getElementById('del-proj-slug').value;
+            const deleteData = document.getElementById('del-proj-data').checked;
+            const errDiv = document.getElementById('del-proj-error');
+            try {
+                const res = await apiFetch(apiUrl(`/api/projects/${slug}?delete_data=${deleteData}`), {method: 'DELETE'});
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Request failed');
+                closeDelProjModal();
+                loadProjectsList();
+                loadProjectSelector();
+            } catch (e) {
+                errDiv.textContent = e.message;
+                errDiv.style.display = '';
+            }
+        }
+
+        // ── Move Documents modal ────────────────────────────────────────
+
+        function _populateMoveSelects(sourceSlug) {
+            const active = _projCache.filter(p => !p.is_archived);
+            const opts = active.map(p => `<option value="${p.slug}">${p.name} (${p.document_count} docs)</option>`).join('');
+            const src = document.getElementById('move-source');
+            const dst = document.getElementById('move-dest');
+            src.innerHTML = opts;
+            dst.innerHTML = opts;
+            if (sourceSlug) src.value = sourceSlug;
+            // Default dest to something different
+            const destSlug = active.find(p => p.slug !== src.value)?.slug;
+            if (destSlug) dst.value = destSlug;
+        }
+
+        function openMoveModal(sourceSlug) {
+            _populateMoveSelects(sourceSlug);
+            document.querySelector('input[name="move-scope"][value="all"]').checked = true;
+            document.getElementById('move-ids-wrap').style.display = 'none';
+            document.getElementById('move-doc-ids').value = '';
+            document.getElementById('move-modal-error').style.display = 'none';
+            document.getElementById('move-modal-status').style.display = 'none';
+            document.getElementById('move-confirm-btn').disabled = false;
+            updateMovePreview();
+            document.getElementById('move-modal').style.display = 'flex';
+        }
+
+        function closeMoveModal() {
+            document.getElementById('move-modal').style.display = 'none';
+        }
+
+        function toggleMoveIds() {
+            const specific = document.querySelector('input[name="move-scope"][value="specific"]').checked;
+            document.getElementById('move-ids-wrap').style.display = specific ? '' : 'none';
+        }
+
+        function updateMovePreview() {
+            const srcSlug = document.getElementById('move-source').value;
+            const srcProj = _projCache.find(p => p.slug === srcSlug);
+            const preview = document.getElementById('move-preview');
+            if (srcProj) {
+                document.getElementById('move-all-count').textContent = srcProj.document_count;
+                preview.textContent = `📦 Up to ${srcProj.document_count} document(s) will be re-tagged in Paperless. This runs in the background.`;
+                preview.style.display = '';
+            } else {
+                preview.style.display = 'none';
+            }
+        }
+
+        async function confirmMove() {
+            const srcSlug = document.getElementById('move-source').value;
+            const dstSlug = document.getElementById('move-dest').value;
+            const specific = document.querySelector('input[name="move-scope"][value="specific"]').checked;
+            const errDiv = document.getElementById('move-modal-error');
+            const statusDiv = document.getElementById('move-modal-status');
+            const btn = document.getElementById('move-confirm-btn');
+
+            if (srcSlug === dstSlug) {
+                errDiv.textContent = 'Source and destination must be different projects.';
+                errDiv.style.display = ''; return;
+            }
+
+            let docIds = [];
+            if (specific) {
+                const raw = document.getElementById('move-doc-ids').value.trim();
+                if (!raw) { errDiv.textContent = 'Enter at least one document ID.'; errDiv.style.display = ''; return; }
+                docIds = raw.split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n));
+                if (!docIds.length) { errDiv.textContent = 'No valid document IDs found.'; errDiv.style.display = ''; return; }
+            }
+
+            btn.disabled = true;
+            errDiv.style.display = 'none';
+            statusDiv.style.display = 'none';
+
+            try {
+                const res = await apiFetch(apiUrl('/api/projects/migrate-documents'), {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        source_project: srcSlug,
+                        destination_project: dstSlug,
+                        document_ids: docIds
+                    })
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Request failed');
+                statusDiv.innerHTML = `<span style="color:#16a34a;">✅ ${data.message || 'Migration started.'}</span><br><span style="font-size:12px; color:#6b7280;">${data.note || ''}</span>`;
+                statusDiv.style.display = '';
+                btn.textContent = 'Close';
+                btn.onclick = () => { closeMoveModal(); loadProjectsList(); loadProjectSelector(); btn.textContent = 'Move Documents'; btn.onclick = confirmMove; btn.disabled = false; };
+                btn.disabled = false;
+            } catch (e) {
+                errDiv.textContent = e.message;
+                errDiv.style.display = '';
+                btn.disabled = false;
+            }
+        }
+
+        // ── Upload tab state ──────────────────────────────────────────────
+        let _uploadMode = 'file';          // 'file' | 'url' | 'cloud'
+        let _smartPendingPayload = null;   // holds {type, file|url, metadata, source} during preview
+
+        function switchUploadMode(mode) {
+            _uploadMode = mode;
+            ['file', 'url', 'cloud'].forEach(m => {
+                const btn = document.getElementById('umode-' + m);
+                const pnl = document.getElementById('uinput-' + m);
+                const active = m === mode;
+                btn.style.background = active ? '#fff' : 'transparent';
+                btn.style.borderBottom = active ? '3px solid #2563eb' : '3px solid transparent';
+                btn.style.fontWeight = active ? '600' : '500';
+                btn.style.color = active ? '#2563eb' : '#555';
+                pnl.style.display = active ? '' : 'none';
+            });
+            document.getElementById('upload-status').innerHTML = '';
+            cancelSmartPreview();
+        }
+
+        function updateAuthFields() {
+            const t = document.getElementById('upload-auth-type').value;
+            document.getElementById('upload-auth-basic').style.display = t === 'basic' ? '' : 'none';
+            document.getElementById('upload-auth-token').style.display = t === 'token' ? '' : 'none';
+        }
+
+        function handleDrop(event) {
+            event.preventDefault();
+            const files = event.dataTransfer.files;
+            if (!files.length) return;
+            const input = document.getElementById('upload-file-input');
+            const dt = new DataTransfer();
+            dt.items.add(files[0]);
+            input.files = dt.files;
+            document.getElementById('upload-file-name').textContent = files[0].name;
+            const dz = document.getElementById('upload-dropzone');
+            dz.style.background = '';
+            dz.style.borderColor = '#2563eb';
+        }
+
+        function setUploadStatus(html) {
+            document.getElementById('upload-status').innerHTML = html;
+        }
+
+        function cancelSmartPreview() {
+            _smartPendingPayload = null;
+            document.getElementById('upload-meta-preview').style.display = 'none';
+            document.getElementById('upload-meta-content').innerHTML = '';
+        }
+
+        async function detectAndTransform(url) {
+            const res = await apiFetch(apiUrl('/api/upload/transform-url'), {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({url})
+            });
+            return await res.json();
+        }
+
+        async function doUpload() {
+            const btn = document.getElementById('upload-submit-btn');
+            const smartMeta = document.getElementById('upload-smart-meta').checked;
+            btn.disabled = true;
+            cancelSmartPreview();
+
+            try {
+                if (_uploadMode === 'file') {
+                    await _doFileUpload(smartMeta);
+                } else {
+                    await _doUrlUpload(smartMeta);
+                }
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        async function _doFileUpload(smartMeta) {
+            const fileInput = document.getElementById('upload-file-input');
+            if (!fileInput.files || !fileInput.files.length) {
+                setUploadStatus('<div style="color:#e74c3c;">Please select a file first.</div>');
+                return;
+            }
+            const file = fileInput.files[0];
+
+            if (smartMeta) {
+                // Step 1: analyze
+                setUploadStatus('<div style="color:#2563eb;">🔍 Analyzing document with AI…</div>');
+                const fd = new FormData();
+                fd.append('file', file);
+                const res = await apiFetch(apiUrl('/api/upload/analyze'), {method: 'POST', body: fd});
+                const meta = await res.json();
+                if (meta.error) {
+                    setUploadStatus('<div style="color:#e74c3c;">❌ Analysis failed: ' + meta.error + '</div>');
+                    return;
+                }
+                _smartPendingPayload = {type: 'file', file, metadata: meta};
+                showSmartPreview(meta);
+                setUploadStatus('');
+            } else {
+                setUploadStatus('<div style="color:#2563eb;">⏳ Uploading…</div>');
+                const fd = new FormData();
+                fd.append('file', file);
+                const res = await apiFetch(apiUrl('/api/upload/submit'), {method: 'POST', body: fd});
+                const data = await res.json();
+                if (data.success) {
+                    setUploadStatus('<div style="color:#16a34a; padding:10px; background:#dcfce7; border-radius:6px;">✅ Uploaded: <strong>' + (data.title || file.name) + '</strong><br><span style="font-size:12px; color:#6b7280;">⏳ Analyzer will process it on the next poll (~30 s)</span></div>');
+                    fileInput.value = '';
+                    document.getElementById('upload-file-name').textContent = '';
+                    loadImportHistory();
+                } else {
+                    setUploadStatus('<div style="color:#e74c3c;">❌ ' + (data.error || 'Upload failed') + '</div>');
                 }
             }
         }
 
-        // Simple upload function
-        async function handleSimpleUpload() {
-            const fileInput = document.getElementById('upload-file-input');
-            const statusDiv = document.getElementById('upload-status');
+        async function _doUrlUpload(smartMeta) {
+            const rawUrl = (_uploadMode === 'cloud'
+                ? document.getElementById('upload-cloud-input')
+                : document.getElementById('upload-url-input')).value.trim();
 
-            if (!fileInput.files || fileInput.files.length === 0) {
-                statusDiv.innerHTML = '<div style="color: #e74c3c;">Please select a file first.</div>';
+            if (!rawUrl) {
+                setUploadStatus('<div style="color:#e74c3c;">Please enter a URL.</div>');
                 return;
             }
 
-            const file = fileInput.files[0];
-            statusDiv.innerHTML = '<div style="color: #3498db;">Uploading...</div>';
-
+            // Transform cloud / share links to direct download URLs
+            let directUrl = rawUrl;
+            let service = 'url';
             try {
-                const formData = new FormData();
-                formData.append('document', file);
-                formData.append('title', file.name.replace(/\.[^/.]+$/, ""));
-
-                const response = await fetch('/paperless/api/documents/post_document/', {
-                    method: 'POST',
-                    body: formData
-                });
-
-                if (response.ok) {
-                    statusDiv.innerHTML = '<div style="color: #27ae60; padding: 10px; background: #d4edda; border-radius: 4px;">✅ Uploaded: ' + file.name + '</div>';
-                    fileInput.value = '';
-                } else {
-                    statusDiv.innerHTML = '<div style="color: #e74c3c;">Upload failed</div>';
+                setUploadStatus('<div style="color:#2563eb;">🔗 Resolving URL…</div>');
+                const tx = await detectAndTransform(rawUrl);
+                if (tx.error) throw new Error(tx.error);
+                directUrl = tx.direct_url;
+                service = tx.service || 'url';
+                if (_uploadMode === 'cloud') {
+                    const det = document.getElementById('upload-cloud-detected');
+                    det.textContent = 'Detected: ' + service.replace('_', ' ');
                 }
-            } catch (error) {
-                statusDiv.innerHTML = '<div style="color: #e74c3c;">Error: ' + error.message + '</div>';
+            } catch (e) {
+                setUploadStatus('<div style="color:#e74c3c;">❌ URL transform error: ' + e.message + '</div>');
+                return;
+            }
+
+            const authType = _uploadMode === 'url' ? document.getElementById('upload-auth-type').value : 'none';
+            const urlPayload = {
+                url: directUrl,
+                source: service,
+                auth_type: authType,
+                username: authType === 'basic' ? document.getElementById('upload-auth-user').value : undefined,
+                password: authType === 'basic' ? document.getElementById('upload-auth-pass').value : undefined,
+                token: authType === 'token' ? document.getElementById('upload-auth-token-val').value : undefined,
+            };
+
+            if (smartMeta) {
+                // Not supported for URL mode in this flow (no server-side temp file retention)
+                setUploadStatus('<div style="color:#f59e0b; padding:8px 12px; background:#fef3c7; border-radius:6px;">⚠️ Smart Metadata is not available for URL uploads — uploading directly.</div>');
+                await new Promise(r => setTimeout(r, 1500));
+            }
+
+            setUploadStatus('<div style="color:#2563eb;">⏳ Downloading and uploading…</div>');
+            const res = await apiFetch(apiUrl('/api/upload/from-url'), {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(urlPayload)
+            });
+            const data = await res.json();
+            if (data.success) {
+                setUploadStatus('<div style="color:#16a34a; padding:10px; background:#dcfce7; border-radius:6px;">✅ Uploaded: <strong>' + (data.title || directUrl) + '</strong><br><span style="font-size:12px; color:#6b7280;">⏳ Analyzer will process it on the next poll (~30 s)</span></div>');
+                if (_uploadMode === 'cloud') document.getElementById('upload-cloud-input').value = '';
+                if (_uploadMode === 'url') document.getElementById('upload-url-input').value = '';
+                loadImportHistory();
+            } else {
+                setUploadStatus('<div style="color:#e74c3c;">❌ ' + (data.error || 'Upload failed') + '</div>');
+            }
+        }
+
+        function showSmartPreview(meta) {
+            const top = meta.project_suggestions?.[0];
+            const html = `
+                <table style="width:100%; border-collapse:collapse; font-size:13px;">
+                    <tr><td style="padding:4px 8px; color:#6b7280; white-space:nowrap; width:130px;">Title</td><td style="padding:4px 8px; font-weight:600;">${meta.suggested_title || '—'}</td></tr>
+                    <tr><td style="padding:4px 8px; color:#6b7280;">Type</td><td style="padding:4px 8px;">${meta.document_type || '—'}</td></tr>
+                    <tr><td style="padding:4px 8px; color:#6b7280;">Tags</td><td style="padding:4px 8px;">${(meta.suggested_tags || []).join(', ') || '—'}</td></tr>
+                    <tr><td style="padding:4px 8px; color:#6b7280;">Project</td><td style="padding:4px 8px;">${top ? top.name + ' (' + Math.round((top.confidence||0)*100) + '%)' : '—'}</td></tr>
+                </table>
+                ${top ? '<input type="hidden" id="smart-project-slug" value="' + top.slug + '">' : ''}
+            `;
+            document.getElementById('upload-meta-content').innerHTML = html;
+            document.getElementById('upload-meta-preview').style.display = '';
+        }
+
+        async function confirmSmartUpload() {
+            if (!_smartPendingPayload) return;
+            const {type, file, metadata} = _smartPendingPayload;
+            const projectSlug = document.getElementById('smart-project-slug')?.value;
+            if (!projectSlug) {
+                setUploadStatus('<div style="color:#e74c3c;">No project suggested — please upload without Smart Metadata.</div>');
+                return;
+            }
+            cancelSmartPreview();
+            setUploadStatus('<div style="color:#2563eb;">⏳ Uploading with AI metadata…</div>');
+
+            const fd = new FormData();
+            fd.append('file', file);
+            fd.append('project_slug', projectSlug);
+            fd.append('metadata', JSON.stringify(metadata));
+            const res = await apiFetch(apiUrl('/api/upload/submit'), {method: 'POST', body: fd});
+            const data = await res.json();
+            if (data.success) {
+                setUploadStatus('<div style="color:#16a34a; padding:10px; background:#dcfce7; border-radius:6px;">✅ Uploaded: <strong>' + (data.title || file.name) + '</strong><br><span style="font-size:12px; color:#6b7280;">⏳ Analyzer will process it on the next poll (~30 s)</span></div>');
+                document.getElementById('upload-file-input').value = '';
+                document.getElementById('upload-file-name').textContent = '';
+                loadImportHistory();
+            } else {
+                setUploadStatus('<div style="color:#e74c3c;">❌ ' + (data.error || 'Upload failed') + '</div>');
+            }
+        }
+
+        async function loadImportHistory() {
+            const body = document.getElementById('upload-history-body');
+            if (!body) return;
+            try {
+                const res = await apiFetch(apiUrl('/api/upload/history'));
+                const data = await res.json();
+                const rows = data.history || [];
+                if (!rows.length) {
+                    body.innerHTML = '<div style="padding:20px; color:#9ca3af; font-size:13px; text-align:center;">No imports yet.</div>';
+                    return;
+                }
+                const badgeColors = {
+                    file: '#6366f1', url: '#0284c7',
+                    google_drive: '#16a34a', dropbox: '#2563eb', onedrive: '#0ea5e9'
+                };
+                const rows_html = rows.map(r => {
+                    const color = badgeColors[r.source] || '#6b7280';
+                    const badge = `<span style="background:${color}; color:#fff; padding:2px 8px; border-radius:12px; font-size:11px; font-weight:600;">${(r.source || 'unknown').replace('_', '\u00a0')}</span>`;
+                    const statusIcon = r.status === 'uploaded' ? '✅' : '❌';
+                    const ts = r.created_at ? r.created_at.replace('T', ' ').slice(0, 16) : '';
+                    return `<tr style="border-top:1px solid #f3f4f6;">
+                        <td style="padding:8px 12px; font-size:13px; max-width:300px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${r.filename || r.original_url || '—'}</td>
+                        <td style="padding:8px 12px;">${badge}</td>
+                        <td style="padding:8px 12px; font-size:12px; color:#6b7280; white-space:nowrap;">${ts}</td>
+                        <td style="padding:8px 12px; font-size:13px;">${statusIcon} ${r.status}</td>
+                    </tr>`;
+                }).join('');
+                body.innerHTML = `<table style="width:100%; border-collapse:collapse;">
+                    <thead><tr style="background:#f9fafb;">
+                        <th style="padding:8px 12px; text-align:left; font-size:12px; color:#6b7280; font-weight:600;">Filename / URL</th>
+                        <th style="padding:8px 12px; text-align:left; font-size:12px; color:#6b7280; font-weight:600;">Source</th>
+                        <th style="padding:8px 12px; text-align:left; font-size:12px; color:#6b7280; font-weight:600;">Uploaded</th>
+                        <th style="padding:8px 12px; text-align:left; font-size:12px; color:#6b7280; font-weight:600;">Status</th>
+                    </tr></thead>
+                    <tbody>${rows_html}</tbody>
+                </table>`;
+            } catch (e) {
+                body.innerHTML = '<div style="padding:12px; color:#e74c3c; font-size:13px;">Failed to load history.</div>';
             }
         }
 
@@ -2048,8 +2943,13 @@
             fetchRecent();
             fetchProfiles();
             refreshVectorTypes();
-            loadVectorStoreDocuments();
             loadAIConfig();
+            // Refresh import history only when the upload tab is visible
+            if (document.getElementById('tab-upload')?.classList.contains('active')) {
+                loadImportHistory();
+            }
+            // Vector store documents are loaded lazily when the sub-tab is opened;
+            // no need to reload 700+ doc rows on every 10-second poll
         }
 
         // Reprocess all documents
@@ -2140,81 +3040,37 @@
 
         // Load all vector store documents grouped by type
         async function loadVectorStoreDocuments() {
+            vsLoaded = true;
+            const container = document.getElementById('vector-store-manager');
+            if (container) container.innerHTML = '<div class="loading">Loading vector store documents…</div>';
             try {
                 const response = await apiFetch(apiUrl('/api/vector/documents'));
                 const data = await response.json();
 
-                const container = document.getElementById('vector-store-manager');
-
                 if (!data.success) {
-                    container.innerHTML = '<p style="color: #e74c3c;">Failed to load vector store documents</p>';
+                    if (container) container.innerHTML = '<p style="color:#e74c3c;">Failed to load vector store documents</p>';
                     return;
                 }
 
                 if (!data.documents || Object.keys(data.documents).length === 0) {
-                    container.innerHTML = '<p style="color: #999;">No documents in vector store yet.</p>';
+                    if (container) container.innerHTML = '<p style="color:#999;">No documents in vector store yet.</p>';
+                    vsAllDocs = [];
+                    vsFiltered = [];
+                    renderVsPage();
                     return;
                 }
 
-                let html = '';
-
-                // Sort types alphabetically
-                const types = Object.keys(data.documents).sort();
-
-                types.forEach(type => {
-                    const docs = data.documents[type];
-                    html += `
-                        <div class="vector-type-section">
-                            <div class="vector-type-header">
-                                <div>
-                                    <h3>${type} <span class="vector-type-count">(${docs.length} document${docs.length !== 1 ? 's' : ''})</span></h3>
-                                </div>
-                                <button class="btn btn-small btn-warning" onclick="confirmDeleteType('${type}')"
-                                    title="Delete all ${type} documents from vector store">
-                                    Delete All ${type}
-                                </button>
-                            </div>
-                            <div class="vector-documents-list">
-                    `;
-
-                    docs.forEach(doc => {
-                        html += `
-                            <div class="vector-doc-item">
-                                <div class="vector-doc-info">
-                                    <div class="vector-doc-title">${escapeHtml(doc.title || 'Untitled')}</div>
-                                    <div class="vector-doc-id">ID: ${doc.doc_id}</div>
-                                </div>
-                                <button class="btn btn-small btn-warning" onclick="deleteIndividualDocument(${doc.doc_id}, '${escapeHtml(doc.title || 'this document')}')"
-                                    title="Delete this document from vector store">
-                                    Delete
-                                </button>
-                            </div>
-                        `;
-                    });
-
-                    html += `
-                            </div>
-                        </div>
-                    `;
+                // Flatten into [{title, doc_id, type}, …]
+                vsAllDocs = [];
+                Object.entries(data.documents).forEach(([type, docs]) => {
+                    docs.forEach(d => vsAllDocs.push({title: d.title, doc_id: d.doc_id, type}));
                 });
-
-                html += `
-                    <div style="margin-top: 20px; padding-top: 20px; border-top: 2px solid #ecf0f1;">
-                        <button class="btn btn-warning" onclick="confirmClearVectorStore()" style="margin-right: 10px;">
-                            Clear All Embeddings
-                        </button>
-                        <button class="btn btn-small" onclick="loadVectorStoreDocuments()">
-                            Refresh
-                        </button>
-                    </div>
-                `;
-
-                container.innerHTML = html;
+                // Preserve any active search filter
+                filterVsDocs();
 
             } catch (error) {
                 console.error('Failed to load vector store documents:', error);
-                const container = document.getElementById('vector-store-manager');
-                container.innerHTML = '<p style="color: #e74c3c;">Failed to load vector store documents</p>';
+                if (container) container.innerHTML = '<p style="color:#e74c3c;">Failed to load vector store documents</p>';
             }
         }
 
@@ -2234,6 +3090,7 @@
 
                 if (data.success) {
                     alert(`✅ ${data.message}`);
+                    vsLoaded = false;
                     loadVectorStoreDocuments();
                     fetchStatus();
                 } else {
@@ -2260,6 +3117,7 @@
                 if (data.success) {
                     alert(`✅ ${data.message}`);
                     refreshVectorTypes();
+                    vsLoaded = false;
                     loadVectorStoreDocuments();
                     fetchStatus();
                 } else {
@@ -2282,6 +3140,7 @@
                 if (data.success) {
                     alert('✅ ' + data.message);
                     refreshVectorTypes();
+                    vsLoaded = false;
                     loadVectorStoreDocuments();
                     fetchStatus();
                 } else {
