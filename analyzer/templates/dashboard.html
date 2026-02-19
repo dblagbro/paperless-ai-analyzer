@@ -4694,35 +4694,11 @@
         loadSessions();
 
 
-        // ── About Modal ──────────────────────────────────────────────────────
-        function openAboutModal() {
-            const m = document.getElementById('about-modal');
-            m.style.display = 'flex';
-            document.getElementById('about-version-line').textContent = 'Loading…';
-            document.getElementById('about-components').innerHTML = '<span style="color:#8899aa;">Loading…</span>';
-            fetch('/api/about').then(r => r.json()).then(d => {
-                document.getElementById('about-version-line').textContent = 'Version ' + d.version;
-                const comp = d.components || {};
-                let rows = '';
-                for (const [k, v] of Object.entries(comp)) {
-                    rows += `<span style="color:#aabbcc;">${escapeHtml(k)}</span><span style="color:#7db8f7; font-weight:600;">${escapeHtml(v)}</span>`;
-                }
-                document.getElementById('about-components').innerHTML = rows || '<span style="color:#aabbcc;">—</span>';
-            }).catch(() => {
-                document.getElementById('about-version-line').textContent = 'Version unknown';
-            });
-        }
-        function closeAboutModal() {
-            document.getElementById('about-modal').style.display = 'none';
-        }
-        document.getElementById('about-modal').addEventListener('click', function(e) {
-            if (e.target === this) closeAboutModal();
-        });
-
-
-        // ── Tab Help Panels ──────────────────────────────────────────────────
-        let _helpVisible = false;
-        const _helpPanelMap = {
+        // ── About / Help / Bug Report / SMTP — initialise state first ──────────
+        // Variables must be initialised before any code that could throw, so
+        // that function bodies that reference them don't hit the TDZ.
+        var _helpVisible = false;
+        var _helpPanelMap = {
             'overview': 'help-overview',
             'projects': 'help-projects',
             'upload':   'help-upload',
@@ -4731,43 +4707,69 @@
             'config':   'help-config',
             'tools':    'help-tools',
         };
+        var _smtpLoaded = false;
+
+        // ── About Modal ──────────────────────────────────────────────────────
+        function openAboutModal() {
+            var m = document.getElementById('about-modal');
+            if (!m) return;
+            m.style.display = 'flex';
+            document.getElementById('about-version-line').textContent = 'Loading…';
+            document.getElementById('about-components').innerHTML = '<span style="color:#8899aa;">Loading…</span>';
+            apiFetch(apiUrl('/api/about')).then(function(r) { return r.json(); }).then(function(d) {
+                document.getElementById('about-version-line').textContent = 'Version ' + d.version;
+                var comp = d.components || {};
+                var rows = '';
+                Object.keys(comp).forEach(function(k) {
+                    rows += '<span style="color:#aabbcc;">' + escapeHtml(k) + '</span>' +
+                            '<span style="color:#7db8f7; font-weight:600;">' + escapeHtml(comp[k]) + '</span>';
+                });
+                document.getElementById('about-components').innerHTML = rows || '<span style="color:#aabbcc;">—</span>';
+            }).catch(function() {
+                document.getElementById('about-version-line').textContent = 'Version unknown';
+            });
+        }
+        function closeAboutModal() {
+            var m = document.getElementById('about-modal');
+            if (m) m.style.display = 'none';
+        }
+
+        // ── Tab Help Panels ──────────────────────────────────────────────────
         function toggleTabHelp() {
             _helpVisible = !_helpVisible;
-            const btn = document.getElementById('help-toggle-btn');
+            var btn = document.getElementById('help-toggle-btn');
             if (btn) btn.style.background = _helpVisible
                 ? 'rgba(52,152,219,0.35)'
                 : 'rgba(255,255,255,0.12)';
-            // Show/hide the panel for the currently active tab
             _refreshHelpPanel();
         }
         function _refreshHelpPanel() {
-            // Hide all panels first
-            Object.values(_helpPanelMap).forEach(id => {
-                const el = document.getElementById(id);
+            Object.keys(_helpPanelMap).forEach(function(k) {
+                var el = document.getElementById(_helpPanelMap[k]);
                 if (el) el.style.display = 'none';
             });
             if (!_helpVisible) return;
-            // Show the one for the current tab
-            const activeTab = document.querySelector('.tab-button.active');
+            var activeTab = document.querySelector('.tab-button.active');
             if (!activeTab) return;
-            const tabName = activeTab.getAttribute('onclick').match(/'([^']+)'/)?.[1];
-            const panelId = _helpPanelMap[tabName];
+            var m = activeTab.getAttribute('onclick').match(/'([^']+)'/);
+            var tabName = m ? m[1] : null;
+            var panelId = tabName ? _helpPanelMap[tabName] : null;
             if (panelId) {
-                const el = document.getElementById(panelId);
+                var el = document.getElementById(panelId);
                 if (el) el.style.display = 'block';
             }
         }
-        // Hook into switchTab so help updates when switching tabs
-        const _origSwitchTab = switchTab;
-        switchTab = function(name) {
-            _origSwitchTab(name);
-            _refreshHelpPanel();
-        };
-
+        // Wrap switchTab so the help panel updates on tab change
+        (function() {
+            var _orig = switchTab;
+            switchTab = function(name) { _orig(name); _refreshHelpPanel(); };
+        })();
 
         // ── Bug Report Modal ─────────────────────────────────────────────────
         function openBugReportModal() {
-            document.getElementById('bug-report-modal').style.display = 'flex';
+            var m = document.getElementById('bug-report-modal');
+            if (!m) return;
+            m.style.display = 'flex';
             document.getElementById('bug-report-result').style.display = 'none';
             document.getElementById('bug-description').value = '';
             document.getElementById('bug-contact-email').value = '';
@@ -4776,78 +4778,64 @@
             document.getElementById('bug-include-logs').checked = true;
         }
         function closeBugReportModal() {
-            document.getElementById('bug-report-modal').style.display = 'none';
+            var m = document.getElementById('bug-report-modal');
+            if (m) m.style.display = 'none';
         }
-        document.getElementById('bug-report-modal').addEventListener('click', function(e) {
-            if (e.target === this) closeBugReportModal();
-        });
         async function submitBugReport() {
-            const desc = document.getElementById('bug-description').value.trim();
-            if (!desc) {
-                const el = document.getElementById('bug-report-result');
-                el.style.display = 'block';
-                el.style.background = 'rgba(231,76,60,0.15)';
-                el.style.border = '1px solid rgba(231,76,60,0.4)';
-                el.style.color = '#f08080';
-                el.textContent = 'Please describe the problem before sending.';
-                return;
+            var desc = document.getElementById('bug-description').value.trim();
+            var resEl = document.getElementById('bug-report-result');
+            function showErr(msg) {
+                resEl.style.display = 'block';
+                resEl.style.background = 'rgba(231,76,60,0.15)';
+                resEl.style.border = '1px solid rgba(231,76,60,0.4)';
+                resEl.style.color = '#f08080';
+                resEl.textContent = msg;
             }
-            const btn = document.querySelector('#bug-report-modal button[onclick="submitBugReport()"]');
+            if (!desc) { showErr('Please describe the problem before sending.'); return; }
+            var btn = document.querySelector('#bug-report-modal button[onclick="submitBugReport()"]');
             if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
-            const fd = new FormData();
+            var fd = new FormData();
             fd.append('description', desc);
             fd.append('severity', document.getElementById('bug-severity').value);
             fd.append('contact_email', document.getElementById('bug-contact-email').value);
             fd.append('include_logs', document.getElementById('bug-include-logs').checked ? 'true' : 'false');
-            const harInput = document.getElementById('bug-har-file');
+            var harInput = document.getElementById('bug-har-file');
             if (harInput.files && harInput.files[0]) fd.append('har_file', harInput.files[0]);
             try {
-                const r = await fetch('/api/bug-report', { method: 'POST', body: fd });
-                const d = await r.json();
-                const el = document.getElementById('bug-report-result');
-                el.style.display = 'block';
+                var r = await apiFetch(apiUrl('/api/bug-report'), { method: 'POST', body: fd });
+                var d = await r.json();
+                resEl.style.display = 'block';
                 if (d.ok) {
-                    el.style.background = 'rgba(39,174,96,0.15)';
-                    el.style.border = '1px solid rgba(39,174,96,0.4)';
-                    el.style.color = '#7dcea0';
-                    el.textContent = d.message;
+                    resEl.style.background = 'rgba(39,174,96,0.15)';
+                    resEl.style.border = '1px solid rgba(39,174,96,0.4)';
+                    resEl.style.color = '#7dcea0';
+                    resEl.textContent = d.message;
                     if (btn) { btn.disabled = false; btn.textContent = '📨 Send Report'; }
                     setTimeout(closeBugReportModal, 3000);
                 } else {
-                    el.style.background = 'rgba(231,76,60,0.15)';
-                    el.style.border = '1px solid rgba(231,76,60,0.4)';
-                    el.style.color = '#f08080';
-                    el.textContent = d.error || 'Failed to send report.';
+                    showErr(d.error || 'Failed to send report.');
                     if (btn) { btn.disabled = false; btn.textContent = '📨 Send Report'; }
                 }
             } catch (e) {
-                const el = document.getElementById('bug-report-result');
-                el.style.display = 'block';
-                el.style.background = 'rgba(231,76,60,0.15)';
-                el.style.border = '1px solid rgba(231,76,60,0.4)';
-                el.style.color = '#f08080';
-                el.textContent = 'Network error: ' + e.message;
+                showErr('Network error: ' + e.message);
                 if (btn) { btn.disabled = false; btn.textContent = '📨 Send Report'; }
             }
         }
 
-
         // ── SMTP Settings (admin) ─────────────────────────────────────────────
-        let _smtpLoaded = false;
         function _ensureSmtpLoaded(subtab) {
             if (subtab === 'smtp' && !_smtpLoaded) {
                 _smtpLoaded = true;
                 loadSmtpSettings();
             }
         }
-        // Monkey-patch switchConfigTab to lazy-load SMTP settings
-        const _origSwitchConfigTab = switchConfigTab;
-        switchConfigTab = function(name) {
-            _origSwitchConfigTab(name);
-            _ensureSmtpLoaded(name);
-        };
+        // Wrap switchConfigTab to lazy-load SMTP settings
+        (function() {
+            var _orig = switchConfigTab;
+            switchConfigTab = function(name) { _orig(name); _ensureSmtpLoaded(name); };
+        })();
         function loadSmtpSettings() {
-            fetch('/api/smtp-settings').then(r => r.json()).then(d => {
+            apiFetch(apiUrl('/api/smtp-settings')).then(function(r) { return r.json(); }).then(function(d) {
                 if (d.error) return;
                 document.getElementById('smtp-host').value = d.host || '';
                 document.getElementById('smtp-port').value = d.port || 587;
@@ -4857,18 +4845,18 @@
                 document.getElementById('smtp-helo').value = d.helo || '';
                 document.getElementById('smtp-bug-report-to').value = d.bug_report_to || '';
                 document.getElementById('smtp-starttls').checked = !!d.starttls;
-            }).catch(() => {});
+            }).catch(function() {});
         }
         function _showSmtpResult(msg, ok) {
-            const el = document.getElementById('smtp-result');
+            var el = document.getElementById('smtp-result');
             el.style.display = 'block';
             el.style.background = ok ? 'rgba(39,174,96,0.15)' : 'rgba(231,76,60,0.15)';
-            el.style.border = `1px solid ${ok ? 'rgba(39,174,96,0.4)' : 'rgba(231,76,60,0.4)'}`;
+            el.style.border = '1px solid ' + (ok ? 'rgba(39,174,96,0.4)' : 'rgba(231,76,60,0.4)');
             el.style.color = ok ? '#27ae60' : '#e74c3c';
             el.textContent = msg;
         }
         async function saveSmtpSettings() {
-            const payload = {
+            var payload = {
                 host: document.getElementById('smtp-host').value.trim(),
                 port: parseInt(document.getElementById('smtp-port').value) || 587,
                 user: document.getElementById('smtp-user').value.trim(),
@@ -4879,12 +4867,12 @@
                 starttls: document.getElementById('smtp-starttls').checked,
             };
             try {
-                const r = await fetch('/api/smtp-settings', {
+                var r = await apiFetch(apiUrl('/api/smtp-settings'), {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
                 });
-                const d = await r.json();
+                var d = await r.json();
                 _showSmtpResult(d.ok ? d.message : (d.error || 'Failed'), !!d.ok);
             } catch (e) {
                 _showSmtpResult('Error: ' + e.message, false);
@@ -4893,8 +4881,8 @@
         async function testSmtpSettings() {
             _showSmtpResult('Sending test email…', true);
             try {
-                const r = await fetch('/api/smtp-settings/test', { method: 'POST' });
-                const d = await r.json();
+                var r = await apiFetch(apiUrl('/api/smtp-settings/test'), { method: 'POST' });
+                var d = await r.json();
                 _showSmtpResult(d.ok ? d.message : (d.error || 'Failed'), !!d.ok);
             } catch (e) {
                 _showSmtpResult('Error: ' + e.message, false);
@@ -4937,7 +4925,7 @@
     </div>
 
     <!-- ── About Modal ─────────────────────────────── -->
-    <div id="about-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.55); z-index:9999; align-items:center; justify-content:center;">
+    <div id="about-modal" onclick="if(event.target===this)closeAboutModal()" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.55); z-index:9999; align-items:center; justify-content:center;">
         <div style="background:#243447; border-radius:12px; padding:36px 36px 28px; width:100%; max-width:480px; box-shadow:0 10px 40px rgba(0,0,0,0.6); color:#cdd4dc;">
             <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:20px;">
                 <div>
@@ -4966,7 +4954,7 @@
     </div>
 
     <!-- ── Bug Report Modal ─────────────────────────────── -->
-    <div id="bug-report-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.55); z-index:9999; align-items:center; justify-content:center;">
+    <div id="bug-report-modal" onclick="if(event.target===this)closeBugReportModal()" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.55); z-index:9999; align-items:center; justify-content:center;">
         <div style="background:#243447; border-radius:12px; padding:32px; width:100%; max-width:520px; max-height:90vh; overflow-y:auto; box-shadow:0 10px 40px rgba(0,0,0,0.6);">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
                 <h3 style="color:#fff; margin:0; font-size:17px;">🐛 Report an Issue</h3>
