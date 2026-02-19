@@ -219,12 +219,12 @@ Document Type: {doc_type}
 
 Provide:
 1. BRIEF (1 sentence): A concise description of what this document is
-2. FULL (3-4 sentences): A detailed summary including purpose, key details, and context
+2. FULL (minimum 3 sentences, target 4-5): A detailed summary covering purpose, key details, dates or amounts if present, and relevant context. Must be at least 3 complete sentences.
 
 Respond in JSON format:
 {{
   "brief": "One sentence description",
-  "full": "Three to four sentence detailed summary"
+  "full": "Minimum three sentences. Four or five sentences preferred. Include specific details from the document."
 }}
 
 Important: Base your summary on the title and any content provided. If content is limited, describe what the document type and title suggest about its purpose."""
