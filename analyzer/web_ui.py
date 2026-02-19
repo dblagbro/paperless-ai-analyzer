@@ -7,6 +7,9 @@ Simple Flask-based dashboard for monitoring and control.
 import os
 import json
 import logging
+import smtplib
+import ssl
+from email.message import EmailMessage
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Dict, Any, List
@@ -120,6 +123,9 @@ class _ReverseProxied:
 
 
 app.wsgi_app = _ReverseProxied(app.wsgi_app)
+
+# Version
+from analyzer import __version__ as _APP_VERSION
 
 # Auth setup
 from analyzer.auth import login_manager
@@ -3114,6 +3120,212 @@ def api_get_llm_pricing():
     except Exception as e:
         logger.error(f"Failed to get pricing: {e}")
         return jsonify({'error': str(e)}), 500
+
+
+# ---------------------------------------------------------------------------
+# SMTP utilities
+# ---------------------------------------------------------------------------
+_SMTP_SETTINGS_FILE = Path('/app/data/smtp_settings.json')
+_SMTP_DEFAULTS = {
+    'host': '', 'port': 587, 'starttls': True,
+    'user': '', 'pass': '', 'from': '', 'helo': '',
+    'bug_report_to': 'dblagbro@voipguru.org',
+}
+
+def _load_smtp_settings() -> dict:
+    try:
+        if _SMTP_SETTINGS_FILE.exists():
+            return {**_SMTP_DEFAULTS, **json.loads(_SMTP_SETTINGS_FILE.read_text())}
+    except Exception:
+        pass
+    return dict(_SMTP_DEFAULTS)
+
+def _save_smtp_settings(settings: dict):
+    _SMTP_SETTINGS_FILE.write_text(json.dumps(settings, indent=2))
+
+def _smtp_send(smtp_cfg: dict, msg: EmailMessage):
+    host = smtp_cfg.get('host', '')
+    port = int(smtp_cfg.get('port', 587))
+    starttls = bool(smtp_cfg.get('starttls', True))
+    user = smtp_cfg.get('user', '')
+    pwd = smtp_cfg.get('pass', '')
+    helo = smtp_cfg.get('helo') or None
+    if not host:
+        raise RuntimeError('SMTP host is not configured')
+    with smtplib.SMTP(host, port, local_hostname=helo) as s:
+        s.ehlo()
+        if starttls:
+            s.starttls(context=ssl.create_default_context())
+            s.ehlo()
+        if user:
+            s.login(user, pwd)
+        s.send_message(msg)
+
+
+# ---------------------------------------------------------------------------
+# About
+# ---------------------------------------------------------------------------
+@app.route('/api/about')
+@login_required
+def api_about():
+    return jsonify({
+        'name': 'Paperless AI Analyzer',
+        'version': _APP_VERSION,
+        'description': (
+            'Intelligent document analysis, anomaly detection, and AI-powered '
+            'chat interface for Paperless-ngx.'
+        ),
+        'components': {
+            'paperless-ai-analyzer': _APP_VERSION,
+            'anomaly-detector': '1.5.1',
+        },
+        'github': 'https://github.com/dblagbro/paperless-ai-analyzer',
+    })
+
+
+# ---------------------------------------------------------------------------
+# SMTP / Notifications settings (admin only)
+# ---------------------------------------------------------------------------
+@app.route('/api/smtp-settings', methods=['GET'])
+@login_required
+def api_get_smtp_settings():
+    if not current_user.role == 'admin':
+        return jsonify({'error': 'Admin only'}), 403
+    s = _load_smtp_settings()
+    # Mask password for display
+    s_safe = {**s, 'pass': '••••••••' if s.get('pass') else ''}
+    return jsonify(s_safe)
+
+
+@app.route('/api/smtp-settings', methods=['POST'])
+@login_required
+def api_save_smtp_settings():
+    if not current_user.role == 'admin':
+        return jsonify({'error': 'Admin only'}), 403
+    data = request.get_json(force=True) or {}
+    current = _load_smtp_settings()
+    updated = {
+        'host': str(data.get('host', current.get('host', ''))).strip(),
+        'port': int(data.get('port', current.get('port', 587))),
+        'starttls': bool(data.get('starttls', current.get('starttls', True))),
+        'user': str(data.get('user', current.get('user', ''))).strip(),
+        'from': str(data.get('from', current.get('from', ''))).strip(),
+        'helo': str(data.get('helo', current.get('helo', ''))).strip(),
+        'bug_report_to': str(data.get('bug_report_to', current.get('bug_report_to', 'dblagbro@voipguru.org'))).strip(),
+    }
+    # Only update password if a real value is provided (not the mask)
+    raw_pass = str(data.get('pass', ''))
+    if raw_pass and raw_pass != '••••••••':
+        updated['pass'] = raw_pass
+    else:
+        updated['pass'] = current.get('pass', '')
+    _save_smtp_settings(updated)
+    return jsonify({'ok': True, 'message': 'SMTP settings saved'})
+
+
+@app.route('/api/smtp-settings/test', methods=['POST'])
+@login_required
+def api_test_smtp():
+    if not current_user.role == 'admin':
+        return jsonify({'error': 'Admin only'}), 403
+    smtp_cfg = _load_smtp_settings()
+    dest = smtp_cfg.get('bug_report_to') or smtp_cfg.get('user', '')
+    if not dest:
+        return jsonify({'error': 'No destination email configured'}), 400
+    try:
+        msg = EmailMessage()
+        msg['Subject'] = 'Paperless AI Analyzer — SMTP Test'
+        msg['From'] = smtp_cfg.get('from') or smtp_cfg.get('user', 'noreply@localhost')
+        msg['To'] = dest
+        msg.set_content('This is a test email from Paperless AI Analyzer.\n\nSMTP is configured correctly!')
+        _smtp_send(smtp_cfg, msg)
+        return jsonify({'ok': True, 'message': f'Test email sent to {dest}'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ---------------------------------------------------------------------------
+# Bug Report
+# ---------------------------------------------------------------------------
+@app.route('/api/bug-report', methods=['POST'])
+@login_required
+def api_bug_report():
+    description = (request.form.get('description') or '').strip()
+    severity = (request.form.get('severity') or 'Medium').strip()
+    contact_email = (request.form.get('contact_email') or '').strip()
+    include_logs = request.form.get('include_logs', 'true').lower() != 'false'
+    browser_info = request.headers.get('User-Agent', 'Unknown')
+
+    if not description:
+        return jsonify({'error': 'Please describe the problem'}), 400
+
+    smtp_cfg = _load_smtp_settings()
+    dest = smtp_cfg.get('bug_report_to', 'dblagbro@voipguru.org')
+
+    # Collect recent log lines from the in-memory buffer
+    log_snippet = ''
+    if include_logs:
+        try:
+            buf = list(app.log_buffer)[-60:]
+            log_snippet = '\n'.join(buf)
+        except Exception:
+            log_snippet = '(logs unavailable)'
+
+    # Build email body
+    lines = [
+        f'Paperless AI Analyzer — Bug Report',
+        f'=' * 50,
+        f'',
+        f'Severity:    {severity}',
+        f'Reported by: {current_user.display_name} (user: {current_user.username})',
+        f'Version:     {_APP_VERSION}',
+        f'Timestamp:   {datetime.utcnow().isoformat()}Z',
+        f'Browser:     {browser_info}',
+    ]
+    if contact_email:
+        lines.append(f'Contact:     {contact_email}')
+    lines += [
+        f'',
+        f'DESCRIPTION',
+        f'-' * 40,
+        description,
+        f'',
+    ]
+    if log_snippet:
+        lines += [
+            f'RECENT LOGS (last 60 lines)',
+            f'-' * 40,
+            log_snippet,
+            f'',
+        ]
+
+    body_text = '\n'.join(lines)
+
+    try:
+        msg = EmailMessage()
+        msg['Subject'] = f'[{severity}] Paperless AI Analyzer Bug Report — v{_APP_VERSION}'
+        msg['From'] = smtp_cfg.get('from') or smtp_cfg.get('user', 'noreply@localhost')
+        msg['To'] = dest
+        if contact_email:
+            msg['Reply-To'] = contact_email
+        msg.set_content(body_text)
+
+        # Attach HAR file if provided
+        har_file = request.files.get('har_file')
+        if har_file and har_file.filename:
+            har_data = har_file.read()
+            msg.add_attachment(
+                har_data,
+                maintype='application',
+                subtype='json',
+                filename=har_file.filename or 'browser.har',
+            )
+
+        _smtp_send(smtp_cfg, msg)
+        return jsonify({'ok': True, 'message': f'Bug report sent to {dest}. Thank you!'})
+    except Exception as e:
+        logger.error(f'Bug report email failed: {e}')
+        return jsonify({'error': f'Failed to send email: {e}'}), 500
 
 
 @app.route('/health')
