@@ -4,6 +4,78 @@ All notable changes to Paperless AI Analyzer are documented here.
 
 ---
 
+## [2.1.3] — 2026-02-20
+
+### Reconcile Index
+
+New **🔁 Reconcile Index** button in the Debug & Tools tab:
+- Fetches all current document IDs from Paperless
+- Removes `processed_documents` DB records for docs that have been deleted from Paperless
+- Removes Chroma embeddings for the same deleted docs
+- Reports how many documents are not yet analyzed or not yet embedded
+- Does **not** re-analyze or modify any documents — pure index cleanup
+- New `POST /api/reconcile` endpoint (admin only), scoped to current project
+
+---
+
+## [2.1.2] — 2026-02-20
+
+### Minor
+
+- Renamed **Manual** header button to **📖 Users Manual**
+- Fixed prod container requiring image rebuild to pick up template changes (no bind mounts)
+
+---
+
+## [2.1.1] — 2026-02-20
+
+### Complete Project Isolation
+
+Every layer of the stack is now fully isolated per project:
+
+**Vector store (Chroma)**
+- All `VectorStore()` calls in the web layer now pass `project_slug` from the Flask session
+- AI Chat, vector document listing, delete, clear, and status endpoints all scope to the currently selected project
+- Fixed: `session` was not imported in Flask app, causing `NameError` on all vector store API calls
+
+**Chat history**
+- `chat_sessions` table gained a `project_slug` column (migration-safe `ALTER TABLE`)
+- `get_sessions()` filters by project — switching projects shows only that project's chat history
+- `create_session()` stores the current project slug
+
+**Document tracking**
+- `processed_documents` table gained a `project_slug` column (migration-safe)
+- `mark_document_processed()` stores the project slug per document
+- `count_processed_documents()` and `get_analyzed_doc_ids()` accept optional `project_slug` filter
+- Startup gap-fill scoped to config project slug
+
+**Archived projects UI**
+- Archived projects now appear in a dedicated "🗄️ Archived (N)" section below active projects
+- `GET /api/projects` always returns all projects (active + archived); filtering is client-side
+- Archived cards show only Restore and Delete buttons
+
+---
+
+## [2.1.0] — 2026-02-20
+
+### User Manual
+
+- 12-page built-in user manual at `/docs/` with sidebar navigation
+- Pages: overview, getting-started, projects, upload, chat, search, anomaly-detection, tools, configuration, users, llm-usage, api
+- **📖 Users Manual** link in the header (username row), always visible
+- Each tab's **? Help** panel has a "📖 Full manual for this section →" link
+- **📧 Email Manual** button on the Edit User modal — sends all 12 section URLs to the user
+- Welcome email expanded to include links to all major manual sections
+- AI Chat system prompt updated to include doc URLs so it references them in how-to answers
+
+### Bug Fixes
+
+- Fixed docs sidebar links rendering bare paths (missing URL sub-path prefix) — `url_prefix` in the docs route now uses `request.script_root` instead of `app.config.get('URL_PREFIX')`
+- Fixed welcome and manual emails linking to host root instead of app sub-path — both now use `request.host_url + request.script_root`
+- Fixed `'sqlite3.Row' object has no attribute 'get'` in the send-manual endpoint — `get_user_by_id()` result converted to `dict` before attribute access
+
+---
+
 ## [2.0.4] — 2026-02-19
 
 ### Stale RAG embedding detection
