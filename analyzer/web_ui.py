@@ -3595,7 +3595,8 @@ def _send_welcome_email(email: str, display_name: str, username: str, role: str,
 
         from_addr = smtp_cfg.get('from') or smtp_cfg.get('user') or 'noreply@localhost'
         version = _APP_VERSION
-        docs_url = f"{app_base_url.rstrip('/')}/docs"
+        base = app_base_url.rstrip('/')
+        docs_url = f"{base}/docs"
         github_url = 'https://github.com/dblagbro/paperless-ai-analyzer'
         job_title_line = f"\n  Job Title: {job_title}" if job_title else ""
 
@@ -3610,11 +3611,24 @@ Account Details
 
 Access the Application
 ──────────────────────
-  {app_base_url}
+  {base}/
+
+User Manual
+───────────
+  The full user manual is available at:
+  {docs_url}
+
+  Key sections:
+  • Quick Start          {docs_url}/getting-started
+  • Projects             {docs_url}/projects
+  • Smart Upload         {docs_url}/upload
+  • AI Chat              {docs_url}/chat
+  • Search & Analysis    {docs_url}/search
+  • Anomaly Detection    {docs_url}/anomaly-detection
+  • Configuration        {docs_url}/configuration
 
 Resources
 ─────────
-  User Manual     : {docs_url}
   GitHub / README : {github_url}#readme
 
 If you have any questions, please contact your system administrator.
@@ -3623,7 +3637,7 @@ If you have any questions, please contact your system administrator.
 Paperless AI Analyzer v{version}
 """
         msg = EmailMessage()
-        msg['Subject'] = f'Welcome to Paperless AI Analyzer — Your Account is Ready'
+        msg['Subject'] = 'Welcome to Paperless AI Analyzer — Your Account is Ready'
         msg['From'] = from_addr
         msg['To'] = email
         msg.set_content(body)
@@ -3631,6 +3645,54 @@ Paperless AI Analyzer v{version}
         logger.info(f"Welcome email sent to {email} for user '{username}'")
     except Exception as e:
         logger.warning(f"Failed to send welcome email to {email}: {e}")
+
+
+def _send_manual_email(email: str, display_name: str, app_base_url: str):
+    """Send the user manual link to a user."""
+    try:
+        smtp_cfg = _load_smtp_settings()
+        if not smtp_cfg.get('host'):
+            raise RuntimeError("SMTP is not configured")
+
+        from_addr = smtp_cfg.get('from') or smtp_cfg.get('user') or 'noreply@localhost'
+        version = _APP_VERSION
+        base = app_base_url.rstrip('/')
+        docs_url = f"{base}/docs"
+
+        body = f"""Hi {display_name},
+
+Here is a link to the Paperless AI Analyzer user manual:
+
+  {docs_url}
+
+Manual Sections
+───────────────
+  Overview & Features    {docs_url}/overview
+  Quick Start Guide      {docs_url}/getting-started
+  Projects               {docs_url}/projects
+  Smart Upload           {docs_url}/upload
+  AI Chat                {docs_url}/chat
+  Search & Analysis      {docs_url}/search
+  Anomaly Detection      {docs_url}/anomaly-detection
+  Debug & Tools          {docs_url}/tools
+  Configuration          {docs_url}/configuration
+  User Management        {docs_url}/users
+  LLM Usage & Cost       {docs_url}/llm-usage
+  API Reference          {docs_url}/api
+
+—
+Paperless AI Analyzer v{version}
+"""
+        msg = EmailMessage()
+        msg['Subject'] = 'Paperless AI Analyzer — User Manual'
+        msg['From'] = from_addr
+        msg['To'] = email
+        msg.set_content(body)
+        _smtp_send(smtp_cfg, msg)
+        logger.info(f"Manual email sent to {email}")
+    except Exception as e:
+        logger.warning(f"Failed to send manual email to {email}: {e}")
+        raise
 
 
 # ---------------------------------------------------------------------------
@@ -4178,6 +4240,26 @@ def api_users_deactivate(uid):
         return jsonify({'success': True})
     except Exception as e:
         logger.error(f"Deactivate user error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/users/<int:uid>/send-manual', methods=['POST'])
+@login_required
+@admin_required
+def api_users_send_manual(uid):
+    """Send the user manual link to a user via email (admin only)."""
+    try:
+        user = get_user_by_id(uid)
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+        if not user.get('email'):
+            return jsonify({'error': 'User has no email address configured'}), 400
+        url_prefix = app.config.get('URL_PREFIX', '')
+        base_url = request.host_url.rstrip('/') + url_prefix
+        _send_manual_email(user['email'], user.get('display_name') or user['username'], base_url)
+        return jsonify({'success': True, 'message': f"Manual sent to {user['email']}"})
+    except Exception as e:
+        logger.error(f"Send manual error for uid {uid}: {e}")
         return jsonify({'error': str(e)}), 500
 
 
