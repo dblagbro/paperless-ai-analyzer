@@ -3551,6 +3551,53 @@ def _smtp_send(smtp_cfg: dict, msg: EmailMessage):
         s.send_message(msg)
 
 
+def _send_welcome_email(email: str, display_name: str, username: str, role: str, app_base_url: str):
+    """Send a welcome notification to a newly created user.  Does not include the password."""
+    try:
+        smtp_cfg = _load_smtp_settings()
+        if not smtp_cfg.get('host'):
+            logger.info(f"SMTP not configured — skipping welcome email for {username}")
+            return
+
+        from_addr = smtp_cfg.get('from') or smtp_cfg.get('user') or 'noreply@localhost'
+        version = _APP_VERSION
+        docs_url = f"{app_base_url.rstrip('/')}/docs"
+        github_url = 'https://github.com/dblagbro/paperless-ai-analyzer'
+
+        body = f"""Hi {display_name},
+
+Your Paperless AI Analyzer account has been created and is ready to use.
+
+Account Details
+───────────────
+  Username : {username}
+  Role     : {role.capitalize()}
+
+Access the Application
+──────────────────────
+  {app_base_url}
+
+Resources
+─────────
+  User Manual     : {docs_url}
+  GitHub / README : {github_url}#readme
+
+If you have any questions, please contact your system administrator.
+
+—
+Paperless AI Analyzer v{version}
+"""
+        msg = EmailMessage()
+        msg['Subject'] = f'Welcome to Paperless AI Analyzer — Your Account is Ready'
+        msg['From'] = from_addr
+        msg['To'] = email
+        msg.set_content(body)
+        _smtp_send(smtp_cfg, msg)
+        logger.info(f"Welcome email sent to {email} for user '{username}'")
+    except Exception as e:
+        logger.warning(f"Failed to send welcome email to {email}: {e}")
+
+
 # ---------------------------------------------------------------------------
 # About
 # ---------------------------------------------------------------------------
@@ -3570,6 +3617,42 @@ def api_about():
         },
         'github': 'https://github.com/dblagbro/paperless-ai-analyzer',
     })
+
+
+# ---------------------------------------------------------------------------
+# User Manual / Docs
+# ---------------------------------------------------------------------------
+
+_DOCS_PAGES = {
+    '': 'overview',
+    'overview': 'overview',
+    'getting-started': 'getting-started',
+    'search': 'search',
+    'chat': 'chat',
+    'configuration': 'configuration',
+    'anomaly-detection': 'anomaly-detection',
+    'upload': 'upload',
+    'api': 'api',
+}
+
+@app.route('/docs')
+@app.route('/docs/')
+@app.route('/docs/<path:page>')
+@login_required
+def docs(page=''):
+    """Serve the user manual."""
+    slug = _DOCS_PAGES.get(page.strip('/'), 'overview')
+    url_prefix = app.config.get('URL_PREFIX', '')
+    github_url = 'https://github.com/dblagbro/paperless-ai-analyzer'
+    version = _APP_VERSION
+    return render_template(
+        'docs.html',
+        page=slug,
+        url_prefix=url_prefix,
+        github_url=github_url,
+        version=version,
+        is_admin=current_user.is_authenticated and current_user.is_admin,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -3968,6 +4051,7 @@ def api_users_list():
             'id': r['id'],
             'username': r['username'],
             'display_name': r['display_name'],
+            'email': r['email'] or '',
             'role': r['role'],
             'created_at': r['created_at'],
             'last_login': r['last_login'],
@@ -3983,21 +4067,30 @@ def api_users_list():
 @login_required
 @admin_required
 def api_users_create():
-    """Create a new user (admin only)."""
+    """Create a new user (admin only), then send a welcome email if SMTP is configured."""
     try:
         data = request.json or {}
         username = data.get('username', '').strip()
         password = data.get('password', '').strip()
         role = data.get('role', 'basic')
         display_name = data.get('display_name', '').strip() or username
+        email = data.get('email', '').strip()
         if not username or not password:
             return jsonify({'error': 'username and password required'}), 400
         if role not in ('basic', 'admin'):
             return jsonify({'error': 'role must be basic or admin'}), 400
         if get_user_by_username(username):
             return jsonify({'error': f"User '{username}' already exists"}), 409
-        db_create_user(username, password, role=role, display_name=display_name)
-        return jsonify({'success': True, 'username': username}), 201
+        db_create_user(username, password, role=role, display_name=display_name, email=email)
+
+        # Send welcome notification if an email was supplied
+        if email:
+            url_prefix = app.config.get('URL_PREFIX', '')
+            base = request.host_url.rstrip('/')
+            app_url = f"{base}{url_prefix}" if url_prefix else base
+            _send_welcome_email(email, display_name, username, role, app_url)
+
+        return jsonify({'success': True, 'username': username, 'email_sent': bool(email)}), 201
     except Exception as e:
         logger.error(f"Create user error: {e}")
         return jsonify({'error': str(e)}), 500
@@ -4007,10 +4100,10 @@ def api_users_create():
 @login_required
 @admin_required
 def api_users_update(uid):
-    """Update user role / display_name / password (admin only)."""
+    """Update role / display_name / email / password / is_active (admin only)."""
     try:
         data = request.json or {}
-        allowed = {k: v for k, v in data.items() if k in ('role', 'display_name', 'password')}
+        allowed = {k: v for k, v in data.items() if k in ('role', 'display_name', 'email', 'password', 'is_active')}
         if 'role' in allowed and allowed['role'] not in ('basic', 'admin'):
             return jsonify({'error': 'role must be basic or admin'}), 400
         db_update_user(uid, **allowed)
