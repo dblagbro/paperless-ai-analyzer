@@ -4,6 +4,18 @@ All notable changes to Paperless AI Analyzer are documented here.
 
 ---
 
+## [2.1.4] — 2026-02-20
+
+### Bug Fixes
+
+- **Tag creation failure no longer aborts document analysis** — if `get_or_create_tag` fails (e.g. Paperless returns 400 because the tag already exists but was missed by a paginated GET), the failed tag is now skipped with a warning instead of sending `None` as a tag ID to Paperless, which previously triggered a retry loop and caused the entire document analysis to fail
+- Added recovery GET on 400 from tag POST — handles cases where the tag exists but wasn't found in the initial paginated lookup
+- Removed dead duplicate `get_or_create_tag` definition that was silently overridden by the v1.5.0 version
+- **Overview "total analyzed" count is now project-scoped** — previously always showed the total across all projects regardless of which project was selected; now reflects only documents analyzed within the current project
+- **AI Chat pane** now shows a **"Title:"** label before the session title
+
+---
+
 ## [2.1.3] — 2026-02-20
 
 ### Reconcile Index
