@@ -526,8 +526,8 @@ Format the output as structured text that preserves the layout and relationships
                 self.last_document_time[project_slug] = time.time()
                 self.documents_processed_this_cycle = processed_count
 
-                # Exit reprocess mode if we've seen all documents
-                if reprocess_mode and skipped_count == 0 and len(documents) < 100:
+                # Exit reprocess mode when a full pass had no skips (all docs freshly processed)
+                if reprocess_mode and skipped_count == 0:
                     with self.state_manager.lock:
                         self.state_manager.state.reprocess_all_mode = False
                         self.state_manager.state.last_seen_modified = None
@@ -535,7 +535,16 @@ Format the output as structured text that preserves the layout and relationships
                         self.state_manager._save_state()
                     logger.info("Reprocess all mode complete - returning to incremental mode")
             else:
-                logger.info("No new documents to process")
+                if reprocess_mode:
+                    # All documents already seen in previous passes — exit reprocess mode
+                    with self.state_manager.lock:
+                        self.state_manager.state.reprocess_all_mode = False
+                        self.state_manager.state.last_seen_modified = None
+                        self.state_manager.state.last_seen_ids = set()
+                        self.state_manager._save_state()
+                    logger.info("Reprocess all mode complete - returning to incremental mode")
+                else:
+                    logger.info("No new documents to process")
 
             # v1.5.0: Check if we should trigger automatic re-analysis
             self.check_and_trigger_reanalysis()
@@ -740,10 +749,60 @@ Format the output as structured text that preserves the layout and relationships
                     # Use the one-line summary from rich metadata as brief summary
                     doc_summary['brief'] = rich_metadata.get('one_line_summary', f"Financial document: {doc_title}")
 
-                    # Create full summary from classification and content analysis
-                    classification = rich_metadata.get('classification', {})
-                    content_analysis = rich_metadata.get('content_analysis', {})
-                    doc_summary['full'] = f"{classification.get('sub_type', 'Document')} - {content_analysis.get('purpose', '')}. Topics: {', '.join(content_analysis.get('main_topics', [])[:3])}"
+                    # Build full summary (3+ sentences) from rich metadata fields — no extra LLM call
+                    _cls = rich_metadata.get('classification', {})
+                    _ca = rich_metadata.get('content_analysis', {})
+                    _fin = rich_metadata.get('financial_summary', {})
+                    _tmp = rich_metadata.get('temporal', {})
+                    _ent = rich_metadata.get('entities', {})
+                    _act = rich_metadata.get('actionable_intelligence', {})
+                    _parts = []
+
+                    # Sentence 1: document type + purpose
+                    _type_str = _cls.get('sub_type') or _cls.get('primary_category', 'document')
+                    _purpose = _ca.get('purpose', '') or _cls.get('industry_context', '')
+                    if _purpose:
+                        _parts.append(f"This {_type_str} {_purpose}{'.' if not _purpose.rstrip().endswith('.') else ''}")
+                    else:
+                        _parts.append(f"This is a {_type_str}.")
+
+                    # Sentence 2: financial account_summary OR temporal context
+                    _acct_sum = _fin.get('account_summary', '')
+                    _time_ctx = _tmp.get('time_context', '')
+                    _p_start = _tmp.get('period_start', '')
+                    _p_end = _tmp.get('period_end', '')
+                    if _acct_sum:
+                        _parts.append(_acct_sum if _acct_sum.rstrip().endswith('.') else _acct_sum + '.')
+                    elif _time_ctx:
+                        _parts.append(_time_ctx if _time_ctx.rstrip().endswith('.') else _time_ctx + '.')
+                    elif _p_start and _p_end:
+                        _parts.append(f"Covers the period from {_p_start} to {_p_end}.")
+                    elif _fin.get('total_amount') or _fin.get('ending_balance'):
+                        _amt = _fin.get('total_amount') or _fin.get('ending_balance')
+                        _parts.append(f"Key financial figure: {_amt}.")
+
+                    # Sentence 3: main topics
+                    _topics = _ca.get('main_topics', [])[:4]
+                    if _topics:
+                        _parts.append(f"Key topics: {', '.join(_topics)}.")
+
+                    # Sentence 4: action items or red flags (if present)
+                    _actions = _act.get('action_items', [])[:2]
+                    _flags = _act.get('red_flags', [])[:1]
+                    if _flags:
+                        _parts.append(f"Note: {_flags[0]}{'.' if not _flags[0].rstrip().endswith('.') else ''}")
+                    elif _actions:
+                        _parts.append(f"Actions required: {'; '.join(_actions)}.")
+
+                    # Pad to at least 3 sentences if needed
+                    if len(_parts) < 3:
+                        _orgs = _ent.get('organizations', [])[:1]
+                        if _orgs:
+                            _parts.append(f"Organization involved: {_orgs[0]}.")
+                    if len(_parts) < 3:
+                        _parts.append(f"Analyzed from document '{doc_title}'.")
+
+                    doc_summary['full'] = ' '.join(_parts[:5])
 
                     logger.info(f"Extracted metadata: {len(rich_metadata.get('keywords', []))} keywords, {len(rich_metadata.get('qa_pairs', []))} Q&A pairs")
                 except Exception as e:
