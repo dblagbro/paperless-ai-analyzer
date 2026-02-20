@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Paperless AI Analyzer — User Manual</title>
+    <style>
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+               background:#f5f6f8; color:#333; line-height:1.7; }
+
+        /* ── Layout ── */
+        .layout { display:flex; min-height:100vh; }
+
+        /* ── Sidebar ── */
+        .sidebar {
+            width:250px; min-width:250px; background:#2c3e50; color:#ecf0f1;
+            display:flex; flex-direction:column; padding-top:20px;
+            position:sticky; top:0; height:100vh; overflow-y:auto;
+        }
+        .sidebar-header {
+            padding:0 20px 20px; border-bottom:1px solid rgba(255,255,255,0.1);
+        }
+        .sidebar-header h1 { font-size:15px; font-weight:700; color:#fff; }
+        .sidebar-header .version { font-size:11px; color:#95a5a6; margin-top:3px; }
+        .sidebar-header .back-link {
+            display:inline-block; margin-top:10px; font-size:12px;
+            color:#3498db; text-decoration:none;
+        }
+        .sidebar-header .back-link:hover { color:#5dade2; }
+
+        nav { padding:12px 0; }
+        .nav-section { padding:8px 20px 4px; font-size:10px; letter-spacing:1px;
+                        text-transform:uppercase; color:#7f8c8d; font-weight:600; }
+        nav a {
+            display:block; padding:8px 20px 8px 24px; color:#bdc3c7;
+            text-decoration:none; font-size:13px; border-left:3px solid transparent;
+            transition:all 0.15s;
+        }
+        nav a:hover { color:#fff; background:rgba(255,255,255,0.06); }
+        nav a.active { color:#fff; border-left-color:#3498db; background:rgba(52,152,219,0.12); }
+
+        /* ── Main content ── */
+        .main { flex:1; padding:40px 48px; max-width:900px; }
+        h1.page-title { font-size:28px; font-weight:700; color:#2c3e50; margin-bottom:8px; }
+        .subtitle { font-size:15px; color:#7f8c8d; margin-bottom:32px; }
+
+        h2 { font-size:20px; font-weight:700; color:#2c3e50; margin:36px 0 12px;
+             padding-bottom:6px; border-bottom:2px solid #e8eaf0; }
+        h3 { font-size:15px; font-weight:700; color:#34495e; margin:20px 0 8px; }
+        p { margin-bottom:14px; }
+        ul, ol { margin:0 0 14px 22px; }
+        li { margin-bottom:6px; }
+        code { font-family:'SF Mono',Monaco,Consolas,monospace; background:#f0f3f6;
+               padding:2px 6px; border-radius:3px; font-size:13px; color:#c0392b; }
+        pre code { display:block; padding:14px 16px; background:#2d3748; color:#e2e8f0;
+                   border-radius:6px; overflow-x:auto; line-height:1.5; margin:12px 0; }
+
+        .callout { padding:14px 18px; border-radius:6px; margin:16px 0; font-size:14px; }
+        .callout-info  { background:#ebf5fb; border-left:4px solid #3498db; }
+        .callout-tip   { background:#eafaf1; border-left:4px solid #27ae60; }
+        .callout-warn  { background:#fef9e7; border-left:4px solid #f39c12; }
+
+        table { width:100%; border-collapse:collapse; margin:16px 0 20px; font-size:13px; }
+        th { background:#2c3e50; color:#fff; padding:8px 12px; text-align:left; font-weight:600; }
+        td { padding:8px 12px; border-bottom:1px solid #e8eaf0; vertical-align:top; }
+        tr:nth-child(even) td { background:#f9fafb; }
+
+        .badge { display:inline-block; padding:2px 8px; border-radius:12px; font-size:11px;
+                 font-weight:600; }
+        .badge-blue  { background:#3498db; color:#fff; }
+        .badge-green { background:#27ae60; color:#fff; }
+        .badge-red   { background:#e74c3c; color:#fff; }
+        .badge-gray  { background:#95a5a6; color:#fff; }
+
+        .feature-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin:20px 0; }
+        .feature-card { background:#fff; border:1px solid #e8eaf0; border-radius:8px;
+                         padding:16px; }
+        .feature-card h4 { font-size:14px; font-weight:700; color:#2c3e50; margin-bottom:6px; }
+        .feature-card p { font-size:13px; color:#555; margin:0; }
+
+        @media(max-width:720px) {
+            .sidebar { display:none; }
+            .main { padding:24px 20px; }
+            .feature-grid { grid-template-columns:1fr; }
+        }
+    </style>
+</head>
+<body>
+<div class="layout">
+
+    <!-- ── Sidebar ── -->
+    <aside class="sidebar">
+        <div class="sidebar-header">
+            <h1>📄 Paperless AI</h1>
+            <div class="version">v{{ version }} — User Manual</div>
+            <a class="back-link" href="{{ url_prefix }}/">← Back to Dashboard</a>
+        </div>
+        <nav>
+            <div class="nav-section">Getting Started</div>
+            <a href="{{ url_prefix }}/docs/overview"       {% if page=='overview' %}class="active"{% endif %}>Overview</a>
+            <a href="{{ url_prefix }}/docs/getting-started" {% if page=='getting-started' %}class="active"{% endif %}>Quick Start</a>
+
+            <div class="nav-section">Features</div>
+            <a href="{{ url_prefix }}/docs/search"          {% if page=='search' %}class="active"{% endif %}>Search &amp; Analysis</a>
+            <a href="{{ url_prefix }}/docs/chat"            {% if page=='chat' %}class="active"{% endif %}>AI Chat</a>
+            <a href="{{ url_prefix }}/docs/upload"          {% if page=='upload' %}class="active"{% endif %}>Upload Documents</a>
+            <a href="{{ url_prefix }}/docs/anomaly-detection" {% if page=='anomaly-detection' %}class="active"{% endif %}>Anomaly Detection</a>
+
+            <div class="nav-section">Administration</div>
+            <a href="{{ url_prefix }}/docs/configuration"  {% if page=='configuration' %}class="active"{% endif %}>Configuration</a>
+            <a href="{{ url_prefix }}/docs/api"            {% if page=='api' %}class="active"{% endif %}>API Reference</a>
+
+            <div class="nav-section">Resources</div>
+            <a href="{{ github_url }}" target="_blank">GitHub / README ↗</a>
+            <a href="{{ github_url }}/issues" target="_blank">Report an Issue ↗</a>
+        </nav>
+    </aside>
+
+    <!-- ── Main content ── -->
+    <main class="main">
+
+{# ────────────────────────────── OVERVIEW ────────────────────────────── #}
+{% if page == 'overview' %}
+        <h1 class="page-title">Paperless AI Analyzer</h1>
+        <p class="subtitle">Intelligent document intelligence for Paperless-ngx — anomaly detection, AI analysis, and natural-language search.</p>
+
+        <div class="feature-grid">
+            <div class="feature-card">
+                <h4>🔍 Search &amp; Analysis</h4>
+                <p>Full-text semantic search across all analyzed documents, with AI-generated summaries and risk scores displayed inline.</p>
+            </div>
+            <div class="feature-card">
+                <h4>🤖 AI Chat</h4>
+                <p>Ask natural-language questions about any document or your entire archive. RAG-powered answers cite the source doc.</p>
+            </div>
+            <div class="feature-card">
+                <h4>⚠️ Anomaly Detection</h4>
+                <p>Deterministic checks (balance mismatches, missing transactions, duplicate amounts) run on every document automatically.</p>
+            </div>
+            <div class="feature-card">
+                <h4>📤 Upload</h4>
+                <p>Upload files, paste a URL, or share a Google Drive / Dropbox link — the document is routed through Paperless OCR then analyzed.</p>
+            </div>
+            <div class="feature-card">
+                <h4>🔒 Multi-User</h4>
+                <p>Role-based access (Basic / Admin). Each user has their own chat history. Admins manage accounts and system settings.</p>
+            </div>
+            <div class="feature-card">
+                <h4>🗂️ Vector Search (RAG)</h4>
+                <p>Every document is embedded in a vector store (Cohere + ChromaDB). AI Chat retrieves the most relevant docs for each query.</p>
+            </div>
+        </div>
+
+        <h2>How it works</h2>
+        <p>Paperless AI Analyzer runs as a sidecar microservice alongside Paperless-ngx. It polls Paperless every ~30 seconds, picks up newly-ingested documents, and runs them through a pipeline:</p>
+        <ol>
+            <li><strong>Profile matching</strong> — the document is matched to a YAML analysis profile (e.g., "bank statements", "court documents").</li>
+            <li><strong>Deterministic checks</strong> — balance calculations, transaction counts, and pattern checks run without any AI call.</li>
+            <li><strong>AI analysis</strong> — OpenAI GPT-4o or Anthropic Claude analyzes the document and extracts metadata (entities, topics, summaries, Q&amp;A pairs).</li>
+            <li><strong>Tagging</strong> — anomaly tags (e.g., <code>anomaly:balance_mismatch</code>) and AI tags are written back to Paperless.</li>
+            <li><strong>Embedding</strong> — the enriched content is stored in the Chroma vector database for AI Chat retrieval.</li>
+        </ol>
+
+        <div class="callout callout-info">
+            <strong>No re-indexing needed.</strong> The analyzer keeps your existing Paperless workflow intact — it only adds tags and writes to its own database. You can remove it at any time without affecting Paperless.
+        </div>
+
+        <h2>Supported AI Providers</h2>
+        <table>
+            <tr><th>Provider</th><th>Used for</th><th>Model</th></tr>
+            <tr><td>OpenAI</td><td>Document analysis, metadata extraction, AI Chat, Vision OCR</td><td>gpt-4o</td></tr>
+            <tr><td>Anthropic</td><td>Document analysis, AI Chat, Vision OCR</td><td>claude-3-5-sonnet</td></tr>
+            <tr><td>Cohere</td><td>Document embedding (RAG vector store)</td><td>embed-english-v3.0</td></tr>
+        </table>
+
+{% elif page == 'getting-started' %}
+        <h1 class="page-title">Quick Start</h1>
+        <p class="subtitle">Get up and running in five minutes.</p>
+
+        <h2>1. Log in</h2>
+        <p>Navigate to the application URL provided by your administrator. Enter your username and password on the login page. Contact your admin if you do not have credentials.</p>
+
+        <h2>2. The Dashboard</h2>
+        <p>After login you land on the <strong>Dashboard</strong> tab. The status bar at the top shows:</p>
+        <ul>
+            <li><strong>Status</strong> — whether the analyzer is running.</li>
+            <li><strong>Documents Analyzed</strong> — cumulative count of documents that have been processed.</li>
+            <li><strong>Anomalies Detected</strong> — number of documents with at least one anomaly tag.</li>
+            <li><strong>High Risk</strong> — documents with a forensic risk score ≥ 70.</li>
+        </ul>
+        <p>The <em>Recent Analyses</em> list updates every 10 seconds and shows the latest 50 documents processed, newest first. Each card displays the Brief Summary, Full Summary, and any anomaly tags.</p>
+
+        <h2>3. Search your documents</h2>
+        <p>Open the <strong>Search &amp; Analysis</strong> tab. Type any natural-language query — the system performs a semantic search against the vector store and returns the most relevant documents. Results include risk scores, anomaly tags, and summaries.</p>
+
+        <h2>4. Chat with your documents</h2>
+        <p>Open the <strong>AI Chat</strong> tab and start a new session. Ask anything:</p>
+        <ul>
+            <li>"What is the ending balance on my Chase statement from March?"</li>
+            <li>"Which court orders mention the receiver?"</li>
+            <li>"Summarize all documents related to Fairbridge."</li>
+        </ul>
+        <p>The AI uses RAG (Retrieval Augmented Generation) to find relevant documents, then answers based on their actual content. If a document has poor OCR, Vision AI can extract text directly from the PDF image.</p>
+
+        <h2>5. Upload a new document</h2>
+        <p>Open the <strong>Upload</strong> tab. Choose a file, paste an HTTPS URL, or paste a Google Drive / Dropbox share link. Click <em>Upload to Paperless</em>. The file is routed through Paperless-ngx OCR and the AI analyzer picks it up on the next poll (~30 seconds).</p>
+
+        <div class="callout callout-tip">
+            <strong>Tip:</strong> Use <strong>Ctrl+Enter</strong> in the AI Chat input to insert a new line without sending. Press <strong>Enter</strong> alone to send.
+        </div>
+
+{% elif page == 'search' %}
+        <h1 class="page-title">Search &amp; Analysis</h1>
+        <p class="subtitle">Semantic full-text search with AI-generated summaries and risk scoring.</p>
+
+        <h2>How search works</h2>
+        <p>The Search tab queries the ChromaDB vector store using semantic (meaning-based) similarity, not just keyword matching. Your query is embedded and compared against all stored document embeddings. The top results are ranked by relevance.</p>
+
+        <h2>Reading a result card</h2>
+        <table>
+            <tr><th>Element</th><th>Meaning</th></tr>
+            <tr><td>Title</td><td>Document title from Paperless (links to the doc).</td></tr>
+            <tr><td>Risk badge</td><td>0–100 forensic risk score. ≥70 = red (High), 40–69 = orange (Medium), &lt;40 = green (Low).</td></tr>
+            <tr><td>Anomaly tags</td><td>Detected anomalies: balance mismatch, no transactions, duplicate amounts, etc. Click a tag to see evidence.</td></tr>
+            <tr><td>Brief Summary</td><td>One-sentence AI-generated summary of the document.</td></tr>
+            <tr><td>Full Summary</td><td>3–5 sentence detailed summary covering purpose, entities, dates, and key amounts.</td></tr>
+            <tr><td>View Evidence</td><td>Only appears on anomaly documents. Shows the specific inconsistencies found.</td></tr>
+        </table>
+
+        <h2>Search tips</h2>
+        <ul>
+            <li>Use natural language: <em>"Chase bank statements with overdrafts"</em> works better than <em>"Chase overdraft"</em>.</li>
+            <li>Include entities: <em>"documents involving John Smith"</em>, <em>"invoices from Acme Corp"</em>.</li>
+            <li>Include dates: <em>"statements from Q1 2025"</em>.</li>
+            <li>The list refreshes every 10 seconds but pauses while the Search tab is active so results don't jump while you read.</li>
+        </ul>
+
+{% elif page == 'chat' %}
+        <h1 class="page-title">AI Chat</h1>
+        <p class="subtitle">Natural-language conversation grounded in your actual documents.</p>
+
+        <h2>Starting a conversation</h2>
+        <p>Click <strong>+ New Session</strong> in the left sidebar of the Chat tab. Give the session a title (optional — the system generates one from your first message). Type your question and press <strong>Enter</strong> to send.</p>
+
+        <h2>How RAG retrieval works</h2>
+        <p>Every chat message triggers a vector search for the most relevant documents in the store. The top documents (up to 5) are included in the AI's context window as source material. The AI answers based on this retrieved content.</p>
+
+        <div class="callout callout-info">
+            <strong>Vision AI fallback.</strong> If a retrieved document has very short OCR content (&lt;500 characters), the system will attempt to download the original PDF from Paperless and extract text using GPT-4o Vision or Claude Vision. The extracted text is used for the answer and automatically re-embedded for future queries.
+        </div>
+
+        <h2>Keyboard shortcuts</h2>
+        <table>
+            <tr><th>Key</th><th>Action</th></tr>
+            <tr><td><code>Enter</code></td><td>Send message</td></tr>
+            <tr><td><code>Ctrl+Enter</code></td><td>Insert new line (multi-paragraph messages)</td></tr>
+        </table>
+
+        <h2>Sharing sessions</h2>
+        <p>Open a session and click <strong>Share</strong>. Select which users should have read access. Shared sessions appear in other users' sidebar with a "Shared" badge.</p>
+
+        <h2>Exporting chat history</h2>
+        <p>Open a session, then click <strong>Export</strong>. The full conversation is downloaded as a JSON file.</p>
+
+{% elif page == 'upload' %}
+        <h1 class="page-title">Upload Documents</h1>
+        <p class="subtitle">Three ways to add documents: file, URL, or cloud share link.</p>
+
+        <h2>File upload</h2>
+        <p>Drag a file onto the drop zone or click to browse. Supported formats: <code>PDF</code>, <code>PNG</code>, <code>JPG</code>, <code>DOCX</code>, <code>HEIC</code>.</p>
+
+        <h2>URL upload</h2>
+        <p>Paste any direct HTTPS URL to a document. Optionally provide HTTP Basic Auth credentials or a Bearer token for password-protected resources.</p>
+
+        <h2>Cloud share links</h2>
+        <p>Paste a share link from Google Drive, Dropbox, or OneDrive. The system auto-detects the service and transforms the link to a direct download URL before sending it to Paperless.</p>
+
+        <table>
+            <tr><th>Service</th><th>Example input</th><th>Transform</th></tr>
+            <tr><td>Google Drive file</td><td><code>drive.google.com/file/d/ABC/view</code></td><td>Direct download URL</td></tr>
+            <tr><td>Google Docs/Sheets</td><td><code>docs.google.com/document/d/ABC/</code></td><td>Export as PDF</td></tr>
+            <tr><td>Dropbox</td><td><code>dropbox.com/s/xyz?dl=0</code></td><td>Sets <code>dl=1</code></td></tr>
+            <tr><td>OneDrive (1drv.ms)</td><td><code>1drv.ms/b/ABC</code></td><td>Follows redirect</td></tr>
+        </table>
+
+        <h2>After upload</h2>
+        <p>The document is sent to Paperless-ngx, which queues it for OCR. Once OCR completes (usually within a minute), the AI Analyzer picks it up on its next poll and runs the full analysis pipeline.</p>
+
+{% elif page == 'anomaly-detection' %}
+        <h1 class="page-title">Anomaly Detection</h1>
+        <p class="subtitle">Deterministic checks that run on every document without an AI call.</p>
+
+        <h2>Anomaly tags</h2>
+        <p>When an anomaly is detected, a tag is added to the document in Paperless. Tags follow the naming convention <code>anomaly:&lt;type&gt;</code>.</p>
+        <table>
+            <tr><th>Tag</th><th>Meaning</th></tr>
+            <tr><td><code>anomaly:balance_mismatch</code></td><td>Beginning + credits − debits ≠ ending balance. Indicates potential missing transactions or altered figures.</td></tr>
+            <tr><td><code>anomaly:missing_transactions</code></td><td>Transaction list is absent or suspiciously short for the stated balance change.</td></tr>
+            <tr><td><code>anomaly:no_transactions</code></td><td>Statement shows no transaction activity at all — may indicate a suppressed page.</td></tr>
+            <tr><td><code>anomaly:duplicate_amounts</code></td><td>Two or more transactions share the exact same amount on the same date.</td></tr>
+            <tr><td><code>anomaly:forensic_risk_high</code></td><td>Risk score ≥ 70. The document has multiple or serious issues.</td></tr>
+            <tr><td><code>anomaly:forensic_risk_medium</code></td><td>Risk score 40–69. Minor issues detected.</td></tr>
+            <tr><td><code>anomaly:forensic_risk_low</code></td><td>Risk score &lt;40. No significant issues but flagged for review.</td></tr>
+            <tr><td><code>aianomaly:&lt;type&gt;</code></td><td>AI-detected anomalies (data inconsistency, unused document, etc.). Set by the LLM analysis step.</td></tr>
+        </table>
+
+        <h2>Risk score</h2>
+        <p>Each document receives a 0–100 risk score calculated from the number and severity of detected anomalies. The score is displayed on every result card and used to sort high-risk documents to the top.</p>
+
+        <h2>View Evidence</h2>
+        <p>Click the <strong>View Evidence</strong> button on any anomaly card to see the specific values that triggered the detection — for example, the calculated vs. stated ending balance.</p>
+
+{% elif page == 'configuration' %}
+        <h1 class="page-title">Configuration</h1>
+        <p class="subtitle">Admin-only settings for AI, SMTP, users, and the vector store.</p>
+
+        <h2>AI Settings</h2>
+        <p>Add API keys for OpenAI and/or Anthropic. At least one key is required for AI analysis and AI Chat. The system tries providers in order and falls back if one fails.</p>
+        <ul>
+            <li><strong>Analysis provider</strong> — used for document analysis, metadata extraction, and integrity checks.</li>
+            <li><strong>Chat provider</strong> — used for AI Chat responses (can differ from analysis provider).</li>
+        </ul>
+
+        <h2>Profiles</h2>
+        <p>Profiles are YAML files that define rules for specific document types. A profile specifies which checks to run, which fields to extract, and how to score risk. Profiles can be uploaded via the Staging area and activated once validated.</p>
+
+        <h2>Vector Store</h2>
+        <p>The vector store (ChromaDB + Cohere embeddings) is the retrieval backend for AI Chat. Controls available:</p>
+        <ul>
+            <li><strong>Refresh</strong> — reload stats (document count, index size).</li>
+            <li><strong>Re-embed Stale</strong> — finds documents whose OCR content changed after they were first embedded and re-analyzes them.</li>
+            <li><strong>Process Unanalyzed</strong> — finds all Paperless documents not yet in the analysis database and queues them for analysis. Does not re-process documents that are already done.</li>
+            <li><strong>Clear All</strong> — deletes the entire vector index. AI Chat will lose context until documents are re-embedded via Reprocess All.</li>
+        </ul>
+
+        <h2>Users</h2>
+        <p>Admin-only. Add, edit, deactivate, or reactivate user accounts.</p>
+        <table>
+            <tr><th>Field</th><th>Description</th></tr>
+            <tr><td>Username</td><td>Login name. Cannot be changed after creation.</td></tr>
+            <tr><td>Display Name</td><td>Shown in the UI. Editable any time.</td></tr>
+            <tr><td>Email</td><td>Used for notifications. A welcome email is sent on account creation if SMTP is configured.</td></tr>
+            <tr><td>Role</td><td><span class="badge badge-blue">Admin</span> can manage users and settings. <span class="badge badge-gray">Basic</span> has read/write access to analysis and chat.</td></tr>
+            <tr><td>Password</td><td>Set on creation. Can be reset via the Edit dialog.</td></tr>
+        </table>
+
+        <h2>SMTP / Notifications</h2>
+        <p>Configure outgoing email for user notifications and bug reports. Required fields: host, port, username, password, and From address. Test the connection with <strong>Send Test Email</strong> before saving.</p>
+
+{% elif page == 'api' %}
+        <h1 class="page-title">API Reference</h1>
+        <p class="subtitle">REST endpoints for integration and automation. All endpoints require authentication.</p>
+
+        <div class="callout callout-warn">
+            <strong>Coming soon.</strong> A full interactive API reference is planned. For now, the key endpoints are listed below.
+        </div>
+
+        <h2>Status &amp; Stats</h2>
+        <table>
+            <tr><th>Method</th><th>Path</th><th>Description</th></tr>
+            <tr><td><span class="badge badge-blue">GET</span></td><td><code>/api/status</code></td><td>Analyzer status, document counts, vector store stats.</td></tr>
+            <tr><td><span class="badge badge-blue">GET</span></td><td><code>/api/recent</code></td><td>Last 50 analyzed documents with summaries.</td></tr>
+            <tr><td><span class="badge badge-blue">GET</span></td><td><code>/api/about</code></td><td>Version info and component list.</td></tr>
+        </table>
+
+        <h2>Search</h2>
+        <table>
+            <tr><th>Method</th><th>Path</th><th>Description</th></tr>
+            <tr><td><span class="badge badge-green">POST</span></td><td><code>/api/search</code></td><td>Semantic search. Body: <code>{"query": "...", "limit": 10}</code></td></tr>
+        </table>
+
+        <h2>AI Chat</h2>
+        <table>
+            <tr><th>Method</th><th>Path</th><th>Description</th></tr>
+            <tr><td><span class="badge badge-green">POST</span></td><td><code>/api/chat</code></td><td>Send a message. Body: <code>{"message": "...", "session_id": "..."}</code></td></tr>
+            <tr><td><span class="badge badge-blue">GET</span></td><td><code>/api/chat/sessions</code></td><td>List chat sessions for the current user.</td></tr>
+            <tr><td><span class="badge badge-blue">GET</span></td><td><code>/api/chat/sessions/&lt;id&gt;/messages</code></td><td>Full message history for a session.</td></tr>
+            <tr><td><span class="badge badge-blue">GET</span></td><td><code>/api/chat/sessions/&lt;id&gt;/export</code></td><td>Download session as JSON.</td></tr>
+        </table>
+
+        <h2>Upload</h2>
+        <table>
+            <tr><th>Method</th><th>Path</th><th>Description</th></tr>
+            <tr><td><span class="badge badge-green">POST</span></td><td><code>/api/upload/submit</code></td><td>Upload a file (multipart). Field: <code>file</code>.</td></tr>
+            <tr><td><span class="badge badge-green">POST</span></td><td><code>/api/upload/from-url</code></td><td>Download and upload from URL. Body: <code>{"url": "..."}</code></td></tr>
+            <tr><td><span class="badge badge-green">POST</span></td><td><code>/api/upload/transform-url</code></td><td>Resolve a cloud share link to a direct URL.</td></tr>
+        </table>
+
+        <h2>Administration</h2>
+        <table>
+            <tr><th>Method</th><th>Path</th><th>Description</th></tr>
+            <tr><td><span class="badge badge-green">POST</span></td><td><code>/api/reprocess</code></td><td>Trigger Reprocess All.</td></tr>
+            <tr><td><span class="badge badge-green">POST</span></td><td><code>/api/scan/process-unanalyzed</code></td><td>Queue only unanalyzed documents.</td></tr>
+            <tr><td><span class="badge badge-green">POST</span></td><td><code>/api/vector/reembed-stale</code></td><td>Re-embed documents with stale OCR content.</td></tr>
+            <tr><td><span class="badge badge-blue">GET</span></td><td><code>/api/users</code></td><td>List users (admin only).</td></tr>
+            <tr><td><span class="badge badge-green">POST</span></td><td><code>/api/users</code></td><td>Create a user (admin only).</td></tr>
+            <tr><td><span class="badge badge-blue">PATCH</span></td><td><code>/api/users/&lt;id&gt;</code></td><td>Edit a user (admin only).</td></tr>
+        </table>
+
+{% else %}
+        <h1 class="page-title">Page not found</h1>
+        <p>Use the sidebar to navigate to a documentation page.</p>
+{% endif %}
+
+    </main>
+</div>
+</body>
+</html>
