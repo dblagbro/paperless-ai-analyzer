@@ -1330,6 +1330,7 @@
                 <div style="display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap;">
                     <button onclick="openAboutModal()" style="background: rgba(255,255,255,0.12); color: #cce5ff; border: 1px solid rgba(255,255,255,0.25); padding: 5px 12px; border-radius: 5px; font-size: 12px; cursor: pointer;" title="About this application">ℹ About</button>
                     <button onclick="toggleTabHelp()" id="help-toggle-btn" style="background: rgba(255,255,255,0.12); color: #cce5ff; border: 1px solid rgba(255,255,255,0.25); padding: 5px 12px; border-radius: 5px; font-size: 12px; cursor: pointer;" title="Toggle help panel for current tab">? Help: Off</button>
+                    <a href="{{ request.script_root }}/docs" target="_blank" style="background: rgba(255,255,255,0.12); color: #cce5ff; border: 1px solid rgba(255,255,255,0.25); padding: 5px 12px; border-radius: 5px; font-size: 12px; text-decoration: none; display: inline-block;" title="Open the full user manual">📖 Manual</a>
                     <button onclick="openBugReportModal()" style="background: rgba(255,165,0,0.25); color: #ffd580; border: 1px solid rgba(255,165,0,0.4); padding: 5px 12px; border-radius: 5px; font-size: 12px; cursor: pointer;" title="Report a problem">🐛 Report Issue</button>
                     <button onclick="openChangePasswordModal()" style="background: rgba(255,255,255,0.15); color: white; border: 1px solid rgba(255,255,255,0.3); padding: 5px 12px; border-radius: 5px; font-size: 12px; cursor: pointer;">🔑 Change Password</button>
                     <a href="{{ url_for('logout') }}" style="background: rgba(231,76,60,0.7); color: white; border: 1px solid rgba(231,76,60,0.9); padding: 5px 12px; border-radius: 5px; font-size: 12px; text-decoration: none; display: inline-block;">Sign Out</a>
@@ -2128,7 +2129,9 @@
                                 <input type="password" id="edit-password" placeholder="New password (optional)" style="width:100%; box-sizing:border-box; padding:8px 12px; border:1px solid #ddd; border-radius:4px;">
                             </div>
                             <div id="edit-user-error" style="color:#e74c3c; font-size:13px; margin-top:10px; display:none;"></div>
-                            <div style="display:flex; gap:8px; margin-top:18px; justify-content:flex-end;">
+                            <div id="edit-user-success" style="color:#27ae60; font-size:13px; margin-top:10px; display:none;"></div>
+                            <div style="display:flex; gap:8px; margin-top:18px; align-items:center;">
+                                <button class="btn" style="margin-right:auto;" onclick="emailUserManual()" title="Send the user manual link to this user's email address">📧 Email Manual</button>
                                 <button class="btn" onclick="closeEditUserModal()">Cancel</button>
                                 <button class="btn btn-success" onclick="saveEditUser()">Save Changes</button>
                             </div>
@@ -4624,6 +4627,25 @@
 
         function closeEditUserModal() {
             document.getElementById('edit-user-modal').style.display = 'none';
+        }
+
+        async function emailUserManual() {
+            const uid = document.getElementById('edit-user-id').value;
+            const errEl = document.getElementById('edit-user-error');
+            const okEl  = document.getElementById('edit-user-success');
+            errEl.style.display = 'none';
+            okEl.style.display  = 'none';
+            try {
+                const r = await fetch(`${BASE_PATH}/api/users/${uid}/send-manual`, {method:'POST'});
+                const d = await r.json();
+                if (!r.ok) throw new Error(d.error || 'Failed');
+                okEl.textContent = `✓ ${d.message}`;
+                okEl.style.display = 'block';
+                setTimeout(() => { okEl.style.display = 'none'; }, 4000);
+            } catch(e) {
+                errEl.textContent = `Failed to send: ${e.message}`;
+                errEl.style.display = 'block';
+            }
         }
 
         async function saveEditUser() {
