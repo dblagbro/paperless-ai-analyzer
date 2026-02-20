@@ -237,7 +237,7 @@ Format the output as structured text that preserves the layout and relationships
 
                         # Call Claude Vision API
                         response = self.llm_client.client.messages.create(
-                            model="claude-3-5-sonnet-20241022",  # Claude 3.5 Sonnet with vision
+                            model="claude-sonnet-4-6",  # Claude Sonnet 4.6 with vision
                             max_tokens=2000,
                             messages=[
                                 {
@@ -453,6 +453,44 @@ Format the output as structured text that preserves the layout and relationships
         if not self.paperless.health_check():
             logger.error("Paperless API health check failed, exiting")
             sys.exit(1)
+
+        # v2.0.5: On startup, automatically queue any Paperless docs not yet in processed_documents.
+        # Runs once in a background thread 30 s after boot so the web UI is up first.
+        def _auto_fill_gap():
+            import time as _time
+            _time.sleep(30)
+            try:
+                from analyzer.db import get_analyzed_doc_ids
+                analyzed_ids = get_analyzed_doc_ids()
+                all_docs = []
+                page = 1
+                while True:
+                    resp = self.paperless.get_documents(ordering='-modified', page_size=100, page=page)
+                    all_docs.extend(resp.get('results', []))
+                    if not resp.get('next'):
+                        break
+                    page += 1
+                missing = [d for d in all_docs if d['id'] not in analyzed_ids]
+                if not missing:
+                    logger.info("Startup gap-fill: all documents already analyzed")
+                    return
+                logger.info(f"Startup gap-fill: {len(missing)} unanalyzed documents found — queuing now")
+                ok = 0
+                for d in missing:
+                    try:
+                        full_doc = self.paperless.get_document(d['id'])
+                        self.analyze_document(full_doc)
+                        ok += 1
+                        if ok % 10 == 0:
+                            logger.info(f"  ↳ Gap-fill progress: {ok}/{len(missing)} done")
+                    except Exception as _e:
+                        logger.warning(f"Gap-fill: failed doc {d['id']}: {_e}")
+                logger.info(f"Startup gap-fill complete: {ok}/{len(missing)} documents analyzed")
+            except Exception as _e:
+                logger.error(f"Startup gap-fill failed: {_e}", exc_info=True)
+
+        import threading as _threading
+        _threading.Thread(target=_auto_fill_gap, daemon=True).start()
 
         while True:
             try:
