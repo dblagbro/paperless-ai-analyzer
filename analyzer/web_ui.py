@@ -3551,7 +3551,7 @@ def _smtp_send(smtp_cfg: dict, msg: EmailMessage):
         s.send_message(msg)
 
 
-def _send_welcome_email(email: str, display_name: str, username: str, role: str, app_base_url: str):
+def _send_welcome_email(email: str, display_name: str, username: str, role: str, app_base_url: str, job_title: str = ''):
     """Send a welcome notification to a newly created user.  Does not include the password."""
     try:
         smtp_cfg = _load_smtp_settings()
@@ -3563,6 +3563,7 @@ def _send_welcome_email(email: str, display_name: str, username: str, role: str,
         version = _APP_VERSION
         docs_url = f"{app_base_url.rstrip('/')}/docs"
         github_url = 'https://github.com/dblagbro/paperless-ai-analyzer'
+        job_title_line = f"\n  Job Title: {job_title}" if job_title else ""
 
         body = f"""Hi {display_name},
 
@@ -3571,7 +3572,7 @@ Your Paperless AI Analyzer account has been created and is ready to use.
 Account Details
 ───────────────
   Username : {username}
-  Role     : {role.capitalize()}
+  Role     : {role.capitalize()}{job_title_line}
 
 Access the Application
 ──────────────────────
@@ -4056,6 +4057,15 @@ def api_users_list():
             'created_at': r['created_at'],
             'last_login': r['last_login'],
             'is_active': bool(r['is_active']),
+            'phone': r['phone'] or '',
+            'address': r['address'] or '',
+            'github': r['github'] or '',
+            'linkedin': r['linkedin'] or '',
+            'facebook': r['facebook'] or '',
+            'instagram': r['instagram'] or '',
+            'other_handles': r['other_handles'] or '',
+            'timezone': r['timezone'] or '',
+            'job_title': r['job_title'] or '',
         } for r in rows]
         return jsonify({'users': users})
     except Exception as e:
@@ -4075,6 +4085,7 @@ def api_users_create():
         role = data.get('role', 'basic')
         display_name = data.get('display_name', '').strip() or username
         email = data.get('email', '').strip()
+        job_title = data.get('job_title', '').strip()
         if not username or not password:
             return jsonify({'error': 'username and password required'}), 400
         if role not in ('basic', 'admin'):
@@ -4088,7 +4099,7 @@ def api_users_create():
             url_prefix = app.config.get('URL_PREFIX', '')
             base = request.host_url.rstrip('/')
             app_url = f"{base}{url_prefix}" if url_prefix else base
-            _send_welcome_email(email, display_name, username, role, app_url)
+            _send_welcome_email(email, display_name, username, role, app_url, job_title=job_title)
 
         return jsonify({'success': True, 'username': username, 'email_sent': bool(email)}), 201
     except Exception as e:
@@ -4103,7 +4114,11 @@ def api_users_update(uid):
     """Update role / display_name / email / password / is_active (admin only)."""
     try:
         data = request.json or {}
-        allowed = {k: v for k, v in data.items() if k in ('role', 'display_name', 'email', 'password', 'is_active')}
+        allowed = {k: v for k, v in data.items() if k in (
+            'role', 'display_name', 'email', 'password', 'is_active',
+            'phone', 'address', 'github', 'linkedin', 'facebook',
+            'instagram', 'other_handles', 'timezone', 'job_title',
+        )}
         if 'role' in allowed and allowed['role'] not in ('basic', 'admin'):
             return jsonify({'error': 'role must be basic or admin'}), 400
         db_update_user(uid, **allowed)

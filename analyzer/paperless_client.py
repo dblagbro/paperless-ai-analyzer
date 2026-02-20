@@ -457,15 +457,22 @@ class PaperlessClient:
                 # Add any additional metadata
                 data.update(metadata)
 
-                # Remove Content-Type header for multipart
-                headers = dict(self.session.headers)
-                headers.pop('Content-Type', None)
-
-                response = self.session.post(url, files=files, data=data, headers=headers)
+                # Remove Content-Type from session temporarily so requests can
+                # set multipart/form-data boundary automatically.  Session.post()
+                # merges headers, so popping from a copy is not enough.
+                saved_ct = self.session.headers.pop('Content-Type', None)
+                try:
+                    response = self.session.post(url, files=files, data=data)
+                finally:
+                    if saved_ct is not None:
+                        self.session.headers['Content-Type'] = saved_ct
                 response.raise_for_status()
 
                 result = response.json()
                 logger.info(f"Uploaded document: {title or file_path}")
+                # Paperless-ngx v2+ returns a task UUID string instead of a doc dict
+                if isinstance(result, str):
+                    return {'task_id': result}
                 return result
 
         except Exception as e:
