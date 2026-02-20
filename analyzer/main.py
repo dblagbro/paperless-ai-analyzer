@@ -803,60 +803,143 @@ Format the output as structured text that preserves the layout and relationships
                     # Use the one-line summary from rich metadata as brief summary
                     doc_summary['brief'] = rich_metadata.get('one_line_summary', f"Financial document: {doc_title}")
 
-                    # Build full summary (3+ sentences) from rich metadata fields — no extra LLM call
+                    # Build full summary (5+ sentences) from rich metadata fields — no extra LLM call
                     _cls = rich_metadata.get('classification', {})
                     _ca = rich_metadata.get('content_analysis', {})
                     _fin = rich_metadata.get('financial_summary', {})
                     _tmp = rich_metadata.get('temporal', {})
                     _ent = rich_metadata.get('entities', {})
                     _act = rich_metadata.get('actionable_intelligence', {})
+                    _rel = rich_metadata.get('relationships', {})
                     _parts = []
+
+                    def _s(text):
+                        """Ensure sentence ends with a period."""
+                        t = str(text).strip()
+                        return t if t.endswith('.') else t + '.'
 
                     # Sentence 1: document type + purpose
                     _type_str = _cls.get('sub_type') or _cls.get('primary_category', 'document')
                     _purpose = _ca.get('purpose', '') or _cls.get('industry_context', '')
                     if _purpose:
-                        _parts.append(f"This {_type_str} {_purpose}{'.' if not _purpose.rstrip().endswith('.') else ''}")
+                        _parts.append(_s(f"This {_type_str} {_purpose}"))
                     else:
-                        _parts.append(f"This is a {_type_str}.")
+                        _parts.append(_s(f"This is a {_type_str}"))
 
-                    # Sentence 2: financial account_summary OR temporal context
-                    _acct_sum = _fin.get('account_summary', '')
-                    _time_ctx = _tmp.get('time_context', '')
+                    # Sentence 2: temporal context — prefer explicit period, fall back to time_context
                     _p_start = _tmp.get('period_start', '')
                     _p_end = _tmp.get('period_end', '')
-                    if _acct_sum:
-                        _parts.append(_acct_sum if _acct_sum.rstrip().endswith('.') else _acct_sum + '.')
+                    _doc_date = _tmp.get('document_date', '')
+                    _time_ctx = _tmp.get('time_context', '')
+                    if _p_start and _p_end:
+                        _parts.append(f"It covers the period from {_p_start} to {_p_end}.")
+                    elif _doc_date:
+                        _parts.append(_s(f"Dated {_doc_date}" + (f"; {_time_ctx}" if _time_ctx else "")))
                     elif _time_ctx:
-                        _parts.append(_time_ctx if _time_ctx.rstrip().endswith('.') else _time_ctx + '.')
-                    elif _p_start and _p_end:
-                        _parts.append(f"Covers the period from {_p_start} to {_p_end}.")
-                    elif _fin.get('total_amount') or _fin.get('ending_balance'):
-                        _amt = _fin.get('total_amount') or _fin.get('ending_balance')
-                        _parts.append(f"Key financial figure: {_amt}.")
+                        _parts.append(_s(_time_ctx))
 
-                    # Sentence 3: main topics
-                    _topics = _ca.get('main_topics', [])[:4]
+                    # Sentence 3: financial detail — account_summary + key balances/figures
+                    _acct_sum = _fin.get('account_summary', '')
+                    _beg = _fin.get('beginning_balance', '')
+                    _end = _fin.get('ending_balance', '')
+                    _tot = _fin.get('total_amount', '')
+                    _kfigs = [f for f in _fin.get('key_figures', []) if f][:3]
+                    if _acct_sum:
+                        _extra = ''
+                        if _beg and _end:
+                            _extra = f" Opening balance: {_beg}; closing balance: {_end}."
+                        elif _tot:
+                            _extra = f" Total amount: {_tot}."
+                        _parts.append(_s(_acct_sum) + _extra)
+                    elif _beg and _end:
+                        _parts.append(f"The account opened at {_beg} and closed at {_end}.")
+                    elif _tot:
+                        _parts.append(f"The total amount involved is {_tot}.")
+                    elif _kfigs:
+                        _parts.append(f"Key financial figures: {'; '.join(_kfigs)}.")
+
+                    # Sentence 4: entities — people, organizations, locations
+                    _people = [p for p in _ent.get('people', []) if p][:3]
+                    _orgs = [o for o in _ent.get('organizations', []) if o][:3]
+                    _locs = [l for l in _ent.get('locations', []) if l][:2]
+                    _ids = [i for i in _ent.get('identifiers', []) if i][:2]
+                    _entity_parts = []
+                    if _people:
+                        _entity_parts.append(f"Parties involved: {', '.join(_people)}")
+                    if _orgs:
+                        _entity_parts.append(f"{'Organizations' if _people else 'Parties'}: {', '.join(_orgs)}")
+                    if _locs:
+                        _entity_parts.append(f"Location: {', '.join(_locs)}")
+                    if _ids:
+                        _entity_parts.append(f"Reference: {', '.join(_ids)}")
+                    if _entity_parts:
+                        _parts.append(_s('; '.join(_entity_parts)))
+
+                    # Sentence 5: main topics / key content areas
+                    _topics = [t for t in _ca.get('main_topics', []) if t][:5]
                     if _topics:
-                        _parts.append(f"Key topics: {', '.join(_topics)}.")
+                        _parts.append(f"Key topics covered: {', '.join(_topics)}.")
 
-                    # Sentence 4: action items or red flags (if present)
-                    _actions = _act.get('action_items', [])[:2]
-                    _flags = _act.get('red_flags', [])[:1]
+                    # Sentence 6: red flags and action items
+                    _flags = [f for f in _act.get('red_flags', []) if f][:2]
+                    _actions = [a for a in _act.get('action_items', []) if a][:3]
+                    _urgent = [d for d in _act.get('deadlines_urgent', []) if d][:2]
+                    _followup = [f for f in _act.get('follow_up', []) if f][:2]
                     if _flags:
-                        _parts.append(f"Note: {_flags[0]}{'.' if not _flags[0].rstrip().endswith('.') else ''}")
-                    elif _actions:
-                        _parts.append(f"Actions required: {'; '.join(_actions)}.")
+                        _parts.append(_s(f"Concerns noted: {'; '.join(_flags)}"))
+                    if _actions:
+                        _parts.append(_s(f"Actions required: {'; '.join(_actions)}"))
+                    elif _urgent:
+                        _parts.append(_s(f"Urgent deadlines: {'; '.join(_urgent)}"))
+                    elif _followup:
+                        _parts.append(_s(f"Follow-up needed: {'; '.join(_followup)}"))
 
-                    # Pad to at least 3 sentences if needed
-                    if len(_parts) < 3:
-                        _orgs = _ent.get('organizations', [])[:1]
-                        if _orgs:
-                            _parts.append(f"Organization involved: {_orgs[0]}.")
-                    if len(_parts) < 3:
+                    # Sentence 7: relationships / series context
+                    _rel_ctx = _rel.get('context', '')
+                    _ref_docs = [d for d in _rel.get('references_documents', []) if d][:2]
+                    _rel_parties = [p for p in _rel.get('related_parties', []) if p][:2]
+                    if _rel_ctx and _rel_ctx.lower() not in ('', 'none', 'n/a', 'null'):
+                        _parts.append(_s(_rel_ctx))
+                    elif _ref_docs:
+                        _parts.append(_s(f"References related documents: {', '.join(_ref_docs)}"))
+                    elif _rel_parties:
+                        _parts.append(_s(f"Connected parties: {', '.join(_rel_parties)}"))
+
+                    # Sentence 8: importance / sentiment context (only if still short)
+                    _imp = _ca.get('importance_level', '')
+                    _sent = _ca.get('sentiment', '')
+                    if len(_parts) < 5 and (_imp or _sent):
+                        _ctx_parts = []
+                        if _imp and _imp not in ('', 'null'):
+                            _ctx_parts.append(f"Importance: {_imp}")
+                        if _sent and _sent not in ('', 'null', 'neutral'):
+                            _ctx_parts.append(f"tone is {_sent}")
+                        if _ctx_parts:
+                            _parts.append(_s(f"Document assessment — {'; '.join(_ctx_parts)}"))
+
+                    # Pad to minimum 5 sentences using Q&A pairs as fallback
+                    _qa = rich_metadata.get('qa_pairs', [])
+                    for _qa_item in _qa:
+                        if len(_parts) >= 5:
+                            break
+                        _q = _qa_item.get('question', '')
+                        _a = _qa_item.get('answer', '')
+                        if _a and _a.lower() not in ('none', 'n/a', 'null', 'not applicable', 'unknown'):
+                            _parts.append(_s(f"{_q.rstrip('?')}: {_a}"))
+
+                    # Final fallback: add document title reference
+                    if len(_parts) < 5:
+                        _industry = _cls.get('industry_context', '')
+                        if _industry and _industry.lower() not in ('', 'null', 'n/a'):
+                            _parts.append(_s(f"Industry context: {_industry}"))
+                    if len(_parts) < 5:
+                        _fin_figs = [f for f in _ent.get('financial_figures', []) if f][:2]
+                        if _fin_figs:
+                            _parts.append(_s(f"Financial figures mentioned: {'; '.join(_fin_figs)}"))
+                    if len(_parts) < 5:
                         _parts.append(f"Analyzed from document '{doc_title}'.")
 
-                    doc_summary['full'] = ' '.join(_parts[:5])
+                    doc_summary['full'] = ' '.join(_parts[:8])
 
                     logger.info(f"Extracted metadata: {len(rich_metadata.get('keywords', []))} keywords, {len(rich_metadata.get('qa_pairs', []))} Q&A pairs")
                 except Exception as e:
