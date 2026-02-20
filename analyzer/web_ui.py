@@ -136,7 +136,7 @@ from analyzer.db import (
     share_session, unshare_session, get_session_shares, can_access_session,
     list_users, create_user as db_create_user, update_user as db_update_user,
     log_import, get_import_history,
-    mark_document_processed, count_processed_documents,
+    mark_document_processed, count_processed_documents, get_analyzed_doc_ids,
 )
 login_manager.init_app(app)
 
@@ -1622,6 +1622,59 @@ def api_vector_reembed_stale():
 
     except Exception as e:
         logger.error(f"Failed to start stale embedding check: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/scan/process-unanalyzed', methods=['POST'])
+@login_required
+def api_process_unanalyzed():
+    """Find every Paperless document not yet in processed_documents and analyze only those."""
+    try:
+        if not hasattr(app, 'document_analyzer') or not app.document_analyzer:
+            return jsonify({'error': 'Analyzer not running'}), 503
+
+        # Get already-analyzed IDs from DB
+        analyzed_ids = get_analyzed_doc_ids()
+
+        # Fetch all Paperless document IDs (lightweight list, no content yet)
+        all_docs = []
+        page = 1
+        while True:
+            resp = app.paperless_client.get_documents(ordering='-modified', page_size=100, page=page)
+            page_results = resp.get('results', [])
+            all_docs.extend(page_results)
+            if not resp.get('next'):
+                break
+            page += 1
+
+        missing_docs = [d for d in all_docs if d['id'] not in analyzed_ids]
+
+        if not missing_docs:
+            return jsonify({'success': True, 'queued': 0, 'message': 'All documents already analyzed'})
+
+        def _run(docs):
+            logger.info(f"Process-unanalyzed: starting {len(docs)} documents")
+            ok = 0
+            for d in docs:
+                try:
+                    full_doc = app.paperless_client.get_document(d['id'])
+                    app.document_analyzer.analyze_document(full_doc)
+                    ok += 1
+                except Exception as e:
+                    logger.warning(f"Process-unanalyzed: failed doc {d['id']}: {e}")
+            logger.info(f"Process-unanalyzed: complete — {ok}/{len(docs)} succeeded")
+
+        from threading import Thread
+        Thread(target=_run, args=(missing_docs,), daemon=True).start()
+
+        return jsonify({
+            'success': True,
+            'queued': len(missing_docs),
+            'message': f'Queued {len(missing_docs)} unanalyzed documents — check logs for progress',
+        })
+
+    except Exception as e:
+        logger.error(f"Failed to start process-unanalyzed: {e}")
         return jsonify({'error': str(e)}), 500
 
 
