@@ -1633,6 +1633,14 @@
                             <div id="upload-cloud-detected" style="font-size:12px; color:#6b7280; min-height:18px;"></div>
                         </div>
 
+                        <!-- Project selector -->
+                        <div style="margin-top:14px;">
+                            <label style="display:block; font-weight:600; margin-bottom:6px; font-size:14px; color:#374151;">Project</label>
+                            <select id="upload-project-select" style="width:100%; box-sizing:border-box; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px; font-size:14px; color:#374151;">
+                                <option value="">None (auto-assign by analyzer)</option>
+                            </select>
+                        </div>
+
                         <!-- Smart Metadata toggle -->
                         <div style="margin-top:18px; display:flex; align-items:center; gap:10px;">
                             <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:14px; color:#374151; font-weight:500;">
@@ -2044,21 +2052,80 @@
 
                     <!-- Edit User Modal -->
                     <div id="edit-user-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.45); z-index:9999; align-items:center; justify-content:center;">
-                        <div style="background:#fff; border-radius:8px; padding:28px; width:420px; max-width:95vw; box-shadow:0 8px 32px rgba(0,0,0,0.2);">
+                        <div style="background:#fff; border-radius:8px; padding:28px; width:560px; max-width:95vw; max-height:90vh; overflow-y:auto; box-shadow:0 8px 32px rgba(0,0,0,0.2);">
                             <h3 style="margin:0 0 18px; font-size:16px;">✏️ Edit User: <span id="edit-user-name-label"></span></h3>
                             <input type="hidden" id="edit-user-id">
-                            <div style="display:flex; flex-direction:column; gap:10px;">
-                                <label style="font-size:13px; font-weight:600;">Display Name</label>
-                                <input type="text" id="edit-display-name" style="padding:8px 12px; border:1px solid #ddd; border-radius:4px;">
-                                <label style="font-size:13px; font-weight:600;">Email</label>
-                                <input type="email" id="edit-email" style="padding:8px 12px; border:1px solid #ddd; border-radius:4px;">
-                                <label style="font-size:13px; font-weight:600;">Role</label>
-                                <select id="edit-role" style="padding:8px 12px; border:1px solid #ddd; border-radius:4px;">
-                                    <option value="basic">Basic</option>
-                                    <option value="admin">Admin</option>
-                                </select>
-                                <label style="font-size:13px; font-weight:600;">New Password <span style="font-weight:400; color:#888;">(leave blank to keep current)</span></label>
-                                <input type="password" id="edit-password" placeholder="New password (optional)" style="padding:8px 12px; border:1px solid #ddd; border-radius:4px;">
+                            <!-- Contact info -->
+                            <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:10px;">
+                                <div>
+                                    <label style="font-size:13px; font-weight:600; display:block; margin-bottom:4px;">Display Name</label>
+                                    <input type="text" id="edit-display-name" style="width:100%; box-sizing:border-box; padding:8px 12px; border:1px solid #ddd; border-radius:4px;">
+                                </div>
+                                <div>
+                                    <label style="font-size:13px; font-weight:600; display:block; margin-bottom:4px;">Job Title</label>
+                                    <input type="text" id="edit-job-title" style="width:100%; box-sizing:border-box; padding:8px 12px; border:1px solid #ddd; border-radius:4px;">
+                                </div>
+                            </div>
+                            <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:10px;">
+                                <div>
+                                    <label style="font-size:13px; font-weight:600; display:block; margin-bottom:4px;">Email</label>
+                                    <input type="email" id="edit-email" style="width:100%; box-sizing:border-box; padding:8px 12px; border:1px solid #ddd; border-radius:4px;">
+                                </div>
+                                <div>
+                                    <label style="font-size:13px; font-weight:600; display:block; margin-bottom:4px;">Phone</label>
+                                    <input type="text" id="edit-phone" style="width:100%; box-sizing:border-box; padding:8px 12px; border:1px solid #ddd; border-radius:4px;">
+                                </div>
+                            </div>
+                            <div style="margin-bottom:10px;">
+                                <label style="font-size:13px; font-weight:600; display:block; margin-bottom:4px;">Address</label>
+                                <input type="text" id="edit-address" style="width:100%; box-sizing:border-box; padding:8px 12px; border:1px solid #ddd; border-radius:4px;">
+                            </div>
+                            <!-- Professional -->
+                            <div style="margin:14px 0 8px; font-size:11px; font-weight:700; text-transform:uppercase; color:#6b7280; letter-spacing:.05em; border-top:1px solid #e5e7eb; padding-top:12px;">Professional</div>
+                            <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:10px;">
+                                <div>
+                                    <label style="font-size:13px; font-weight:600; display:block; margin-bottom:4px;">GitHub</label>
+                                    <input type="text" id="edit-github" placeholder="github.com/username" style="width:100%; box-sizing:border-box; padding:8px 12px; border:1px solid #ddd; border-radius:4px;">
+                                </div>
+                                <div>
+                                    <label style="font-size:13px; font-weight:600; display:block; margin-bottom:4px;">LinkedIn</label>
+                                    <input type="text" id="edit-linkedin" placeholder="linkedin.com/in/username" style="width:100%; box-sizing:border-box; padding:8px 12px; border:1px solid #ddd; border-radius:4px;">
+                                </div>
+                            </div>
+                            <!-- Social -->
+                            <div style="margin:14px 0 8px; font-size:11px; font-weight:700; text-transform:uppercase; color:#6b7280; letter-spacing:.05em; border-top:1px solid #e5e7eb; padding-top:12px;">Social</div>
+                            <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:10px;">
+                                <div>
+                                    <label style="font-size:13px; font-weight:600; display:block; margin-bottom:4px;">Facebook</label>
+                                    <input type="text" id="edit-facebook" style="width:100%; box-sizing:border-box; padding:8px 12px; border:1px solid #ddd; border-radius:4px;">
+                                </div>
+                                <div>
+                                    <label style="font-size:13px; font-weight:600; display:block; margin-bottom:4px;">Instagram</label>
+                                    <input type="text" id="edit-instagram" style="width:100%; box-sizing:border-box; padding:8px 12px; border:1px solid #ddd; border-radius:4px;">
+                                </div>
+                            </div>
+                            <div style="margin-bottom:10px;">
+                                <label style="font-size:13px; font-weight:600; display:block; margin-bottom:4px;">Other Handles <span style="font-weight:400; color:#888;">(Twitter/X, etc.)</span></label>
+                                <input type="text" id="edit-other-handles" style="width:100%; box-sizing:border-box; padding:8px 12px; border:1px solid #ddd; border-radius:4px;">
+                            </div>
+                            <!-- Account -->
+                            <div style="margin:14px 0 8px; font-size:11px; font-weight:700; text-transform:uppercase; color:#6b7280; letter-spacing:.05em; border-top:1px solid #e5e7eb; padding-top:12px;">Account</div>
+                            <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:10px;">
+                                <div>
+                                    <label style="font-size:13px; font-weight:600; display:block; margin-bottom:4px;">Role</label>
+                                    <select id="edit-role" style="width:100%; box-sizing:border-box; padding:8px 12px; border:1px solid #ddd; border-radius:4px;">
+                                        <option value="basic">Basic</option>
+                                        <option value="admin">Admin</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label style="font-size:13px; font-weight:600; display:block; margin-bottom:4px;">Timezone</label>
+                                    <input type="text" id="edit-timezone" placeholder="e.g. America/New_York" style="width:100%; box-sizing:border-box; padding:8px 12px; border:1px solid #ddd; border-radius:4px;">
+                                </div>
+                            </div>
+                            <div>
+                                <label style="font-size:13px; font-weight:600; display:block; margin-bottom:4px;">New Password <span style="font-weight:400; color:#888;">(leave blank to keep current)</span></label>
+                                <input type="password" id="edit-password" placeholder="New password (optional)" style="width:100%; box-sizing:border-box; padding:8px 12px; border:1px solid #ddd; border-radius:4px;">
                             </div>
                             <div id="edit-user-error" style="color:#e74c3c; font-size:13px; margin-top:10px; display:none;"></div>
                             <div style="display:flex; gap:8px; margin-top:18px; justify-content:flex-end;">
@@ -2302,9 +2369,10 @@
             if (tabName === 'ai-chat') {
                 checkAiKeyStatus();
             }
-            // Load import history when upload tab is opened
+            // Load import history and project list when upload tab is opened
             if (tabName === 'upload') {
                 loadImportHistory();
+                loadUploadProjects();
             }
         }
 
@@ -3073,6 +3141,8 @@
                 setUploadStatus('<div style="color:#2563eb;">⏳ Uploading…</div>');
                 const fd = new FormData();
                 fd.append('file', file);
+                const chosenProject = document.getElementById('upload-project-select')?.value;
+                if (chosenProject) fd.append('project_slug', chosenProject);
                 const res = await apiFetch(apiUrl('/api/upload/submit'), {method: 'POST', body: fd});
                 const data = await res.json();
                 if (data.success) {
@@ -3115,6 +3185,7 @@
             }
 
             const authType = _uploadMode === 'url' ? document.getElementById('upload-auth-type').value : 'none';
+            const chosenProject = document.getElementById('upload-project-select')?.value || undefined;
             const urlPayload = {
                 url: directUrl,
                 source: service,
@@ -3122,6 +3193,7 @@
                 username: authType === 'basic' ? document.getElementById('upload-auth-user').value : undefined,
                 password: authType === 'basic' ? document.getElementById('upload-auth-pass').value : undefined,
                 token: authType === 'token' ? document.getElementById('upload-auth-token-val').value : undefined,
+                project_slug: chosenProject,
             };
 
             // Step 2: scan — single file or a directory listing?
@@ -3179,17 +3251,16 @@
         async function confirmSmartUpload() {
             if (!_smartPendingPayload) return;
             const {type, file, metadata} = _smartPendingPayload;
-            const projectSlug = document.getElementById('smart-project-slug')?.value;
-            if (!projectSlug) {
-                setUploadStatus('<div style="color:#e74c3c;">No project suggested — please upload without Smart Metadata.</div>');
-                return;
-            }
+            // User's explicit dropdown choice beats AI suggestion
+            const dropdownSlug = document.getElementById('upload-project-select')?.value;
+            const aiSlug = document.getElementById('smart-project-slug')?.value;
+            const projectSlug = dropdownSlug || aiSlug;
             cancelSmartPreview();
             setUploadStatus('<div style="color:#2563eb;">⏳ Uploading with AI metadata…</div>');
 
             const fd = new FormData();
             fd.append('file', file);
-            fd.append('project_slug', projectSlug);
+            if (projectSlug) fd.append('project_slug', projectSlug);
             fd.append('metadata', JSON.stringify(metadata));
             const res = await apiFetch(apiUrl('/api/upload/submit'), {method: 'POST', body: fd});
             const data = await res.json();
@@ -3200,6 +3271,26 @@
                 loadImportHistory();
             } else {
                 setUploadStatus('<div style="color:#e74c3c;">❌ ' + (data.error || 'Upload failed') + '</div>');
+            }
+        }
+
+        async function loadUploadProjects() {
+            const sel = document.getElementById('upload-project-select');
+            if (!sel) return;
+            try {
+                const res = await apiFetch(apiUrl('/api/projects'));
+                const data = await res.json();
+                const projects = data.projects || [];
+                // Keep first option (None), rebuild the rest
+                sel.innerHTML = '<option value="">None (auto-assign by analyzer)</option>';
+                projects.forEach(p => {
+                    const opt = document.createElement('option');
+                    opt.value = p.slug;
+                    opt.textContent = p.name + (p.document_count != null ? ' (' + p.document_count + ' docs)' : '');
+                    sel.appendChild(opt);
+                });
+            } catch (e) {
+                // Non-critical — silently ignore if projects can't be loaded
             }
         }
 
@@ -4514,8 +4605,17 @@
             document.getElementById('edit-user-id').value = u.id;
             document.getElementById('edit-user-name-label').textContent = u.username;
             document.getElementById('edit-display-name').value = u.display_name || '';
+            document.getElementById('edit-job-title').value = u.job_title || '';
             document.getElementById('edit-email').value = u.email || '';
+            document.getElementById('edit-phone').value = u.phone || '';
+            document.getElementById('edit-address').value = u.address || '';
+            document.getElementById('edit-github').value = u.github || '';
+            document.getElementById('edit-linkedin').value = u.linkedin || '';
+            document.getElementById('edit-facebook').value = u.facebook || '';
+            document.getElementById('edit-instagram').value = u.instagram || '';
+            document.getElementById('edit-other-handles').value = u.other_handles || '';
             document.getElementById('edit-role').value = u.role || 'basic';
+            document.getElementById('edit-timezone').value = u.timezone || '';
             document.getElementById('edit-password').value = '';
             document.getElementById('edit-user-error').style.display = 'none';
             const modal = document.getElementById('edit-user-modal');
@@ -4529,12 +4629,21 @@
         async function saveEditUser() {
             const uid = document.getElementById('edit-user-id').value;
             const display_name = document.getElementById('edit-display-name').value.trim();
+            const job_title = document.getElementById('edit-job-title').value.trim();
             const email = document.getElementById('edit-email').value.trim();
+            const phone = document.getElementById('edit-phone').value.trim();
+            const address = document.getElementById('edit-address').value.trim();
+            const github = document.getElementById('edit-github').value.trim();
+            const linkedin = document.getElementById('edit-linkedin').value.trim();
+            const facebook = document.getElementById('edit-facebook').value.trim();
+            const instagram = document.getElementById('edit-instagram').value.trim();
+            const other_handles = document.getElementById('edit-other-handles').value.trim();
             const role = document.getElementById('edit-role').value;
+            const timezone = document.getElementById('edit-timezone').value.trim();
             const password = document.getElementById('edit-password').value;
             const errEl = document.getElementById('edit-user-error');
             errEl.style.display = 'none';
-            const payload = {display_name, email, role};
+            const payload = {display_name, job_title, email, phone, address, github, linkedin, facebook, instagram, other_handles, role, timezone};
             if (password) payload.password = password;
             try {
                 const res = await apiFetch(apiUrl(`/api/users/${uid}`), {

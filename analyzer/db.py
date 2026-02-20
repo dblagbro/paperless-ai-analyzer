@@ -89,6 +89,23 @@ def init_db():
             logger.info("Migration: added users.email column")
         except Exception:
             pass  # column already exists
+        for col in (
+            "phone TEXT NOT NULL DEFAULT ''",
+            "address TEXT NOT NULL DEFAULT ''",
+            "github TEXT NOT NULL DEFAULT ''",
+            "linkedin TEXT NOT NULL DEFAULT ''",
+            "facebook TEXT NOT NULL DEFAULT ''",
+            "instagram TEXT NOT NULL DEFAULT ''",
+            "other_handles TEXT NOT NULL DEFAULT ''",
+            "timezone TEXT NOT NULL DEFAULT ''",
+            "job_title TEXT NOT NULL DEFAULT ''",
+        ):
+            col_name = col.split()[0]
+            try:
+                conn.execute(f"ALTER TABLE users ADD COLUMN {col}")
+                logger.info(f"Migration: added users.{col_name} column")
+            except Exception:
+                pass  # column already exists
 
     logger.info("Database initialized (tables created if not exist)")
 
@@ -129,8 +146,12 @@ def update_last_login(user_id: int):
 
 
 def update_user(user_id: int, **kwargs):
-    """Update role, display_name, email, password, or is_active for a user."""
-    allowed = {'role', 'display_name', 'email', 'password', 'is_active'}
+    """Update role, display_name, email, password, is_active, or profile fields for a user."""
+    allowed = {
+        'role', 'display_name', 'email', 'password', 'is_active',
+        'phone', 'address', 'github', 'linkedin', 'facebook',
+        'instagram', 'other_handles', 'timezone', 'job_title',
+    }
     updates = {}
     for k, v in kwargs.items():
         if k not in allowed:
@@ -150,7 +171,9 @@ def update_user(user_id: int, **kwargs):
 def list_users():
     with _get_conn() as conn:
         return conn.execute(
-            "SELECT id, username, display_name, email, role, created_at, last_login, is_active FROM users ORDER BY id"
+            "SELECT id, username, display_name, email, role, created_at, last_login, is_active,"
+            " phone, address, github, linkedin, facebook, instagram, other_handles, timezone, job_title"
+            " FROM users ORDER BY id"
         ).fetchall()
 
 
