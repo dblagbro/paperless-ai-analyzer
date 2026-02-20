@@ -4196,9 +4196,7 @@ def api_users_create():
 
         # Send welcome notification if an email was supplied
         if email:
-            url_prefix = app.config.get('URL_PREFIX', '')
-            base = request.host_url.rstrip('/')
-            app_url = f"{base}{url_prefix}" if url_prefix else base
+            app_url = request.host_url.rstrip('/') + request.script_root
             _send_welcome_email(email, display_name, username, role, app_url, job_title=job_title)
 
         return jsonify({'success': True, 'username': username, 'email_sent': bool(email)}), 201
@@ -4255,8 +4253,7 @@ def api_users_send_manual(uid):
         user = dict(row)
         if not user.get('email'):
             return jsonify({'error': 'User has no email address configured'}), 400
-        url_prefix = app.config.get('URL_PREFIX', '')
-        base_url = request.host_url.rstrip('/') + url_prefix
+        base_url = request.host_url.rstrip('/') + request.script_root
         _send_manual_email(user['email'], user.get('display_name') or user['username'], base_url)
         return jsonify({'success': True, 'message': f"Manual sent to {user['email']}"})
     except Exception as e:
