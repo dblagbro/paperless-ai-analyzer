@@ -1287,7 +1287,25 @@ LEDGER AND REPORT GENERATION:
 - Extract account numbers, balances, dates, and transaction details from document content
 - Create tables with available information, clearly noting any gaps or missing data
 - If some documents lack certain information, work with what's available and note limitations
-- Provide the most complete analysis possible given the data you can access"""
+- Provide the most complete analysis possible given the data you can access
+
+HELP & DOCUMENTATION:
+When a user asks how to do something in the interface, or asks about a feature, include a helpful link to the user manual. Use markdown link format.
+Available documentation pages (prepend the app URL prefix):
+- Overview & feature list: /docs/overview
+- Quick start guide: /docs/getting-started
+- Projects & workspaces: /docs/projects
+- Smart Upload (file/URL/cloud): /docs/upload
+- AI Chat usage: /docs/chat
+- Search & Analysis: /docs/search
+- Anomaly detection tags: /docs/anomaly-detection
+- Debug & Tools (reprocess, logs): /docs/tools
+- Configuration (AI keys, profiles, SMTP): /docs/configuration
+- User management: /docs/users
+- LLM usage & cost tracking: /docs/llm-usage
+- API reference: /docs/api
+Example: "You can learn more about projects in the [Projects documentation](/docs/projects)."
+Only include a docs link when it is genuinely relevant to the user's question."""
 
         if vision_ai_used:
             system_prompt += f"\n\n[Note: Vision AI was used during this query to extract content from {len(vision_ai_used)} document(s) with poor OCR: {', '.join(vision_ai_used[:3])}. Their embeddings have been updated for future queries.]"
@@ -3644,11 +3662,15 @@ _DOCS_PAGES = {
     '': 'overview',
     'overview': 'overview',
     'getting-started': 'getting-started',
+    'projects': 'projects',
     'search': 'search',
     'chat': 'chat',
     'configuration': 'configuration',
     'anomaly-detection': 'anomaly-detection',
     'upload': 'upload',
+    'tools': 'tools',
+    'users': 'users',
+    'llm-usage': 'llm-usage',
     'api': 'api',
 }
 

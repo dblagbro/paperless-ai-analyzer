@@ -14,12 +14,12 @@
 
         /* ── Sidebar ── */
         .sidebar {
-            width:250px; min-width:250px; background:#2c3e50; color:#ecf0f1;
+            width:260px; min-width:260px; background:#2c3e50; color:#ecf0f1;
             display:flex; flex-direction:column; padding-top:20px;
             position:sticky; top:0; height:100vh; overflow-y:auto;
         }
         .sidebar-header {
-            padding:0 20px 20px; border-bottom:1px solid rgba(255,255,255,0.1);
+            padding:0 20px 16px; border-bottom:1px solid rgba(255,255,255,0.1);
         }
         .sidebar-header h1 { font-size:15px; font-weight:700; color:#fff; }
         .sidebar-header .version { font-size:11px; color:#95a5a6; margin-top:3px; }
@@ -29,11 +29,11 @@
         }
         .sidebar-header .back-link:hover { color:#5dade2; }
 
-        nav { padding:12px 0; }
-        .nav-section { padding:8px 20px 4px; font-size:10px; letter-spacing:1px;
+        nav { padding:10px 0 20px; }
+        .nav-section { padding:10px 20px 4px; font-size:10px; letter-spacing:1px;
                         text-transform:uppercase; color:#7f8c8d; font-weight:600; }
         nav a {
-            display:block; padding:8px 20px 8px 24px; color:#bdc3c7;
+            display:block; padding:7px 20px 7px 24px; color:#bdc3c7;
             text-decoration:none; font-size:13px; border-left:3px solid transparent;
             transition:all 0.15s;
         }
@@ -41,25 +41,31 @@
         nav a.active { color:#fff; border-left-color:#3498db; background:rgba(52,152,219,0.12); }
 
         /* ── Main content ── */
-        .main { flex:1; padding:40px 48px; max-width:900px; }
+        .main { flex:1; padding:40px 52px; max-width:920px; }
         h1.page-title { font-size:28px; font-weight:700; color:#2c3e50; margin-bottom:8px; }
         .subtitle { font-size:15px; color:#7f8c8d; margin-bottom:32px; }
 
-        h2 { font-size:20px; font-weight:700; color:#2c3e50; margin:36px 0 12px;
-             padding-bottom:6px; border-bottom:2px solid #e8eaf0; }
-        h3 { font-size:15px; font-weight:700; color:#34495e; margin:20px 0 8px; }
+        h2 { font-size:19px; font-weight:700; color:#2c3e50; margin:36px 0 12px;
+             padding-bottom:6px; border-bottom:2px solid #e8eaf0; scroll-margin-top:20px; }
+        h3 { font-size:15px; font-weight:700; color:#34495e; margin:20px 0 8px;
+             scroll-margin-top:20px; }
+        h4 { font-size:13px; font-weight:700; color:#2c3e50; margin:14px 0 6px; }
         p { margin-bottom:14px; }
         ul, ol { margin:0 0 14px 22px; }
         li { margin-bottom:6px; }
+        a { color:#3498db; text-decoration:none; }
+        a:hover { text-decoration:underline; }
         code { font-family:'SF Mono',Monaco,Consolas,monospace; background:#f0f3f6;
                padding:2px 6px; border-radius:3px; font-size:13px; color:#c0392b; }
         pre code { display:block; padding:14px 16px; background:#2d3748; color:#e2e8f0;
-                   border-radius:6px; overflow-x:auto; line-height:1.5; margin:12px 0; }
+                   border-radius:6px; overflow-x:auto; line-height:1.5; margin:12px 0;
+                   color:#e2e8f0; }
 
         .callout { padding:14px 18px; border-radius:6px; margin:16px 0; font-size:14px; }
         .callout-info  { background:#ebf5fb; border-left:4px solid #3498db; }
         .callout-tip   { background:#eafaf1; border-left:4px solid #27ae60; }
         .callout-warn  { background:#fef9e7; border-left:4px solid #f39c12; }
+        .callout-danger{ background:#fde8e8; border-left:4px solid #e74c3c; }
 
         table { width:100%; border-collapse:collapse; margin:16px 0 20px; font-size:13px; }
         th { background:#2c3e50; color:#fff; padding:8px 12px; text-align:left; font-weight:600; }
@@ -71,13 +77,33 @@
         .badge-blue  { background:#3498db; color:#fff; }
         .badge-green { background:#27ae60; color:#fff; }
         .badge-red   { background:#e74c3c; color:#fff; }
+        .badge-orange{ background:#e67e22; color:#fff; }
         .badge-gray  { background:#95a5a6; color:#fff; }
+        .badge-patch { background:#8e44ad; color:#fff; }
+        .badge-delete{ background:#c0392b; color:#fff; }
 
         .feature-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin:20px 0; }
         .feature-card { background:#fff; border:1px solid #e8eaf0; border-radius:8px;
                          padding:16px; }
         .feature-card h4 { font-size:14px; font-weight:700; color:#2c3e50; margin-bottom:6px; }
         .feature-card p { font-size:13px; color:#555; margin:0; }
+
+        .step { display:flex; gap:16px; margin-bottom:20px; }
+        .step-num { flex-shrink:0; width:28px; height:28px; background:#3498db; color:#fff;
+                    border-radius:50%; display:flex; align-items:center; justify-content:center;
+                    font-weight:700; font-size:13px; margin-top:3px; }
+        .step-body h4 { margin-top:0; }
+
+        .tag-example { display:inline-block; background:#ecf0f1; border:1px solid #bdc3c7;
+                       border-radius:4px; padding:2px 8px; font-size:12px; font-family:monospace;
+                       color:#2c3e50; margin:1px; }
+        .tag-anomaly { background:#fde8e8; border-color:#e74c3c; color:#c0392b; }
+        .tag-project { background:#e8f4fd; border-color:#3498db; color:#1a5276; }
+        .tag-ai { background:#fef9e7; border-color:#f39c12; color:#784212; }
+
+        .kbd { display:inline-block; background:#f8f9fa; border:1px solid #ccc;
+               border-bottom-width:2px; border-radius:4px; padding:1px 7px;
+               font-size:12px; font-family:monospace; }
 
         @media(max-width:720px) {
             .sidebar { display:none; }
@@ -92,24 +118,28 @@
     <!-- ── Sidebar ── -->
     <aside class="sidebar">
         <div class="sidebar-header">
-            <h1>📄 Paperless AI</h1>
+            <h1>📄 Paperless AI Analyzer</h1>
             <div class="version">v{{ version }} — User Manual</div>
             <a class="back-link" href="{{ url_prefix }}/">← Back to Dashboard</a>
         </div>
         <nav>
             <div class="nav-section">Getting Started</div>
-            <a href="{{ url_prefix }}/docs/overview"       {% if page=='overview' %}class="active"{% endif %}>Overview</a>
+            <a href="{{ url_prefix }}/docs/overview"        {% if page=='overview' %}class="active"{% endif %}>Overview</a>
             <a href="{{ url_prefix }}/docs/getting-started" {% if page=='getting-started' %}class="active"{% endif %}>Quick Start</a>
 
             <div class="nav-section">Features</div>
-            <a href="{{ url_prefix }}/docs/search"          {% if page=='search' %}class="active"{% endif %}>Search &amp; Analysis</a>
+            <a href="{{ url_prefix }}/docs/projects"        {% if page=='projects' %}class="active"{% endif %}>Projects</a>
+            <a href="{{ url_prefix }}/docs/upload"          {% if page=='upload' %}class="active"{% endif %}>Smart Upload</a>
             <a href="{{ url_prefix }}/docs/chat"            {% if page=='chat' %}class="active"{% endif %}>AI Chat</a>
-            <a href="{{ url_prefix }}/docs/upload"          {% if page=='upload' %}class="active"{% endif %}>Upload Documents</a>
+            <a href="{{ url_prefix }}/docs/search"          {% if page=='search' %}class="active"{% endif %}>Search &amp; Analysis</a>
             <a href="{{ url_prefix }}/docs/anomaly-detection" {% if page=='anomaly-detection' %}class="active"{% endif %}>Anomaly Detection</a>
+            <a href="{{ url_prefix }}/docs/tools"           {% if page=='tools' %}class="active"{% endif %}>Debug &amp; Tools</a>
 
             <div class="nav-section">Administration</div>
-            <a href="{{ url_prefix }}/docs/configuration"  {% if page=='configuration' %}class="active"{% endif %}>Configuration</a>
-            <a href="{{ url_prefix }}/docs/api"            {% if page=='api' %}class="active"{% endif %}>API Reference</a>
+            <a href="{{ url_prefix }}/docs/configuration"   {% if page=='configuration' %}class="active"{% endif %}>Configuration</a>
+            <a href="{{ url_prefix }}/docs/users"           {% if page=='users' %}class="active"{% endif %}>User Management</a>
+            <a href="{{ url_prefix }}/docs/llm-usage"       {% if page=='llm-usage' %}class="active"{% endif %}>LLM Usage &amp; Cost</a>
+            <a href="{{ url_prefix }}/docs/api"             {% if page=='api' %}class="active"{% endif %}>API Reference</a>
 
             <div class="nav-section">Resources</div>
             <a href="{{ github_url }}" target="_blank">GitHub / README ↗</a>
@@ -120,282 +150,834 @@
     <!-- ── Main content ── -->
     <main class="main">
 
-{# ────────────────────────────── OVERVIEW ────────────────────────────── #}
+{# ═══════════════════════════════════════════════════════════════════ #}
+{# OVERVIEW                                                            #}
+{# ═══════════════════════════════════════════════════════════════════ #}
 {% if page == 'overview' %}
         <h1 class="page-title">Paperless AI Analyzer</h1>
-        <p class="subtitle">Intelligent document intelligence for Paperless-ngx — anomaly detection, AI analysis, and natural-language search.</p>
+        <p class="subtitle">Intelligent document intelligence for Paperless-ngx — anomaly detection, AI analysis, project management, and natural-language search.</p>
 
         <div class="feature-grid">
             <div class="feature-card">
-                <h4>🔍 Search &amp; Analysis</h4>
-                <p>Full-text semantic search across all analyzed documents, with AI-generated summaries and risk scores displayed inline.</p>
+                <h4>🗂️ Projects</h4>
+                <p>Organize documents into isolated workspaces (cases, clients, matters). Each project has its own AI vector store — chat and search stay scoped to the selected project.</p>
+            </div>
+            <div class="feature-card">
+                <h4>📤 Smart Upload</h4>
+                <p>Upload files, paste a URL, or share a Google Drive / Dropbox link. Assign the document to a project at upload time. Optional AI metadata extraction before submission.</p>
             </div>
             <div class="feature-card">
                 <h4>🤖 AI Chat</h4>
-                <p>Ask natural-language questions about any document or your entire archive. RAG-powered answers cite the source doc.</p>
+                <p>Ask natural-language questions about any document or your entire project archive. RAG-powered answers cite the source document.</p>
+            </div>
+            <div class="feature-card">
+                <h4>🔍 Search &amp; Analysis</h4>
+                <p>Semantic full-text search across all analyzed documents with AI-generated summaries, risk scores, and anomaly tags displayed inline.</p>
             </div>
             <div class="feature-card">
                 <h4>⚠️ Anomaly Detection</h4>
-                <p>Deterministic checks (balance mismatches, missing transactions, duplicate amounts) run on every document automatically.</p>
-            </div>
-            <div class="feature-card">
-                <h4>📤 Upload</h4>
-                <p>Upload files, paste a URL, or share a Google Drive / Dropbox link — the document is routed through Paperless OCR then analyzed.</p>
+                <p>Deterministic checks (balance mismatches, missing transactions, duplicate amounts) run automatically on every document without an AI call.</p>
             </div>
             <div class="feature-card">
                 <h4>🔒 Multi-User</h4>
-                <p>Role-based access (Basic / Admin). Each user has their own chat history. Admins manage accounts and system settings.</p>
-            </div>
-            <div class="feature-card">
-                <h4>🗂️ Vector Search (RAG)</h4>
-                <p>Every document is embedded in a vector store (Cohere + ChromaDB). AI Chat retrieves the most relevant docs for each query.</p>
+                <p>Role-based access (Basic / Admin). Each user has their own chat history and upload history. Admins manage accounts, projects, and system settings.</p>
             </div>
         </div>
 
-        <h2>How it works</h2>
+        <h2 id="how-it-works">How it works</h2>
         <p>Paperless AI Analyzer runs as a sidecar microservice alongside Paperless-ngx. It polls Paperless every ~30 seconds, picks up newly-ingested documents, and runs them through a pipeline:</p>
         <ol>
             <li><strong>Profile matching</strong> — the document is matched to a YAML analysis profile (e.g., "bank statements", "court documents").</li>
+            <li><strong>Project detection</strong> — if the document has a <code>project:slug</code> tag in Paperless, it is routed to that project's vector store collection.</li>
             <li><strong>Deterministic checks</strong> — balance calculations, transaction counts, and pattern checks run without any AI call.</li>
             <li><strong>AI analysis</strong> — OpenAI GPT-4o or Anthropic Claude analyzes the document and extracts metadata (entities, topics, summaries, Q&amp;A pairs).</li>
             <li><strong>Tagging</strong> — anomaly tags (e.g., <code>anomaly:balance_mismatch</code>) and AI tags are written back to Paperless.</li>
-            <li><strong>Embedding</strong> — the enriched content is stored in the Chroma vector database for AI Chat retrieval.</li>
+            <li><strong>Embedding</strong> — the enriched content is stored in the correct Chroma vector collection for AI Chat retrieval.</li>
         </ol>
 
         <div class="callout callout-info">
-            <strong>No re-indexing needed.</strong> The analyzer keeps your existing Paperless workflow intact — it only adds tags and writes to its own database. You can remove it at any time without affecting Paperless.
+            <strong>Non-destructive by design.</strong> The analyzer only adds tags and writes to its own database. Paperless documents are never modified — only tagged. You can remove the analyzer at any time without affecting your Paperless archive.
         </div>
 
-        <h2>Supported AI Providers</h2>
+        <h2 id="supported-ai-providers">Supported AI Providers</h2>
         <table>
-            <tr><th>Provider</th><th>Used for</th><th>Model</th></tr>
-            <tr><td>OpenAI</td><td>Document analysis, metadata extraction, AI Chat, Vision OCR</td><td>gpt-4o</td></tr>
-            <tr><td>Anthropic</td><td>Document analysis, AI Chat, Vision OCR</td><td>claude-3-5-sonnet</td></tr>
-            <tr><td>Cohere</td><td>Document embedding (RAG vector store)</td><td>embed-english-v3.0</td></tr>
+            <tr><th>Provider</th><th>Used for</th><th>Default model</th></tr>
+            <tr><td>OpenAI</td><td>Document analysis, metadata extraction, AI Chat, Vision OCR fallback</td><td>gpt-4o</td></tr>
+            <tr><td>Anthropic</td><td>Document analysis, AI Chat, Vision OCR fallback</td><td>claude-3-5-sonnet</td></tr>
+            <tr><td>Cohere</td><td>Document embedding (RAG vector store — required for AI Chat &amp; Search)</td><td>embed-english-v3.0</td></tr>
         </table>
 
+        <h2 id="tabs">Dashboard Tabs</h2>
+        <table>
+            <tr><th>Tab</th><th>Purpose</th></tr>
+            <tr><td><strong>Overview</strong></td><td>Status bar, recent analyses list, live document feed.</td></tr>
+            <tr><td><strong>Manage Projects</strong></td><td>Create and manage isolated workspaces; assign/migrate documents between projects.</td></tr>
+            <tr><td><strong>Smart Upload</strong></td><td>Upload files, URLs, or cloud share links; assign to a project.</td></tr>
+            <tr><td><strong>AI Chat</strong></td><td>Natural-language conversation grounded in project documents.</td></tr>
+            <tr><td><strong>Search &amp; Analysis</strong></td><td>Semantic search with risk scoring and anomaly filters.</td></tr>
+            <tr><td><strong>Configuration</strong></td><td>AI keys, profiles, vector store controls, SMTP, users (admin only).</td></tr>
+            <tr><td><strong>Debug &amp; Tools</strong></td><td>Live logs, reprocess controls, diagnostic tools.</td></tr>
+        </table>
+
+{# ═══════════════════════════════════════════════════════════════════ #}
+{# GETTING STARTED                                                     #}
+{# ═══════════════════════════════════════════════════════════════════ #}
 {% elif page == 'getting-started' %}
         <h1 class="page-title">Quick Start</h1>
-        <p class="subtitle">Get up and running in five minutes.</p>
+        <p class="subtitle">From login to your first AI-powered document analysis in five minutes.</p>
 
-        <h2>1. Log in</h2>
-        <p>Navigate to the application URL provided by your administrator. Enter your username and password on the login page. Contact your admin if you do not have credentials.</p>
-
-        <h2>2. The Dashboard</h2>
-        <p>After login you land on the <strong>Dashboard</strong> tab. The status bar at the top shows:</p>
-        <ul>
-            <li><strong>Status</strong> — whether the analyzer is running.</li>
-            <li><strong>Documents Analyzed</strong> — cumulative count of documents that have been processed.</li>
-            <li><strong>Anomalies Detected</strong> — number of documents with at least one anomaly tag.</li>
-            <li><strong>High Risk</strong> — documents with a forensic risk score ≥ 70.</li>
-        </ul>
-        <p>The <em>Recent Analyses</em> list updates every 10 seconds and shows the latest 50 documents processed, newest first. Each card displays the Brief Summary, Full Summary, and any anomaly tags.</p>
-
-        <h2>3. Search your documents</h2>
-        <p>Open the <strong>Search &amp; Analysis</strong> tab. Type any natural-language query — the system performs a semantic search against the vector store and returns the most relevant documents. Results include risk scores, anomaly tags, and summaries.</p>
-
-        <h2>4. Chat with your documents</h2>
-        <p>Open the <strong>AI Chat</strong> tab and start a new session. Ask anything:</p>
-        <ul>
-            <li>"What is the ending balance on my Chase statement from March?"</li>
-            <li>"Which court orders mention the receiver?"</li>
-            <li>"Summarize all documents related to Fairbridge."</li>
-        </ul>
-        <p>The AI uses RAG (Retrieval Augmented Generation) to find relevant documents, then answers based on their actual content. If a document has poor OCR, Vision AI can extract text directly from the PDF image.</p>
-
-        <h2>5. Upload a new document</h2>
-        <p>Open the <strong>Upload</strong> tab. Choose a file, paste an HTTPS URL, or paste a Google Drive / Dropbox share link. Click <em>Upload to Paperless</em>. The file is routed through Paperless-ngx OCR and the AI analyzer picks it up on the next poll (~30 seconds).</p>
+        <h2 id="login">Step 1 — Log in</h2>
+        <p>Navigate to the application URL provided by your administrator (typically <code>/paperless-ai-analyzer/</code>). Enter your username and password. Contact your admin if you don't have credentials.</p>
 
         <div class="callout callout-tip">
-            <strong>Tip:</strong> Use <strong>Ctrl+Enter</strong> in the AI Chat input to insert a new line without sending. Press <strong>Enter</strong> alone to send.
+            <strong>Tip:</strong> If you forget your password, an admin can reset it via <strong>Configuration → Users → Edit</strong>.
         </div>
 
-{% elif page == 'search' %}
-        <h1 class="page-title">Search &amp; Analysis</h1>
-        <p class="subtitle">Semantic full-text search with AI-generated summaries and risk scoring.</p>
-
-        <h2>How search works</h2>
-        <p>The Search tab queries the ChromaDB vector store using semantic (meaning-based) similarity, not just keyword matching. Your query is embedded and compared against all stored document embeddings. The top results are ranked by relevance.</p>
-
-        <h2>Reading a result card</h2>
-        <table>
-            <tr><th>Element</th><th>Meaning</th></tr>
-            <tr><td>Title</td><td>Document title from Paperless (links to the doc).</td></tr>
-            <tr><td>Risk badge</td><td>0–100 forensic risk score. ≥70 = red (High), 40–69 = orange (Medium), &lt;40 = green (Low).</td></tr>
-            <tr><td>Anomaly tags</td><td>Detected anomalies: balance mismatch, no transactions, duplicate amounts, etc. Click a tag to see evidence.</td></tr>
-            <tr><td>Brief Summary</td><td>One-sentence AI-generated summary of the document.</td></tr>
-            <tr><td>Full Summary</td><td>3–5 sentence detailed summary covering purpose, entities, dates, and key amounts.</td></tr>
-            <tr><td>View Evidence</td><td>Only appears on anomaly documents. Shows the specific inconsistencies found.</td></tr>
-        </table>
-
-        <h2>Search tips</h2>
+        <h2 id="dashboard">Step 2 — Explore the Dashboard</h2>
+        <p>After login you land on the <strong>Overview</strong> tab. The status bar at the top shows:</p>
         <ul>
-            <li>Use natural language: <em>"Chase bank statements with overdrafts"</em> works better than <em>"Chase overdraft"</em>.</li>
-            <li>Include entities: <em>"documents involving John Smith"</em>, <em>"invoices from Acme Corp"</em>.</li>
-            <li>Include dates: <em>"statements from Q1 2025"</em>.</li>
-            <li>The list refreshes every 10 seconds but pauses while the Search tab is active so results don't jump while you read.</li>
+            <li><strong>Status</strong> — Running / Stopped indicator for the analyzer.</li>
+            <li><strong>Documents Analyzed</strong> — cumulative count of all processed documents.</li>
+            <li><strong>Anomalies Detected</strong> — documents with at least one <code>anomaly:</code> or <code>aianomaly:</code> tag.</li>
+            <li><strong>High Risk</strong> — documents with a forensic risk score ≥ 70.</li>
+            <li><strong>Active Profiles</strong> — YAML document-type profiles loaded.</li>
+            <li><strong>Embedded Documents</strong> — documents in the vector store (available for AI Chat).</li>
         </ul>
+        <p>The <em>Recent Analyses</em> list auto-refreshes every 10 seconds showing the 50 most recently processed documents. Each card shows the document title, risk score, brief summary, anomaly tags, and any Q&amp;A pairs extracted.</p>
 
-{% elif page == 'chat' %}
-        <h1 class="page-title">AI Chat</h1>
-        <p class="subtitle">Natural-language conversation grounded in your actual documents.</p>
+        <h2 id="select-project">Step 3 — Select a Project</h2>
+        <p>The header bar shows <strong>Current Project</strong>. Click the dropdown to switch projects. AI Chat and Search operate within the selected project's document collection only. To work across all documents, select <em>Default Project</em>.</p>
 
-        <h2>Starting a conversation</h2>
-        <p>Click <strong>+ New Session</strong> in the left sidebar of the Chat tab. Give the session a title (optional — the system generates one from your first message). Type your question and press <strong>Enter</strong> to send.</p>
+        <h2 id="upload-first-doc">Step 4 — Upload a document</h2>
+        <ol>
+            <li>Open the <strong>Smart Upload</strong> tab.</li>
+            <li>Select your project from the <strong>Project</strong> dropdown (or leave as Default).</li>
+            <li>Choose a mode: <strong>File</strong>, <strong>URL</strong>, or <strong>Cloud Link</strong>.</li>
+            <li>Drag a file or paste a link. Optionally enable <strong>Smart Metadata</strong> to let AI suggest a title, date, and document type before uploading.</li>
+            <li>Click <strong>Upload to Paperless</strong>. The document is submitted to Paperless-ngx for OCR.</li>
+            <li>Within ~60 seconds, the analyzer picks it up, runs analysis, and the document appears in <em>Recent Analyses</em>.</li>
+        </ol>
 
-        <h2>How RAG retrieval works</h2>
-        <p>Every chat message triggers a vector search for the most relevant documents in the store. The top documents (up to 5) are included in the AI's context window as source material. The AI answers based on this retrieved content.</p>
+        <h2 id="search-first">Step 5 — Search your documents</h2>
+        <p>Open <strong>Search &amp; Analysis</strong>. Type any natural-language query — e.g., <em>"Chase statements with overdrafts"</em> or <em>"documents mentioning the receiver"</em>. Results are ranked by semantic relevance within the current project.</p>
+
+        <h2 id="chat-first">Step 6 — Chat with your documents</h2>
+        <ol>
+            <li>Open <strong>AI Chat</strong>.</li>
+            <li>Click <strong>+ New Session</strong>.</li>
+            <li>Type a question and press <kbd class="kbd">Enter</kbd>. Try:<br>
+                <em>"What is the ending balance on the most recent Chase statement?"</em><br>
+                <em>"Which documents mention Fairbridge Real Estate?"</em></li>
+            <li>The AI retrieves the most relevant documents and answers based on their actual content.</li>
+        </ol>
+
+        <div class="callout callout-tip">
+            <strong>Keyboard shortcuts:</strong> <kbd class="kbd">Enter</kbd> sends a message. <kbd class="kbd">Ctrl+Enter</kbd> inserts a new line without sending.
+        </div>
+
+{# ═══════════════════════════════════════════════════════════════════ #}
+{# PROJECTS                                                            #}
+{# ═══════════════════════════════════════════════════════════════════ #}
+{% elif page == 'projects' %}
+        <h1 class="page-title">Projects</h1>
+        <p class="subtitle">Organize documents into isolated workspaces — each project maintains its own AI vector store for scoped search and chat.</p>
 
         <div class="callout callout-info">
-            <strong>Vision AI fallback.</strong> If a retrieved document has very short OCR content (&lt;500 characters), the system will attempt to download the original PDF from Paperless and extract text using GPT-4o Vision or Claude Vision. The extracted text is used for the answer and automatically re-embedded for future queries.
+            <strong>What is a project?</strong> A project is a named workspace (e.g., "Robinhood Fonda Case", "Client ABC Matter") that groups documents via a Paperless tag (<code>project:slug</code>). AI Chat and Search operate within the selected project only, ensuring answers never mix documents from different matters.
         </div>
 
-        <h2>Keyboard shortcuts</h2>
-        <table>
-            <tr><th>Key</th><th>Action</th></tr>
-            <tr><td><code>Enter</code></td><td>Send message</td></tr>
-            <tr><td><code>Ctrl+Enter</code></td><td>Insert new line (multi-paragraph messages)</td></tr>
-        </table>
-
-        <h2>Sharing sessions</h2>
-        <p>Open a session and click <strong>Share</strong>. Select which users should have read access. Shared sessions appear in other users' sidebar with a "Shared" badge.</p>
-
-        <h2>Exporting chat history</h2>
-        <p>Open a session, then click <strong>Export</strong>. The full conversation is downloaded as a JSON file.</p>
-
-{% elif page == 'upload' %}
-        <h1 class="page-title">Upload Documents</h1>
-        <p class="subtitle">Three ways to add documents: file, URL, or cloud share link.</p>
-
-        <h2>File upload</h2>
-        <p>Drag a file onto the drop zone or click to browse. Supported formats: <code>PDF</code>, <code>PNG</code>, <code>JPG</code>, <code>DOCX</code>, <code>HEIC</code>.</p>
-
-        <h2>URL upload</h2>
-        <p>Paste any direct HTTPS URL to a document. Optionally provide HTTP Basic Auth credentials or a Bearer token for password-protected resources.</p>
-
-        <h2>Cloud share links</h2>
-        <p>Paste a share link from Google Drive, Dropbox, or OneDrive. The system auto-detects the service and transforms the link to a direct download URL before sending it to Paperless.</p>
-
-        <table>
-            <tr><th>Service</th><th>Example input</th><th>Transform</th></tr>
-            <tr><td>Google Drive file</td><td><code>drive.google.com/file/d/ABC/view</code></td><td>Direct download URL</td></tr>
-            <tr><td>Google Docs/Sheets</td><td><code>docs.google.com/document/d/ABC/</code></td><td>Export as PDF</td></tr>
-            <tr><td>Dropbox</td><td><code>dropbox.com/s/xyz?dl=0</code></td><td>Sets <code>dl=1</code></td></tr>
-            <tr><td>OneDrive (1drv.ms)</td><td><code>1drv.ms/b/ABC</code></td><td>Follows redirect</td></tr>
-        </table>
-
-        <h2>After upload</h2>
-        <p>The document is sent to Paperless-ngx, which queues it for OCR. Once OCR completes (usually within a minute), the AI Analyzer picks it up on its next poll and runs the full analysis pipeline.</p>
-
-{% elif page == 'anomaly-detection' %}
-        <h1 class="page-title">Anomaly Detection</h1>
-        <p class="subtitle">Deterministic checks that run on every document without an AI call.</p>
-
-        <h2>Anomaly tags</h2>
-        <p>When an anomaly is detected, a tag is added to the document in Paperless. Tags follow the naming convention <code>anomaly:&lt;type&gt;</code>.</p>
-        <table>
-            <tr><th>Tag</th><th>Meaning</th></tr>
-            <tr><td><code>anomaly:balance_mismatch</code></td><td>Beginning + credits − debits ≠ ending balance. Indicates potential missing transactions or altered figures.</td></tr>
-            <tr><td><code>anomaly:missing_transactions</code></td><td>Transaction list is absent or suspiciously short for the stated balance change.</td></tr>
-            <tr><td><code>anomaly:no_transactions</code></td><td>Statement shows no transaction activity at all — may indicate a suppressed page.</td></tr>
-            <tr><td><code>anomaly:duplicate_amounts</code></td><td>Two or more transactions share the exact same amount on the same date.</td></tr>
-            <tr><td><code>anomaly:forensic_risk_high</code></td><td>Risk score ≥ 70. The document has multiple or serious issues.</td></tr>
-            <tr><td><code>anomaly:forensic_risk_medium</code></td><td>Risk score 40–69. Minor issues detected.</td></tr>
-            <tr><td><code>anomaly:forensic_risk_low</code></td><td>Risk score &lt;40. No significant issues but flagged for review.</td></tr>
-            <tr><td><code>aianomaly:&lt;type&gt;</code></td><td>AI-detected anomalies (data inconsistency, unused document, etc.). Set by the LLM analysis step.</td></tr>
-        </table>
-
-        <h2>Risk score</h2>
-        <p>Each document receives a 0–100 risk score calculated from the number and severity of detected anomalies. The score is displayed on every result card and used to sort high-risk documents to the top.</p>
-
-        <h2>View Evidence</h2>
-        <p>Click the <strong>View Evidence</strong> button on any anomaly card to see the specific values that triggered the detection — for example, the calculated vs. stated ending balance.</p>
-
-{% elif page == 'configuration' %}
-        <h1 class="page-title">Configuration</h1>
-        <p class="subtitle">Admin-only settings for AI, SMTP, users, and the vector store.</p>
-
-        <h2>AI Settings</h2>
-        <p>Add API keys for OpenAI and/or Anthropic. At least one key is required for AI analysis and AI Chat. The system tries providers in order and falls back if one fails.</p>
+        <h2 id="how-projects-work">How projects work</h2>
+        <p>When a document is uploaded with a project selected, or assigned to a project later, the analyzer adds a Paperless tag <span class="tag-example tag-project">project:slug</span> to the document. The analysis pipeline then embeds the document into that project's dedicated ChromaDB collection (<code>paperless_docs_{slug}</code>) rather than the default collection.</p>
         <ul>
-            <li><strong>Analysis provider</strong> — used for document analysis, metadata extraction, and integrity checks.</li>
-            <li><strong>Chat provider</strong> — used for AI Chat responses (can differ from analysis provider).</li>
+            <li><strong>Isolated vector store</strong> — each project gets its own ChromaDB collection. Chat and search never see documents from other projects.</li>
+            <li><strong>Paperless tag synced</strong> — the <code>project:slug</code> tag is visible in Paperless-ngx so documents can be found by project even outside the analyzer.</li>
+            <li><strong>Default project</strong> — documents without a project tag go into <em>Default Project</em>. This cannot be deleted.</li>
         </ul>
 
-        <h2>Profiles</h2>
-        <p>Profiles are YAML files that define rules for specific document types. A profile specifies which checks to run, which fields to extract, and how to score risk. Profiles can be uploaded via the Staging area and activated once validated.</p>
+        <h2 id="create-project">Creating a project</h2>
+        <div class="step">
+            <div class="step-num">1</div>
+            <div class="step-body">
+                <h4>Open Manage Projects</h4>
+                <p>Click the <strong>Manage Projects</strong> tab in the dashboard.</p>
+            </div>
+        </div>
+        <div class="step">
+            <div class="step-num">2</div>
+            <div class="step-body">
+                <h4>Click + New Project</h4>
+                <p>The creation modal opens. Fill in:</p>
+                <ul>
+                    <li><strong>Project Name</strong> — display name (e.g., "Robinhood Fonda v. Fairbridge")</li>
+                    <li><strong>Slug</strong> — auto-generated from the name. Must be lowercase alphanumeric with dashes/underscores, 2–50 characters. Once set, cannot be changed.</li>
+                    <li><strong>Description</strong> — optional free-text description.</li>
+                    <li><strong>Color</strong> — used for the project tag badge in Paperless and UI accents.</li>
+                </ul>
+            </div>
+        </div>
+        <div class="step">
+            <div class="step-num">3</div>
+            <div class="step-body">
+                <h4>Save</h4>
+                <p>The project is created in the local database and the corresponding <code>project:{slug}</code> tag is created in Paperless-ngx immediately.</p>
+            </div>
+        </div>
 
-        <h2>Vector Store</h2>
-        <p>The vector store (ChromaDB + Cohere embeddings) is the retrieval backend for AI Chat. Controls available:</p>
+        <h2 id="switch-project">Switching the current project</h2>
+        <p>The <strong>Current Project</strong> dropdown in the top header controls the scope of AI Chat and Search. Select any project to switch. The change takes effect immediately — no page reload required.</p>
         <ul>
-            <li><strong>Refresh</strong> — reload stats (document count, index size).</li>
-            <li><strong>Re-embed Stale</strong> — finds documents whose OCR content changed after they were first embedded and re-analyzes them.</li>
-            <li><strong>Process Unanalyzed</strong> — finds all Paperless documents not yet in the analysis database and queues them for analysis. Does not re-process documents that are already done.</li>
-            <li><strong>Clear All</strong> — deletes the entire vector index. AI Chat will lose context until documents are re-embedded via Reprocess All.</li>
+            <li>AI Chat sessions created while a project is active are associated with that project's collection.</li>
+            <li>Search results only show documents from the current project's vector store.</li>
+            <li>The Overview tab always shows stats across all documents regardless of the current project.</li>
         </ul>
 
-        <h2>Users</h2>
-        <p>Admin-only. Add, edit, deactivate, or reactivate user accounts.</p>
+        <h2 id="assign-documents">Assigning documents to a project</h2>
+        <p>Documents can be assigned at upload time (preferred) or after the fact:</p>
+        <ul>
+            <li><strong>At upload</strong> — select the project in the Smart Upload tab's <em>Project</em> dropdown before uploading. The <code>project:slug</code> tag is applied immediately.</li>
+            <li><strong>After upload</strong> — in <em>Manage Projects</em>, click <strong>Assign Documents</strong> on a project card. Search for documents by title or tag and assign them individually or in bulk.</li>
+        </ul>
+
+        <h2 id="migrate-documents">Migrating documents between projects</h2>
+        <p>Use the <strong>Migrate</strong> option (three-dot menu → Migrate Documents) to move documents from one project to another. This removes the old <code>project:old-slug</code> tag from Paperless and adds <code>project:new-slug</code>. The analyzer re-embeds moved documents into the new project's collection on the next poll.</p>
+
+        <h2 id="archive-project">Archiving vs. deleting</h2>
         <table>
-            <tr><th>Field</th><th>Description</th></tr>
-            <tr><td>Username</td><td>Login name. Cannot be changed after creation.</td></tr>
-            <tr><td>Display Name</td><td>Shown in the UI. Editable any time.</td></tr>
-            <tr><td>Email</td><td>Used for notifications. A welcome email is sent on account creation if SMTP is configured.</td></tr>
-            <tr><td>Role</td><td><span class="badge badge-blue">Admin</span> can manage users and settings. <span class="badge badge-gray">Basic</span> has read/write access to analysis and chat.</td></tr>
-            <tr><td>Password</td><td>Set on creation. Can be reset via the Edit dialog.</td></tr>
+            <tr><th>Action</th><th>Effect</th><th>Reversible?</th></tr>
+            <tr><td><strong>Archive</strong></td><td>Project hidden from the active list. Documents and vector store preserved. Tag stays in Paperless.</td><td>Yes — Unarchive restores it.</td></tr>
+            <tr><td><strong>Delete</strong></td><td>Project record removed from database. Vector store collection NOT automatically purged — documents remain in Paperless with their <code>project:</code> tag.</td><td>No — use with caution.</td></tr>
         </table>
-
-        <h2>SMTP / Notifications</h2>
-        <p>Configure outgoing email for user notifications and bug reports. Required fields: host, port, username, password, and From address. Test the connection with <strong>Send Test Email</strong> before saving.</p>
-
-{% elif page == 'api' %}
-        <h1 class="page-title">API Reference</h1>
-        <p class="subtitle">REST endpoints for integration and automation. All endpoints require authentication.</p>
 
         <div class="callout callout-warn">
-            <strong>Coming soon.</strong> A full interactive API reference is planned. For now, the key endpoints are listed below.
+            <strong>The Default Project cannot be deleted.</strong> It serves as the catch-all for documents without a project tag and ensures backward compatibility.
         </div>
 
-        <h2>Status &amp; Stats</h2>
+        <h2 id="orphan-documents">Orphan documents</h2>
+        <p>Documents in Paperless that have no <code>project:</code> tag are called <em>orphans</em>. Click <strong>View Orphan Documents</strong> in the Manage Projects tab to see them and bulk-assign them to a project.</p>
+
+        <h2 id="manage-projects-stats">Project statistics</h2>
+        <p>Each project card on the Manage Projects tab shows:</p>
+        <ul>
+            <li><strong>Documents</strong> — live count from the ChromaDB collection (always current).</li>
+            <li><strong>Created / Last Analyzed</strong> — timestamps from the project database.</li>
+            <li><strong>Storage</strong> — approximate disk size of the vector store.</li>
+        </ul>
+
+{# ═══════════════════════════════════════════════════════════════════ #}
+{# SMART UPLOAD                                                        #}
+{# ═══════════════════════════════════════════════════════════════════ #}
+{% elif page == 'upload' %}
+        <h1 class="page-title">Smart Upload</h1>
+        <p class="subtitle">Three ways to add documents: local file, direct URL, or cloud share link — with optional AI metadata extraction and project assignment.</p>
+
+        <h2 id="upload-modes">Upload modes</h2>
+        <table>
+            <tr><th>Mode</th><th>When to use</th></tr>
+            <tr><td><strong>File</strong></td><td>You have the document on your computer. Drag it into the drop zone or click to browse. Supports PDF, PNG, JPG, DOCX, HEIC.</td></tr>
+            <tr><td><strong>URL</strong></td><td>You have a direct HTTPS link to the document. The server downloads and forwards it to Paperless. Supports optional Basic Auth or Bearer token.</td></tr>
+            <tr><td><strong>Cloud Link</strong></td><td>You have a share link from Google Drive, Google Docs, Dropbox, or OneDrive. The system auto-detects the service and generates a direct download URL.</td></tr>
+        </table>
+
+        <h2 id="project-assignment">Assigning to a project at upload</h2>
+        <p>The <strong>Project</strong> dropdown near the top of the upload form lets you choose which project the document belongs to. When a project is selected:</p>
+        <ol>
+            <li>The <code>project:{slug}</code> tag is applied to the document in Paperless immediately when it is consumed.</li>
+            <li>The analyzer routes the document to that project's ChromaDB collection when it analyzes it (~30 seconds after OCR completes).</li>
+            <li>The project's document count is incremented.</li>
+        </ol>
+        <p>Leave the project as <em>Default Project</em> if the document does not belong to a specific matter.</p>
+
+        <h2 id="smart-metadata">Smart Metadata (AI pre-analysis)</h2>
+        <p>Enable the <strong>Smart Metadata</strong> toggle to let the AI inspect the document before it goes to Paperless. The AI extracts:</p>
+        <ul>
+            <li>Suggested <strong>title</strong></li>
+            <li>Document <strong>date</strong></li>
+            <li>Document <strong>type</strong> (bank statement, court order, invoice, etc.)</li>
+            <li>Suggested <strong>project</strong> (if the AI can match it from existing project names)</li>
+        </ul>
+        <p>You review and confirm (or edit) the suggestions in a metadata preview panel before the final upload is submitted to Paperless.</p>
+        <div class="callout callout-tip">
+            <strong>Tip:</strong> Smart Metadata is most useful for bulk uploads where you want AI to categorize documents automatically. For single documents where you already know the project, you can skip it.
+        </div>
+
+        <h2 id="file-upload">File upload</h2>
+        <ol>
+            <li>Select <strong>File</strong> mode.</li>
+            <li>Drag a file onto the drop zone or click <em>Browse</em>.</li>
+            <li>Optionally enable Smart Metadata.</li>
+            <li>Select a project.</li>
+            <li>Click <strong>Upload to Paperless</strong>.</li>
+        </ol>
+        <p>Supported formats: <code>PDF</code>, <code>PNG</code>, <code>JPG/JPEG</code>, <code>DOCX</code>, <code>HEIC</code>.</p>
+
+        <h2 id="url-upload">URL upload</h2>
+        <ol>
+            <li>Select <strong>URL</strong> mode.</li>
+            <li>Paste any direct HTTPS URL.</li>
+            <li>If the resource requires authentication, expand <em>Advanced</em> and choose:
+                <ul>
+                    <li><strong>Basic Auth</strong> — username and password.</li>
+                    <li><strong>Bearer Token</strong> — API token or OAuth bearer token.</li>
+                </ul>
+            </li>
+            <li>Optionally, click <strong>Scan URL for Files</strong> if the URL points to a directory listing — the system returns a list of files you can select for batch upload.</li>
+        </ol>
+
+        <h2 id="cloud-links">Cloud share links</h2>
+        <table>
+            <tr><th>Service</th><th>Supported URL pattern</th><th>Transform performed</th></tr>
+            <tr><td>Google Drive (file)</td><td><code>drive.google.com/file/d/{id}/view</code></td><td>Converts to direct download URL</td></tr>
+            <tr><td>Google Docs / Sheets</td><td><code>docs.google.com/document/d/{id}/</code></td><td>Exports as PDF</td></tr>
+            <tr><td>Dropbox</td><td><code>dropbox.com/s/{key}?dl=0</code></td><td>Changes <code>dl=0</code> → <code>dl=1</code></td></tr>
+            <tr><td>OneDrive (1drv.ms)</td><td><code>1drv.ms/b/{key}</code></td><td>Follows redirect to direct URL</td></tr>
+        </table>
+        <p>Paste the share link and click <strong>Transform &amp; Upload</strong>. The system resolves the URL and submits the file to Paperless in one step.</p>
+
+        <div class="callout callout-warn">
+            <strong>Google Drive privacy note:</strong> Files must be shared as "Anyone with the link can view" for the direct download to work. Drive files restricted to specific accounts cannot be fetched server-side.
+        </div>
+
+        <h2 id="upload-history">Upload history</h2>
+        <p>The lower section of the Upload tab shows your personal upload history (last 20 items). Each row shows the filename, project, upload timestamp, and status. Click the document title to open it in Paperless-ngx.</p>
+
+        <h2 id="after-upload">What happens after upload</h2>
+        <ol>
+            <li>Document is queued in Paperless-ngx for OCR (typically completes in 10–60 seconds depending on file size).</li>
+            <li>The analyzer polls Paperless every ~30 seconds. When it finds the new document, it runs the full analysis pipeline.</li>
+            <li>Analysis results appear in the <em>Recent Analyses</em> list on the Overview tab.</li>
+            <li>The document is embedded in the project's vector store and becomes searchable via AI Chat and Search.</li>
+        </ol>
+
+{# ═══════════════════════════════════════════════════════════════════ #}
+{# AI CHAT                                                             #}
+{# ═══════════════════════════════════════════════════════════════════ #}
+{% elif page == 'chat' %}
+        <h1 class="page-title">AI Chat</h1>
+        <p class="subtitle">Natural-language conversation grounded in your actual project documents using RAG (Retrieval Augmented Generation).</p>
+
+        <div class="callout callout-warn">
+            <strong>Requires AI key.</strong> AI Chat needs at least one OpenAI or Anthropic API key configured under <a href="{{ url_prefix }}/docs/configuration#ai-settings">Configuration → AI Settings</a>. A Cohere key is needed for the vector store (RAG retrieval).
+        </div>
+
+        <h2 id="how-rag-works">How RAG retrieval works</h2>
+        <p>Every message you send triggers a two-step process:</p>
+        <ol>
+            <li><strong>Retrieve</strong> — your query is embedded (Cohere) and compared semantically against all documents in the current project's vector store. The most relevant documents (up to 5–8) are retrieved.</li>
+            <li><strong>Generate</strong> — the retrieved document content is included in the AI's context window alongside your question. The AI generates an answer grounded in the actual document text — no hallucination of figures or names.</li>
+        </ol>
+        <p>The AI is instructed to only report numbers and facts explicitly present in the retrieved documents. If a document doesn't contain the requested information, the AI will say so rather than guess.</p>
+
+        <h2 id="starting-session">Starting a session</h2>
+        <ol>
+            <li>Click <strong>+ New Session</strong> in the left sidebar.</li>
+            <li>Type your first question and press <kbd class="kbd">Enter</kbd>.</li>
+            <li>The session title is auto-generated from your first message. You can rename it by clicking the pencil icon next to the title.</li>
+        </ol>
+
+        <h2 id="vision-ai">Vision AI fallback</h2>
+        <p>If a retrieved document has very little OCR text (fewer than ~500 characters), the system automatically:</p>
+        <ol>
+            <li>Downloads the original PDF from Paperless.</li>
+            <li>Sends PDF page images to GPT-4o Vision or Claude Vision for text extraction.</li>
+            <li>Uses the extracted text for this answer AND re-embeds the document with the better content for future queries.</li>
+        </ol>
+        <p>When Vision AI is used, the response includes a note indicating which documents were enriched this way. Treat Vision AI-extracted content as authoritative.</p>
+
+        <h2 id="document-type-filter">Filtering by document type</h2>
+        <p>The <strong>Filter by Type</strong> dropdown above the chat input limits retrieval to a specific document category (e.g., "Bank Statement", "Court Order"). This is useful when you want answers only from a specific document class.</p>
+
+        <h2 id="keyboard-shortcuts">Keyboard shortcuts</h2>
+        <table>
+            <tr><th>Key</th><th>Action</th></tr>
+            <tr><td><kbd class="kbd">Enter</kbd></td><td>Send the current message</td></tr>
+            <tr><td><kbd class="kbd">Ctrl+Enter</kbd></td><td>Insert a new line (multi-paragraph messages)</td></tr>
+        </table>
+
+        <h2 id="sharing-sessions">Sharing sessions</h2>
+        <ol>
+            <li>Open a session.</li>
+            <li>Click <strong>Share</strong> (icon in the session header).</li>
+            <li>Select one or more users from the dropdown. Click <strong>Save</strong>.</li>
+        </ol>
+        <p>Shared sessions appear in the recipient's sidebar with a "Shared" label. Recipients can read the full conversation but cannot add messages to sessions they don't own.</p>
+        <p>Admins can see and manage all sessions across all users.</p>
+
+        <h2 id="export-session">Exporting a session</h2>
+        <p>Click <strong>Export PDF</strong> in the session header. The entire conversation history is downloaded as a formatted PDF suitable for case notes or discovery production.</p>
+
+        <h2 id="chat-tips">Tips for effective queries</h2>
+        <ul>
+            <li><strong>Be specific about the project</strong> — switch to the correct project before chatting to scope the context.</li>
+            <li><strong>Reference time periods</strong> — "statements from Q1 2024", "orders issued before March 2025".</li>
+            <li><strong>Ask for comparisons</strong> — "compare the ending balances in January and February statements".</li>
+            <li><strong>Request structured output</strong> — "list all documents with balance mismatches in a table".</li>
+            <li><strong>Follow up</strong> — sessions maintain history. You can ask follow-up questions that reference earlier answers.</li>
+        </ul>
+
+        <h2 id="example-queries">Example queries</h2>
+        <ul>
+            <li>"What is the ending balance on the most recent Chase statement?"</li>
+            <li>"Which court orders mention Fairbridge Real Estate?"</li>
+            <li>"Summarize all documents filed in 2024."</li>
+            <li>"Are there any documents with balance mismatches? What are the discrepancy amounts?"</li>
+            <li>"List all vendors that appear across the invoices."</li>
+            <li>"Generate a ledger from all statements for account ending in 4521."</li>
+        </ul>
+
+{# ═══════════════════════════════════════════════════════════════════ #}
+{# SEARCH & ANALYSIS                                                   #}
+{# ═══════════════════════════════════════════════════════════════════ #}
+{% elif page == 'search' %}
+        <h1 class="page-title">Search &amp; Analysis</h1>
+        <p class="subtitle">Semantic full-text search with AI-generated summaries, risk scoring, and anomaly filtering — scoped to the current project.</p>
+
+        <h2 id="how-search-works">How semantic search works</h2>
+        <p>Unlike keyword search, semantic search finds documents based on <em>meaning</em>. Your query is converted to an embedding vector (Cohere) and compared against all document embeddings in the current project's vector store. Results are ranked by semantic similarity — a search for "payment discrepancy" will find documents about "balance mismatch" or "missing transaction" even if those exact words don't appear in your query.</p>
+
+        <h2 id="performing-search">Performing a search</h2>
+        <ol>
+            <li>Switch to the project you want to search (header dropdown).</li>
+            <li>Open the <strong>Search &amp; Analysis</strong> tab.</li>
+            <li>Type your query in the search box.</li>
+            <li>Optionally apply filters (see below).</li>
+            <li>Press <kbd class="kbd">Enter</kbd> or click <strong>Search</strong>.</li>
+        </ol>
+
+        <h2 id="result-card">Reading a result card</h2>
+        <table>
+            <tr><th>Element</th><th>Meaning</th></tr>
+            <tr><td>Title</td><td>Document title from Paperless. Click to open the document in Paperless-ngx.</td></tr>
+            <tr><td>Risk badge</td><td>0–100 forensic risk score. <span class="badge badge-red">High ≥70</span> <span class="badge badge-orange">Medium 40–69</span> <span class="badge badge-green">Low &lt;40</span></td></tr>
+            <tr><td>Anomaly tags</td><td>Detected anomalies. <span class="tag-example tag-anomaly">anomaly:balance_mismatch</span> <span class="tag-example tag-ai">aianomaly:zero_transactions</span></td></tr>
+            <tr><td>Brief Summary</td><td>One-sentence AI summary of the document.</td></tr>
+            <tr><td>Full Summary</td><td>3–5 sentence detailed summary covering purpose, entities, dates, and key amounts.</td></tr>
+            <tr><td>Q&amp;A</td><td>Key questions and answers extracted by AI from the document content.</td></tr>
+            <tr><td>View Evidence</td><td>Only shown on anomaly documents. Expands specific figures that triggered the detection.</td></tr>
+        </table>
+
+        <h2 id="search-filters">Filters</h2>
+        <ul>
+            <li><strong>Anomalies only</strong> — check to see only documents that have at least one anomaly tag.</li>
+            <li><strong>Risk score range</strong> — set min/max to filter by forensic risk score (0–100).</li>
+        </ul>
+
+        <h2 id="search-tips">Search tips</h2>
+        <ul>
+            <li>Use natural language: <em>"bank statements with overdrafts"</em> works better than <em>"overdraft"</em>.</li>
+            <li>Include entity names: <em>"documents involving John Smith"</em>, <em>"invoices from Acme Corp"</em>.</li>
+            <li>Include dates or periods: <em>"statements from Q1 2025"</em>, <em>"filings after March 15"</em>.</li>
+            <li>Combine terms: <em>"court orders regarding receiver payments 2024"</em>.</li>
+            <li>For anomaly investigation: search <em>"balance discrepancy"</em> and enable <em>Anomalies only</em>.</li>
+        </ul>
+
+        <h2 id="recent-analyses">Recent Analyses section</h2>
+        <p>Below the search area, the <em>Recent Analyses</em> list shows the 50 most recently processed documents in the current project. This list auto-refreshes every 10 seconds but pauses while you have the Search tab active to prevent results jumping while you read.</p>
+
+{# ═══════════════════════════════════════════════════════════════════ #}
+{# ANOMALY DETECTION                                                   #}
+{# ═══════════════════════════════════════════════════════════════════ #}
+{% elif page == 'anomaly-detection' %}
+        <h1 class="page-title">Anomaly Detection</h1>
+        <p class="subtitle">Two-layer detection: deterministic checks (no AI cost) plus AI-powered analysis for nuanced issues.</p>
+
+        <h2 id="detection-layers">Detection layers</h2>
+        <p>Every document passes through two independent detection layers:</p>
+        <ol>
+            <li><strong>Deterministic checks</strong> (run by the companion <em>paperless-anomaly-detector</em> container) — mathematical verification of balances, counts, and patterns with no AI cost.</li>
+            <li><strong>AI analysis</strong> — the LLM reads the document and flags nuanced issues like unusual transaction descriptions, inactive accounts, or missing context.</li>
+        </ol>
+
+        <h2 id="anomaly-tags">Anomaly tags</h2>
+        <p>When an issue is detected, a tag is written back to Paperless. Tags use two namespaces:</p>
+        <ul>
+            <li><span class="tag-example tag-anomaly">anomaly:*</span> — set by the deterministic checker.</li>
+            <li><span class="tag-example tag-ai">aianomaly:*</span> — set by the LLM analysis step.</li>
+        </ul>
+
+        <h3>Deterministic anomaly tags</h3>
+        <table>
+            <tr><th>Tag</th><th>Meaning</th><th>Risk level</th></tr>
+            <tr><td><code>anomaly:balance_mismatch</code></td><td>Beginning balance + credits − debits ≠ ending balance. Indicates potential missing transactions or altered figures.</td><td><span class="badge badge-red">High</span></td></tr>
+            <tr><td><code>anomaly:missing_transactions</code></td><td>Transaction list is absent or suspiciously short for the stated balance change.</td><td><span class="badge badge-red">High</span></td></tr>
+            <tr><td><code>anomaly:no_transactions</code></td><td>Statement shows zero transaction activity — may indicate a suppressed page or redacted document.</td><td><span class="badge badge-orange">Medium</span></td></tr>
+            <tr><td><code>anomaly:duplicate_amounts</code></td><td>Two or more transactions share the exact same amount on the same date.</td><td><span class="badge badge-orange">Medium</span></td></tr>
+            <tr><td><code>anomaly:forensic_risk_high</code></td><td>Composite risk score ≥ 70. Document has multiple or serious issues.</td><td><span class="badge badge-red">High</span></td></tr>
+            <tr><td><code>anomaly:forensic_risk_medium</code></td><td>Risk score 40–69. Minor issues detected, warrants review.</td><td><span class="badge badge-orange">Medium</span></td></tr>
+            <tr><td><code>anomaly:forensic_risk_low</code></td><td>Risk score &lt;40. No significant issues but flagged for review.</td><td><span class="badge badge-green">Low</span></td></tr>
+        </table>
+
+        <h3 id="ai-anomaly-tags">AI anomaly tags</h3>
+        <table>
+            <tr><th>Tag</th><th>Meaning</th></tr>
+            <tr><td><code>aianomaly:zero_transactions</code></td><td>AI confirms the statement period has no recorded transactions.</td></tr>
+            <tr><td><code>aianomaly:inactive_account</code></td><td>Account appears dormant — no activity over an extended period.</td></tr>
+            <tr><td><code>aianomaly:nodatapresent</code></td><td>Document appears to contain no meaningful financial data.</td></tr>
+            <tr><td><code>aianomaly:norecordedtransactions</code></td><td>Document header suggests a statement period but no transactions are listed.</td></tr>
+            <tr><td><code>aianomaly:balance_inconsistency</code></td><td>AI detected inconsistent balance references within the document text.</td></tr>
+            <tr><td><code>aianomaly:vision_ai_extracted</code></td><td>OCR was poor; Vision AI was used to extract text from PDF images.</td></tr>
+            <tr><td><code>aianomaly:potentialtestdocument</code></td><td>AI suspects the document is a test or placeholder, not a real financial record.</td></tr>
+        </table>
+
+        <h2 id="risk-score">Risk score (0–100)</h2>
+        <p>Each document receives a composite forensic risk score calculated from the number and severity of detected anomalies. The score is displayed on every result card and used to sort high-risk documents to the top.</p>
+        <table>
+            <tr><th>Score range</th><th>Label</th><th>Meaning</th></tr>
+            <tr><td>70–100</td><td><span class="badge badge-red">High Risk</span></td><td>Multiple or serious anomalies detected. Immediate review recommended.</td></tr>
+            <tr><td>40–69</td><td><span class="badge badge-orange">Medium Risk</span></td><td>Minor issues or single anomaly. Review when possible.</td></tr>
+            <tr><td>0–39</td><td><span class="badge badge-green">Low Risk</span></td><td>No significant issues detected.</td></tr>
+        </table>
+
+        <h2 id="view-evidence">Viewing evidence</h2>
+        <p>Click the <strong>View Evidence</strong> button on any anomaly result card to expand specific values that triggered the detection:</p>
+        <ul>
+            <li>For <code>balance_mismatch</code>: beginning balance, total credits, total debits, calculated ending balance, stated ending balance, and the discrepancy amount.</li>
+            <li>For <code>duplicate_amounts</code>: the duplicate transaction dates and amounts.</li>
+        </ul>
+
+        <h2 id="needs-profile">Document profiling</h2>
+        <p>If no YAML profile matches a document, it is tagged <span class="tag-example">needs_profile:unmatched</span> and a <em>staging profile</em> is generated automatically. Staging profiles appear in <strong>Configuration → Profiles</strong> and can be reviewed and activated by an admin. Once activated, future documents of that type will use the refined profile.</p>
+
+{# ═══════════════════════════════════════════════════════════════════ #}
+{# DEBUG & TOOLS                                                       #}
+{# ═══════════════════════════════════════════════════════════════════ #}
+{% elif page == 'tools' %}
+        <h1 class="page-title">Debug &amp; Tools</h1>
+        <p class="subtitle">Live logs, manual reprocess controls, and diagnostic utilities. Admin access recommended for most operations.</p>
+
+        <h2 id="live-logs">Live Logs</h2>
+        <p>The log viewer shows the last 200 log lines from the analyzer process. Click <strong>Refresh Logs</strong> to reload. Logs include:</p>
+        <ul>
+            <li>Document analysis events (which document was analyzed, which profile matched, what tags were applied)</li>
+            <li>Vector store operations (embedding success/failure, collection counts)</li>
+            <li>API call outcomes (LLM provider used, token counts)</li>
+            <li>Error and warning messages</li>
+        </ul>
+        <p>Log lines are color-coded: white = INFO, yellow = WARNING, red = ERROR.</p>
+
+        <h2 id="reprocess-all">Reprocess All Documents</h2>
+        <p>Click <strong>Reprocess All</strong> to reset the analyzer's state file and re-queue every document in Paperless for analysis from scratch. Use this when:</p>
+        <ul>
+            <li>You have updated your YAML profiles and want all documents re-analyzed with the new profiles.</li>
+            <li>The vector store was cleared and you need to rebuild embeddings.</li>
+            <li>Major configuration changes (new AI provider, new prompts) warrant re-analysis of existing documents.</li>
+        </ul>
+        <div class="callout callout-warn">
+            <strong>This is a long-running operation.</strong> For large archives (hundreds to thousands of documents), reprocessing can take hours and will consume LLM API credits for every document. Use <strong>Process Unanalyzed Only</strong> to avoid re-analyzing already-processed documents.
+        </div>
+
+        <h2 id="reprocess-single">Reprocess a Single Document</h2>
+        <p>Enter a Paperless document ID in the <em>Single Document</em> field and click <strong>Reprocess</strong>. This forces the analyzer to re-analyze one specific document regardless of whether it was previously processed. Useful for testing after profile changes.</p>
+
+        <h2 id="process-unanalyzed">Process Unanalyzed Only</h2>
+        <p>Available in <strong>Configuration → Vector Store → Process Unanalyzed</strong>. This queries Paperless for all documents, compares them against the analyzer's <code>processed_documents</code> table, and queues only those that have never been analyzed. Already-processed documents are skipped. Use this to:</p>
+        <ul>
+            <li>Catch documents that were added to Paperless while the analyzer was offline.</li>
+            <li>Process a gap of documents without re-running everything.</li>
+        </ul>
+
+        <h2 id="reembed-stale">Re-embed Stale Documents</h2>
+        <p>Available in <strong>Configuration → Vector Store → Re-embed Stale</strong>. The analyzer tracks each document's Paperless modification timestamp. If a document was re-OCR'd or modified in Paperless after its initial embed, this operation re-analyzes and re-embeds it with the updated content.</p>
+
+        <h2 id="poll-interval">Poll Interval</h2>
+        <p>The analyzer checks Paperless for new documents every N seconds (default: 30). You can change this via the <strong>Poll Interval</strong> control in Configuration → AI Settings. Shorter intervals mean faster pickup of new documents but slightly more API traffic to Paperless.</p>
+
+        <h2 id="vector-store-tools">Vector Store tools</h2>
+        <p>In <strong>Configuration → Vector Store</strong>:</p>
+        <ul>
+            <li><strong>Clear All</strong> — deletes the entire vector index for the current project. AI Chat will have no context until documents are re-embedded (via Reprocess All or the normal analysis cycle). Use with care.</li>
+            <li><strong>View by Type</strong> — lists all document types present in the vector store and their counts.</li>
+            <li><strong>Delete by Type</strong> — removes all documents of a specific type from the vector store (not from Paperless).</li>
+            <li><strong>Delete Single Document</strong> — removes one document from the vector store by Paperless ID.</li>
+        </ul>
+
+{# ═══════════════════════════════════════════════════════════════════ #}
+{# CONFIGURATION                                                       #}
+{# ═══════════════════════════════════════════════════════════════════ #}
+{% elif page == 'configuration' %}
+        <h1 class="page-title">Configuration</h1>
+        <p class="subtitle">Admin-only settings for AI providers, document profiles, vector store, SMTP, and users.</p>
+
+        <div class="callout callout-info">
+            Most configuration sub-tabs are visible only to users with the <span class="badge badge-blue">Admin</span> role.
+        </div>
+
+        <h2 id="ai-settings">AI Settings</h2>
+        <p>The <strong>AI Settings</strong> sub-tab manages API keys and model selection for document analysis and AI Chat.</p>
+
+        <h3>API Keys</h3>
+        <ul>
+            <li><strong>OpenAI API Key</strong> — used for GPT-4o document analysis, metadata extraction, Vision OCR, and AI Chat.</li>
+            <li><strong>Anthropic API Key</strong> — used for Claude document analysis, Vision OCR, and AI Chat (alternative to OpenAI).</li>
+            <li><strong>Cohere API Key</strong> — <em>required</em> for the vector store (document embedding and semantic search). Without this, AI Chat and Search are disabled.</li>
+        </ul>
+        <p>At least one of OpenAI or Anthropic is required for document analysis and AI Chat. Both can be configured for redundancy — the system falls back to the secondary if the primary fails.</p>
+
+        <h3>Provider priority</h3>
+        <ul>
+            <li><strong>Analysis provider</strong> — primary LLM for document analysis, metadata extraction, and integrity checks.</li>
+            <li><strong>Chat provider</strong> — LLM for AI Chat responses. Can differ from the analysis provider.</li>
+        </ul>
+
+        <h3>Test Connection</h3>
+        <p>Click <strong>Test AI</strong> to send a minimal test request to the configured provider. The result shows whether the key is valid and the model is accessible.</p>
+
+        <h2 id="profiles">Profiles</h2>
+        <p>Profiles are YAML files that define document-type-specific analysis rules. Each profile specifies:</p>
+        <ul>
+            <li>Keywords and patterns that identify the document type (e.g., "bank statement", "check register").</li>
+            <li>Which fields to extract (account numbers, balances, transaction details).</li>
+            <li>Custom risk scoring weights.</li>
+        </ul>
+
+        <h3>Active profiles</h3>
+        <p>Active profiles are loaded from <code>/app/profiles/active/</code>. They appear in the <em>Active</em> section of the Profiles tab with their match count. You can:</p>
+        <ul>
+            <li><strong>View</strong> — expand to see the YAML content.</li>
+            <li><strong>Rename</strong> — change the profile filename.</li>
+            <li><strong>Delete</strong> — permanently remove the profile.</li>
+        </ul>
+
+        <h3>Staging profiles</h3>
+        <p>When a document doesn't match any active profile, the analyzer auto-generates a <em>staging profile</em> suggestion in <code>/app/profiles/staging/</code>. Review each staging profile and either:</p>
+        <ul>
+            <li><strong>Activate</strong> — move it to active profiles so future documents of that type use it.</li>
+            <li><strong>Activate All</strong> — activate every staging profile at once.</li>
+            <li><strong>Delete</strong> — discard if the suggestion is not useful.</li>
+        </ul>
+
+        <h2 id="vector-store-config">Vector Store</h2>
+        <p>Controls for the ChromaDB vector store that powers AI Chat and Search.</p>
+        <table>
+            <tr><th>Control</th><th>Effect</th></tr>
+            <tr><td><strong>Refresh</strong></td><td>Reload current document count and storage stats.</td></tr>
+            <tr><td><strong>Process Unanalyzed</strong></td><td>Find and queue all Paperless documents not yet in the analyzer DB. No LLM calls for already-processed docs.</td></tr>
+            <tr><td><strong>Re-embed Stale</strong></td><td>Re-analyze documents whose Paperless modification timestamp is newer than their last embed.</td></tr>
+            <tr><td><strong>Clear All</strong></td><td>Delete the entire vector index for the current project. Destructive — use only when rebuilding from scratch.</td></tr>
+        </table>
+
+        <h2 id="smtp-settings">SMTP / Notifications</h2>
+        <p>Configure outgoing email for user welcome messages and bug report submissions.</p>
+        <table>
+            <tr><th>Field</th><th>Description</th></tr>
+            <tr><td>SMTP Host</td><td>Mail server hostname (e.g., <code>smtp.gmail.com</code>)</td></tr>
+            <tr><td>SMTP Port</td><td>587 (STARTTLS) or 465 (SSL)</td></tr>
+            <tr><td>Username / Password</td><td>SMTP authentication credentials</td></tr>
+            <tr><td>From Address</td><td>The email address shown in the <em>From</em> header</td></tr>
+            <tr><td>TLS</td><td>Enable STARTTLS (recommended)</td></tr>
+        </table>
+        <p>Click <strong>Send Test Email</strong> to verify the connection before saving. A test message is sent to your own email address (configured on your user account).</p>
+
+        <h2 id="users-config">Users</h2>
+        <p>See the full <a href="{{ url_prefix }}/docs/users">User Management documentation</a>.</p>
+
+{# ═══════════════════════════════════════════════════════════════════ #}
+{# USER MANAGEMENT                                                     #}
+{# ═══════════════════════════════════════════════════════════════════ #}
+{% elif page == 'users' %}
+        <h1 class="page-title">User Management</h1>
+        <p class="subtitle">Create, edit, and manage user accounts. Admin role required.</p>
+
+        <div class="callout callout-info">
+            User management is in <strong>Configuration → Users</strong> and is visible only to <span class="badge badge-blue">Admin</span> users.
+        </div>
+
+        <h2 id="roles">User roles</h2>
+        <table>
+            <tr><th>Role</th><th>Permissions</th></tr>
+            <tr><td><span class="badge badge-blue">Admin</span></td><td>Full access: manage users, view all chat sessions, change system settings, manage projects, access all configuration sub-tabs.</td></tr>
+            <tr><td><span class="badge badge-gray">Basic</span></td><td>Can analyze documents, upload, search, use AI Chat (own sessions + shared), manage own profile and password. Cannot access Configuration or other users' data.</td></tr>
+        </table>
+
+        <h2 id="create-user">Creating a user</h2>
+        <ol>
+            <li>Go to <strong>Configuration → Users</strong>.</li>
+            <li>Click <strong>+ Add User</strong>.</li>
+            <li>Fill in the required fields: Username, Display Name, Email, Password, Role.</li>
+            <li>Optionally fill the profile fields (phone, job title, etc.).</li>
+            <li>Click <strong>Create User</strong>.</li>
+        </ol>
+        <p>If SMTP is configured, a welcome email is automatically sent to the new user's email address with login instructions.</p>
+
+        <h2 id="user-fields">User fields reference</h2>
+        <table>
+            <tr><th>Field</th><th>Required</th><th>Notes</th></tr>
+            <tr><td>Username</td><td>Yes</td><td>Login identifier. Lowercase alphanumeric. Cannot be changed after creation.</td></tr>
+            <tr><td>Display Name</td><td>Yes</td><td>Full name shown in the UI and email notifications.</td></tr>
+            <tr><td>Email</td><td>Yes</td><td>Used for SMTP notifications and welcome emails.</td></tr>
+            <tr><td>Password</td><td>Yes</td><td>Set on creation. Can be reset by an admin at any time via Edit.</td></tr>
+            <tr><td>Role</td><td>Yes</td><td><em>Admin</em> or <em>Basic</em>.</td></tr>
+            <tr><td>Job Title</td><td>No</td><td>Included in welcome emails and user profile.</td></tr>
+            <tr><td>Phone</td><td>No</td><td>Contact number — stored in user profile.</td></tr>
+            <tr><td>Address</td><td>No</td><td>Mailing address — stored in user profile.</td></tr>
+            <tr><td>Timezone</td><td>No</td><td>User's local timezone (e.g., <code>America/New_York</code>).</td></tr>
+            <tr><td>GitHub</td><td>No</td><td>GitHub profile URL or username.</td></tr>
+            <tr><td>LinkedIn</td><td>No</td><td>LinkedIn profile URL.</td></tr>
+            <tr><td>Facebook</td><td>No</td><td>Facebook profile URL.</td></tr>
+            <tr><td>Instagram</td><td>No</td><td>Instagram handle.</td></tr>
+            <tr><td>Other handles</td><td>No</td><td>Any other social/contact handles.</td></tr>
+        </table>
+
+        <h2 id="edit-user">Editing a user</h2>
+        <p>Click the <strong>Edit</strong> (pencil) icon next to any user in the table. The Edit dialog lets you change:</p>
+        <ul>
+            <li>Display Name, Email, Role, Job Title — any time.</li>
+            <li>Password — leave blank to keep current password; enter a new value to reset it.</li>
+            <li>All profile fields (phone, address, social handles, timezone).</li>
+        </ul>
+
+        <h2 id="deactivate-user">Deactivating a user</h2>
+        <p>Click the <strong>Deactivate</strong> (trash) icon. The user account is soft-deleted — they can no longer log in, but their chat sessions and upload history are preserved. Deactivated users appear with a strikethrough in the users table. Click <strong>Reactivate</strong> to restore access.</p>
+
+        <div class="callout callout-warn">
+            <strong>You cannot deactivate your own account.</strong> At least one Admin account must remain active at all times.
+        </div>
+
+        <h2 id="change-password">Changing your own password</h2>
+        <p>Any user can change their own password: click the <strong>profile icon</strong> in the top-right corner of the dashboard → <strong>Change Password</strong>. Enter your current password and the new password, then confirm.</p>
+
+{# ═══════════════════════════════════════════════════════════════════ #}
+{# LLM USAGE                                                           #}
+{# ═══════════════════════════════════════════════════════════════════ #}
+{% elif page == 'llm-usage' %}
+        <h1 class="page-title">LLM Usage &amp; Cost</h1>
+        <p class="subtitle">Track every AI API call, monitor token consumption, and estimate costs by provider and model.</p>
+
+        <h2 id="where-to-find">Where to find it</h2>
+        <p>LLM Usage statistics are shown in a panel within the <strong>Configuration</strong> tab (or as a dedicated sub-section). Admin users see usage across all users; basic users see only their own.</p>
+
+        <h2 id="usage-metrics">Usage metrics</h2>
+        <table>
+            <tr><th>Metric</th><th>Description</th></tr>
+            <tr><td>Total API calls</td><td>Cumulative number of LLM API requests made.</td></tr>
+            <tr><td>Tokens in / Tokens out</td><td>Input (prompt) and output (completion) token counts.</td></tr>
+            <tr><td>Estimated cost</td><td>Computed from token counts × current pricing per provider/model.</td></tr>
+            <tr><td>Provider breakdown</td><td>Usage split between OpenAI, Anthropic, and Cohere.</td></tr>
+            <tr><td>Recent calls</td><td>Timeline of the last N API calls with prompt excerpt, model, and token count.</td></tr>
+        </table>
+
+        <h2 id="pricing">Pricing reference</h2>
+        <p>The system uses built-in pricing data that is periodically updated. Actual costs may differ slightly from your provider invoice depending on pricing tier, discounts, or date of the call. Always verify costs against your provider's billing dashboard.</p>
+        <table>
+            <tr><th>Provider / Model</th><th>Input (per 1M tokens)</th><th>Output (per 1M tokens)</th></tr>
+            <tr><td>OpenAI gpt-4o</td><td>$2.50</td><td>$10.00</td></tr>
+            <tr><td>OpenAI gpt-4o-mini</td><td>$0.15</td><td>$0.60</td></tr>
+            <tr><td>Anthropic claude-3-5-sonnet</td><td>$3.00</td><td>$15.00</td></tr>
+            <tr><td>Anthropic claude-3-haiku</td><td>$0.25</td><td>$1.25</td></tr>
+            <tr><td>Cohere embed-english-v3.0</td><td>$0.10 (per 1M tokens)</td><td>—</td></tr>
+        </table>
+        <div class="callout callout-tip">
+            <strong>Cost control tip:</strong> Use a lower-cost model for document analysis (e.g., gpt-4o-mini) and reserve the full gpt-4o for AI Chat where response quality matters most. Configure this split in <a href="{{ url_prefix }}/docs/configuration#ai-settings">AI Settings</a>.
+        </div>
+
+        <h2 id="reducing-cost">Reducing costs</h2>
+        <ul>
+            <li>Set the <strong>Analysis Model</strong> to a smaller, cheaper model (e.g., <code>gpt-4o-mini</code>) for bulk document processing.</li>
+            <li>Increase the <strong>Poll Interval</strong> to reduce how frequently the analyzer checks for new documents.</li>
+            <li>Avoid <strong>Reprocess All</strong> unless necessary — it re-analyzes every document with LLM calls.</li>
+            <li>Use <strong>Process Unanalyzed Only</strong> instead of Reprocess All when you only need to catch missed documents.</li>
+            <li>Vision AI (PDF image extraction) uses more tokens than standard text analysis — it is only triggered when OCR quality is very poor.</li>
+        </ul>
+
+{# ═══════════════════════════════════════════════════════════════════ #}
+{# API REFERENCE                                                       #}
+{# ═══════════════════════════════════════════════════════════════════ #}
+{% elif page == 'api' %}
+        <h1 class="page-title">API Reference</h1>
+        <p class="subtitle">REST endpoints for integration, automation, and scripting. All endpoints require a valid session cookie (login first) unless noted.</p>
+
+        <div class="callout callout-info">
+            All paths below are relative to the application root. If your deployment is at <code>/paperless-ai-analyzer/</code>, prepend that prefix (e.g., <code>/paperless-ai-analyzer/api/status</code>).
+        </div>
+
+        <h2 id="api-status">Status &amp; Info</h2>
         <table>
             <tr><th>Method</th><th>Path</th><th>Description</th></tr>
-            <tr><td><span class="badge badge-blue">GET</span></td><td><code>/api/status</code></td><td>Analyzer status, document counts, vector store stats.</td></tr>
-            <tr><td><span class="badge badge-blue">GET</span></td><td><code>/api/recent</code></td><td>Last 50 analyzed documents with summaries.</td></tr>
+            <tr><td><span class="badge badge-blue">GET</span></td><td><code>/api/status</code></td><td>Analyzer status, document counts, vector store stats, LLM configuration summary.</td></tr>
+            <tr><td><span class="badge badge-blue">GET</span></td><td><code>/api/recent</code></td><td>Last 50 analyzed documents with summaries, tags, and risk scores.</td></tr>
             <tr><td><span class="badge badge-blue">GET</span></td><td><code>/api/about</code></td><td>Version info and component list.</td></tr>
+            <tr><td><span class="badge badge-blue">GET</span></td><td><code>/health</code></td><td>Health check — returns <code>{"status":"ok"}</code>. No auth required.</td></tr>
         </table>
 
-        <h2>Search</h2>
+        <h2 id="api-projects">Projects</h2>
         <table>
             <tr><th>Method</th><th>Path</th><th>Description</th></tr>
-            <tr><td><span class="badge badge-green">POST</span></td><td><code>/api/search</code></td><td>Semantic search. Body: <code>{"query": "...", "limit": 10}</code></td></tr>
+            <tr><td><span class="badge badge-blue">GET</span></td><td><code>/api/projects</code></td><td>List all projects with statistics.</td></tr>
+            <tr><td><span class="badge badge-green">POST</span></td><td><code>/api/projects</code></td><td>Create project. Body: <code>{"slug","name","description","color"}</code></td></tr>
+            <tr><td><span class="badge badge-blue">GET</span></td><td><code>/api/projects/{slug}</code></td><td>Get single project details and stats.</td></tr>
+            <tr><td><span class="badge badge-orange">PUT</span></td><td><code>/api/projects/{slug}</code></td><td>Update project metadata (name, description, color).</td></tr>
+            <tr><td><span class="badge badge-delete">DELETE</span></td><td><code>/api/projects/{slug}</code></td><td>Delete project. Cannot delete <em>default</em>.</td></tr>
+            <tr><td><span class="badge badge-green">POST</span></td><td><code>/api/projects/{slug}/archive</code></td><td>Archive (soft-hide) a project.</td></tr>
+            <tr><td><span class="badge badge-green">POST</span></td><td><code>/api/projects/{slug}/unarchive</code></td><td>Restore an archived project.</td></tr>
+            <tr><td><span class="badge badge-green">POST</span></td><td><code>/api/projects/{slug}/reanalyze</code></td><td>Re-queue all project documents for analysis.</td></tr>
+            <tr><td><span class="badge badge-blue">GET</span></td><td><code>/api/current-project</code></td><td>Get the currently selected project slug.</td></tr>
+            <tr><td><span class="badge badge-green">POST</span></td><td><code>/api/current-project</code></td><td>Set current project. Body: <code>{"project_slug":"slug"}</code></td></tr>
+            <tr><td><span class="badge badge-blue">GET</span></td><td><code>/api/orphan-documents</code></td><td>List documents with no <code>project:</code> tag.</td></tr>
+            <tr><td><span class="badge badge-green">POST</span></td><td><code>/api/assign-project</code></td><td>Assign document(s) to a project. Body: <code>{"document_ids":[1,2],"project_slug":"slug"}</code></td></tr>
         </table>
 
-        <h2>AI Chat</h2>
+        <h2 id="api-search">Search</h2>
         <table>
             <tr><th>Method</th><th>Path</th><th>Description</th></tr>
-            <tr><td><span class="badge badge-green">POST</span></td><td><code>/api/chat</code></td><td>Send a message. Body: <code>{"message": "...", "session_id": "..."}</code></td></tr>
-            <tr><td><span class="badge badge-blue">GET</span></td><td><code>/api/chat/sessions</code></td><td>List chat sessions for the current user.</td></tr>
-            <tr><td><span class="badge badge-blue">GET</span></td><td><code>/api/chat/sessions/&lt;id&gt;/messages</code></td><td>Full message history for a session.</td></tr>
-            <tr><td><span class="badge badge-blue">GET</span></td><td><code>/api/chat/sessions/&lt;id&gt;/export</code></td><td>Download session as JSON.</td></tr>
+            <tr><td><span class="badge badge-green">POST</span></td><td><code>/api/search</code></td><td>Semantic search. Body: <code>{"query":"...","limit":10,"min_risk":0,"max_risk":100}</code></td></tr>
         </table>
 
-        <h2>Upload</h2>
+        <h2 id="api-chat">AI Chat</h2>
         <table>
             <tr><th>Method</th><th>Path</th><th>Description</th></tr>
-            <tr><td><span class="badge badge-green">POST</span></td><td><code>/api/upload/submit</code></td><td>Upload a file (multipart). Field: <code>file</code>.</td></tr>
-            <tr><td><span class="badge badge-green">POST</span></td><td><code>/api/upload/from-url</code></td><td>Download and upload from URL. Body: <code>{"url": "..."}</code></td></tr>
-            <tr><td><span class="badge badge-green">POST</span></td><td><code>/api/upload/transform-url</code></td><td>Resolve a cloud share link to a direct URL.</td></tr>
+            <tr><td><span class="badge badge-green">POST</span></td><td><code>/api/chat</code></td><td>Send message. Body: <code>{"message":"...","session_id":"...","history":[]}</code></td></tr>
+            <tr><td><span class="badge badge-blue">GET</span></td><td><code>/api/chat/sessions</code></td><td>List sessions for current user.</td></tr>
+            <tr><td><span class="badge badge-green">POST</span></td><td><code>/api/chat/sessions</code></td><td>Create session. Body: <code>{"title":"..."}</code></td></tr>
+            <tr><td><span class="badge badge-blue">GET</span></td><td><code>/api/chat/sessions/{id}</code></td><td>Get session with messages.</td></tr>
+            <tr><td><span class="badge badge-delete">DELETE</span></td><td><code>/api/chat/sessions/{id}</code></td><td>Delete session.</td></tr>
+            <tr><td><span class="badge badge-patch">PATCH</span></td><td><code>/api/chat/sessions/{id}</code></td><td>Rename session. Body: <code>{"title":"..."}</code></td></tr>
+            <tr><td><span class="badge badge-green">POST</span></td><td><code>/api/chat/sessions/{id}/share</code></td><td>Share with users. Body: <code>{"user_ids":[1,2]}</code></td></tr>
+            <tr><td><span class="badge badge-blue">GET</span></td><td><code>/api/chat/sessions/{id}/export</code></td><td>Download session as PDF.</td></tr>
         </table>
 
-        <h2>Administration</h2>
+        <h2 id="api-upload">Upload</h2>
         <table>
             <tr><th>Method</th><th>Path</th><th>Description</th></tr>
-            <tr><td><span class="badge badge-green">POST</span></td><td><code>/api/reprocess</code></td><td>Trigger Reprocess All.</td></tr>
-            <tr><td><span class="badge badge-green">POST</span></td><td><code>/api/scan/process-unanalyzed</code></td><td>Queue only unanalyzed documents.</td></tr>
+            <tr><td><span class="badge badge-green">POST</span></td><td><code>/api/upload/submit</code></td><td>Upload a file (multipart/form-data). Fields: <code>file</code>, <code>project_slug</code> (optional), <code>use_smart_metadata</code> (optional bool).</td></tr>
+            <tr><td><span class="badge badge-green">POST</span></td><td><code>/api/upload/from-url</code></td><td>Download and upload from URL. Body: <code>{"url":"...","project_slug":"...","username":"...","password":"..."}</code></td></tr>
+            <tr><td><span class="badge badge-green">POST</span></td><td><code>/api/upload/transform-url</code></td><td>Resolve a cloud share link to a direct URL. Body: <code>{"url":"..."}</code></td></tr>
+            <tr><td><span class="badge badge-green">POST</span></td><td><code>/api/upload/scan-url</code></td><td>Probe a URL/directory for downloadable files. Returns file list.</td></tr>
+            <tr><td><span class="badge badge-blue">GET</span></td><td><code>/api/upload/history</code></td><td>Last 20 uploads for current user.</td></tr>
+        </table>
+
+        <h2 id="api-vector">Vector Store</h2>
+        <table>
+            <tr><th>Method</th><th>Path</th><th>Description</th></tr>
+            <tr><td><span class="badge badge-blue">GET</span></td><td><code>/api/vector/documents</code></td><td>All documents in vector store grouped by type.</td></tr>
+            <tr><td><span class="badge badge-blue">GET</span></td><td><code>/api/vector/types</code></td><td>List document types and counts.</td></tr>
             <tr><td><span class="badge badge-green">POST</span></td><td><code>/api/vector/reembed-stale</code></td><td>Re-embed documents with stale OCR content.</td></tr>
-            <tr><td><span class="badge badge-blue">GET</span></td><td><code>/api/users</code></td><td>List users (admin only).</td></tr>
-            <tr><td><span class="badge badge-green">POST</span></td><td><code>/api/users</code></td><td>Create a user (admin only).</td></tr>
-            <tr><td><span class="badge badge-blue">PATCH</span></td><td><code>/api/users/&lt;id&gt;</code></td><td>Edit a user (admin only).</td></tr>
+            <tr><td><span class="badge badge-green">POST</span></td><td><code>/api/vector/clear</code></td><td>Clear entire vector index for current project.</td></tr>
+            <tr><td><span class="badge badge-delete">DELETE</span></td><td><code>/api/vector/delete/{doc_id}</code></td><td>Remove single document from vector store.</td></tr>
+        </table>
+
+        <h2 id="api-admin">Administration</h2>
+        <table>
+            <tr><th>Method</th><th>Path</th><th>Description</th></tr>
+            <tr><td><span class="badge badge-green">POST</span></td><td><code>/api/reprocess</code></td><td>Reset state and reprocess all documents. Long-running.</td></tr>
+            <tr><td><span class="badge badge-green">POST</span></td><td><code>/api/reprocess/{doc_id}</code></td><td>Reprocess a single document by Paperless ID.</td></tr>
+            <tr><td><span class="badge badge-green">POST</span></td><td><code>/api/scan/process-unanalyzed</code></td><td>Queue only unanalyzed documents (no re-processing).</td></tr>
+            <tr><td><span class="badge badge-blue">GET</span></td><td><code>/api/logs</code></td><td>Recent log entries.</td></tr>
+        </table>
+
+        <h2 id="api-users">Users (Admin only)</h2>
+        <table>
+            <tr><th>Method</th><th>Path</th><th>Description</th></tr>
+            <tr><td><span class="badge badge-blue">GET</span></td><td><code>/api/users</code></td><td>List all users.</td></tr>
+            <tr><td><span class="badge badge-green">POST</span></td><td><code>/api/users</code></td><td>Create user. Body: <code>{"username","display_name","email","password","role"}</code></td></tr>
+            <tr><td><span class="badge badge-patch">PATCH</span></td><td><code>/api/users/{id}</code></td><td>Update user fields. Partial update — send only changed fields.</td></tr>
+            <tr><td><span class="badge badge-delete">DELETE</span></td><td><code>/api/users/{id}</code></td><td>Deactivate user (soft delete).</td></tr>
+        </table>
+
+        <h2 id="api-llm-usage">LLM Usage</h2>
+        <table>
+            <tr><th>Method</th><th>Path</th><th>Description</th></tr>
+            <tr><td><span class="badge badge-blue">GET</span></td><td><code>/api/llm-usage/stats</code></td><td>Aggregate usage statistics (tokens, cost, call count).</td></tr>
+            <tr><td><span class="badge badge-blue">GET</span></td><td><code>/api/llm-usage/recent</code></td><td>Last N API calls with model, tokens, and prompt excerpt.</td></tr>
+            <tr><td><span class="badge badge-blue">GET</span></td><td><code>/api/llm-usage/pricing</code></td><td>Current pricing table used for cost estimates.</td></tr>
         </table>
 
 {% else %}
