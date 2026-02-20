@@ -381,9 +381,9 @@ def api_status():
         except Exception:
             pass
 
-        # Get vector store stats
+        # Get vector store stats for current project
         from analyzer.vector_store import VectorStore
-        vector_store = VectorStore()
+        vector_store = VectorStore(project_slug=session.get('current_project', 'default'))
         vector_stats = vector_store.get_stats() if vector_store.enabled else {'enabled': False, 'total_documents': 0}
 
         return jsonify({
@@ -942,10 +942,10 @@ def api_chat():
         with ui_state['lock']:
             stats = ui_state['stats']
 
-        # Use semantic search with vector store
+        # Use semantic search with vector store — scoped to current project
         from analyzer.vector_store import VectorStore
-
-        vector_store = VectorStore()
+        _chat_project = session.get('current_project', 'default')
+        vector_store = VectorStore(project_slug=_chat_project)
 
         logger.info(f"Vector store enabled: {vector_store.enabled}")
 
@@ -1437,7 +1437,7 @@ def api_vector_types():
     """Get list of all document types in vector store."""
     try:
         from analyzer.vector_store import VectorStore
-        vector_store = VectorStore()
+        vector_store = VectorStore(project_slug=session.get('current_project', 'default'))
 
         if not vector_store.enabled:
             return jsonify({'error': 'Vector store not enabled'}), 503
@@ -1462,7 +1462,7 @@ def api_vector_delete_document(document_id):
     """Delete a specific document from vector store."""
     try:
         from analyzer.vector_store import VectorStore
-        vector_store = VectorStore()
+        vector_store = VectorStore(project_slug=session.get('current_project', 'default'))
 
         if not vector_store.enabled:
             return jsonify({'error': 'Vector store not enabled'}), 503
@@ -1494,7 +1494,7 @@ def api_vector_delete_document_json():
             return jsonify({'error': 'doc_id required'}), 400
 
         from analyzer.vector_store import VectorStore
-        vector_store = VectorStore()
+        vector_store = VectorStore(project_slug=session.get('current_project', 'default'))
 
         if not vector_store.enabled:
             return jsonify({'error': 'Vector store not enabled'}), 503
@@ -1526,7 +1526,7 @@ def api_vector_delete_by_type():
             return jsonify({'error': 'document_type required'}), 400
 
         from analyzer.vector_store import VectorStore
-        vector_store = VectorStore()
+        vector_store = VectorStore(project_slug=session.get('current_project', 'default'))
 
         if not vector_store.enabled:
             return jsonify({'error': 'Vector store not enabled'}), 503
@@ -1550,7 +1550,7 @@ def api_vector_clear():
     """Clear all documents from vector store."""
     try:
         from analyzer.vector_store import VectorStore
-        vector_store = VectorStore()
+        vector_store = VectorStore(project_slug=session.get('current_project', 'default'))
 
         if not vector_store.enabled:
             return jsonify({'error': 'Vector store not enabled'}), 503
@@ -1576,7 +1576,7 @@ def api_vector_documents():
     """Get all documents from vector store with details, grouped by type."""
     try:
         from analyzer.vector_store import VectorStore
-        vector_store = VectorStore()
+        vector_store = VectorStore(project_slug=session.get('current_project', 'default'))
 
         if not vector_store.enabled:
             return jsonify({'error': 'Vector store not enabled'}), 503
