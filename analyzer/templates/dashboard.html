@@ -1947,6 +1947,7 @@
                         <span id="vs-count-label" style="font-size:13px; color:#666; white-space:nowrap;"></span>
                         <button class="btn btn-small" onclick="loadVectorStoreDocuments()">↻ Refresh</button>
                         <button class="btn btn-small" onclick="triggerReembedStale()" id="btn-reembed-stale" title="Re-analyze documents whose OCR content changed after they were first embedded">⟳ Re-embed Stale</button>
+                        <button class="btn btn-small" onclick="processUnanalyzed()" id="btn-process-unanalyzed" title="Analyze only documents not yet in the processed history — skips already-done docs">▶ Process Unanalyzed</button>
                         <button class="btn btn-warning" onclick="confirmClearVectorStore()">Clear All</button>
                     </div>
                     <div id="vector-store-manager">
@@ -3439,6 +3440,25 @@
                 }
             } catch (error) {
                 alert('❌ Failed to start stale check: ' + error.message);
+            } finally {
+                if (btn) { btn.disabled = false; btn.textContent = orig; }
+            }
+        }
+
+        async function processUnanalyzed() {
+            const btn = document.getElementById('btn-process-unanalyzed');
+            const orig = btn ? btn.textContent : '';
+            if (btn) { btn.disabled = true; btn.textContent = '⏳ Scanning…'; }
+            try {
+                const response = await apiFetch(apiUrl('/api/scan/process-unanalyzed'), { method: 'POST' });
+                const data = await response.json();
+                if (data.success) {
+                    alert('✅ ' + data.message);
+                } else {
+                    alert('❌ Error: ' + (data.error || 'Unknown error'));
+                }
+            } catch (error) {
+                alert('❌ Failed: ' + error.message);
             } finally {
                 if (btn) { btn.disabled = false; btn.textContent = orig; }
             }
