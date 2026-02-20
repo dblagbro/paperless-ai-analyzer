@@ -108,39 +108,6 @@ class PaperlessClient:
         return response.content
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=10))
-    def get_or_create_tag(self, tag_name: str) -> int:
-        """
-        Get tag ID by name, or create if it doesn't exist.
-
-        Args:
-            tag_name: Tag name (e.g., 'anomaly:balance_mismatch')
-
-        Returns:
-            Tag ID
-        """
-        # First, try to find existing tag
-        url = f'{self.base_url}/api/tags/'
-        params = {'name': tag_name}
-
-        response = self.session.get(url, params=params)
-        response.raise_for_status()
-        results = response.json()
-
-        if results['count'] > 0:
-            tag_id = results['results'][0]['id']
-            logger.debug(f"Found existing tag '{tag_name}' with ID {tag_id}")
-            return tag_id
-
-        # Create new tag
-        data = {'name': tag_name}
-        response = self.session.post(url, json=data)
-        response.raise_for_status()
-        tag_id = response.json()['id']
-
-        logger.info(f"Created new tag '{tag_name}' with ID {tag_id}")
-        return tag_id
-
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=10))
     def update_document_tags(self, document_id: int, tag_names: List[str], add_only: bool = True) -> None:
         """
         Update document tags.
@@ -154,11 +121,15 @@ class PaperlessClient:
         doc = self.get_document(document_id)
         existing_tag_ids = set(doc.get('tags', []))
 
-        # Get or create tag IDs
+        # Get or create tag IDs — skip any that fail (None) to avoid sending
+        # invalid IDs to Paperless which returns 400 and aborts the whole update.
         new_tag_ids = set()
         for tag_name in tag_names:
             tag_id = self.get_or_create_tag(tag_name)
-            new_tag_ids.add(tag_id)
+            if tag_id is not None:
+                new_tag_ids.add(tag_id)
+            else:
+                logger.warning(f"Skipping tag '{tag_name}' — could not get/create it")
 
         # Combine with existing if add_only
         if add_only:
@@ -270,6 +241,21 @@ class PaperlessClient:
             }
 
             response = self.session.post(url, json=payload)
+
+            # 400 on creation usually means the tag already exists but our initial
+            # GET missed it (e.g. name__iexact filter not supported by this Paperless
+            # version, or the tag was on a later paginated page).  Try an exact-name
+            # GET as a recovery step before giving up.
+            if response.status_code == 400:
+                recovery = self.session.get(url, params={'name': tag_name})
+                if recovery.ok:
+                    recovery_results = recovery.json().get('results', [])
+                    match = [r for r in recovery_results if r['name'].lower() == tag_name.lower()]
+                    if match:
+                        tag_id = match[0]['id']
+                        logger.info(f"Recovered existing tag '{tag_name}' after 400: ID {tag_id}")
+                        return tag_id
+
             response.raise_for_status()
 
             tag_id = response.json()['id']
