@@ -318,6 +318,17 @@ def count_processed_documents() -> int:
         return 0
 
 
+def get_analyzed_doc_ids() -> set:
+    """Return the set of doc_ids in the processed_documents table."""
+    try:
+        with _get_conn() as conn:
+            rows = conn.execute("SELECT doc_id FROM processed_documents").fetchall()
+            return {r[0] for r in rows}
+    except Exception as e:
+        logger.error(f"Failed to get analyzed doc IDs: {e}")
+        return set()
+
+
 def get_import_history(user_id: int, limit: int = 20):
     """Return the most recent imports for a user, newest first."""
     with _get_conn() as conn:
