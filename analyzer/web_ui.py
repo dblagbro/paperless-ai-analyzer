@@ -212,6 +212,26 @@ def initialize_ui_state():
             high_risk_count = 0
             anomalies_count = 0
 
+            # Pre-fetch cached summaries from Chroma vector store (batch lookup)
+            chroma_summaries = {}
+            try:
+                if (hasattr(app, 'document_analyzer') and app.document_analyzer
+                        and app.document_analyzer.vector_store
+                        and app.document_analyzer.vector_store.enabled):
+                    ids_to_fetch = [str(doc['id']) for doc in results[:100]]
+                    chroma_result = app.document_analyzer.vector_store.collection.get(
+                        ids=ids_to_fetch,
+                        include=['metadatas']
+                    )
+                    for i, cid in enumerate(chroma_result.get('ids', [])):
+                        m = chroma_result['metadatas'][i]
+                        chroma_summaries[int(cid)] = {
+                            'brief_summary': m.get('brief_summary', ''),
+                            'full_summary': m.get('full_summary', ''),
+                        }
+            except Exception as _ce:
+                logger.debug(f"Could not pre-fetch Chroma summaries at startup: {_ce}")
+
             # Process recent documents for the list (last 100 to include more anomalies)
             for doc in results[:100]:
                 doc_id = doc['id']
@@ -242,7 +262,12 @@ def initialize_ui_state():
                 elif 'anomaly:forensic_risk_low' in tags:
                     risk_score = 30
 
-                # Add to recent analyses (summaries will be generated on first view)
+                # Use cached summaries from Chroma if available, fall back to placeholder
+                chroma_data = chroma_summaries.get(doc_id, {})
+                brief_summary = chroma_data.get('brief_summary', '') or f"Financial document: {doc['title']}"
+                full_summary = chroma_data.get('full_summary', '')
+
+                # Add to recent analyses
                 ui_state['recent_analyses'].append({
                     'document_id': doc_id,
                     'document_title': doc['title'],
@@ -252,8 +277,8 @@ def initialize_ui_state():
                     'ai_analysis': "",
                     'created': doc.get('created', ''),
                     'correspondent': doc.get('correspondent', None),
-                    'brief_summary': f"Financial document: {doc['title']}",
-                    'full_summary': ""
+                    'brief_summary': brief_summary,
+                    'full_summary': full_summary,
                 })
 
             ui_state['stats']['anomalies_detected'] = anomalies_count
