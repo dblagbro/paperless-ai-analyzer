@@ -10,6 +10,35 @@ Advanced AI-powered anomaly detection and risk analysis microservice for [Paperl
 
 ---
 
+## What's New in v2.1
+
+### Complete Project Isolation
+- Each project has its own **separate Chroma vector store collection** — AI Chat only searches the project you have selected
+- **Chat history is project-scoped** — switching projects shows only conversations about that project
+- **Document tracking is per-project** — analyzed-document counts and skip-lists are isolated per project
+- Archived projects now appear in a dedicated **"🗄️ Archived"** section below active projects instead of disappearing
+
+### User Manual
+- Built-in **12-page user manual** at `/docs/` — accessible from the **📖 Users Manual** button in the header
+- Each tab's **? Help** panel includes a direct link to the relevant manual section
+- **Email Manual** button on the Edit User modal so admins can send the manual to any user
+- New-user welcome emails include links to all major manual sections
+- AI Chat automatically links to relevant manual pages when answering how-to questions
+
+### Reconcile Index *(Debug & Tools tab)*
+- New **🔁 Reconcile Now** button — cleans up stale records for documents deleted from Paperless
+- Removes orphaned `processed_documents` DB records without re-analyzing anything
+- Removes orphaned Chroma embeddings for the same deleted docs
+- Reports how many documents are not yet analyzed or embedded
+
+### Bug Fixes
+- Fixed `session` not imported in Flask app — caused `NameError` on vector store API calls
+- Fixed all `VectorStore()` calls in the web layer to pass `project_slug` from session
+- Fixed docs sidebar links using bare paths instead of sub-path prefix
+- Fixed welcome and manual emails sending links to the host root instead of the app sub-path
+
+---
+
 ## What's New in v2.0
 
 ### Multi-User Authentication
@@ -79,6 +108,7 @@ Advanced AI-powered anomaly detection and risk analysis microservice for [Paperl
 - [docker-compose.yml Reference](#docker-composeyml-reference)
 - [User Management CLI](#user-management-cli)
 - [Web UI Tour](#web-ui-tour)
+- [Built-In User Manual](#built-in-user-manual)
 - [Document Profiles](#document-profiles)
 - [Nginx Reverse Proxy](#nginx-reverse-proxy)
 - [How It Works](#how-it-works)
@@ -410,27 +440,70 @@ The chat uses RAG (retrieval-augmented generation) over your document corpus —
 - **Share** 🔗 — share this session with another user by their username
 - **Export PDF** 📥 — download the full conversation as a formatted PDF
 
+### Header Bar
+
+- **Current Project** selector — switches the active project context for AI Chat and all vector store operations
+- **📖 Users Manual** — opens the built-in 12-page user manual in a new tab
+- **? Help** — toggles a contextual help panel at the top of the current tab
+- **🐛 Report Issue** — sends a bug report with optional log attachment
+- **🔑 Change Password** / **Sign Out**
+
 ### Overview Tab
 
-Real-time statistics: documents analyzed, anomalies detected, risk distribution.
+Real-time statistics: documents analyzed, anomalies detected, high-risk count. Vector store doc count reflects the currently selected project.
 
-### Analysis Tab
+### Search & Analysis Tab
 
-Recent analysis results with risk scores, anomaly details, and clickable evidence. Filter by risk level or document type.
+Search and filter all analyzed documents. Filter by risk level, document type, or anomaly keyword. Click any row to expand the full AI summary and evidence.
+
+### AI Chat Tab
+
+Natural-language chat over your document corpus using RAG. Chat history is **project-scoped** — each project has its own isolated chat sessions.
+
+### Manage Projects Tab
+
+Create, edit, archive, and delete projects. Move documents between projects. Archived projects appear in a separate section below active ones.
+
+### Smart Upload Tab
+
+Upload documents via file drag-and-drop, direct URL, or cloud share link (Google Drive, Dropbox, OneDrive). Optional Smart Metadata pre-analyzes the document before upload.
 
 ### Configuration Tab
 
-- **AI Provider**: Configure OpenAI or Anthropic API keys and test connectivity
-- **LLM Settings**: Enable/disable analysis, set model preferences
-- **User Management** *(admin only)*: Add users, change roles, deactivate accounts
+- **AI Settings** — Configure OpenAI or Anthropic API keys and test connectivity
+- **Vector Store** — View, search, and manage Chroma embeddings for the current project
+- **Profiles** — Browse and activate document profiles
+- **Notifications** — SMTP settings for email alerts
+- **User Management** *(admin only)* — Add, edit, deactivate users; send the user manual by email
 
-### Profiles Tab
+### Debug & Tools Tab
 
-Browse active and staging profiles. Staging profiles are auto-generated suggestions for unrecognized document types.
+- **Reprocess All** — clears analysis state and re-queues all documents
+- **Reprocess Document** — re-queues a single document by Paperless ID
+- **🔁 Reconcile Index** — removes stale DB records and Chroma embeddings for documents deleted from Paperless (no re-analysis)
+- **Live Logs** — real-time tail of the last 200 analyzer log lines
 
-### Logs Tab
+---
 
-Live tail of the analyzer's processing log.
+## Built-In User Manual
+
+A comprehensive 12-page user manual is built into the app at `/docs/` (or `/<url_prefix>/docs/`). Click **📖 Users Manual** in the header to open it.
+
+Sections:
+| Page | URL |
+|------|-----|
+| Overview | `/docs/overview` |
+| Quick Start | `/docs/getting-started` |
+| Projects | `/docs/projects` |
+| Smart Upload | `/docs/upload` |
+| AI Chat | `/docs/chat` |
+| Search & Analysis | `/docs/search` |
+| Anomaly Detection | `/docs/anomaly-detection` |
+| Debug & Tools | `/docs/tools` |
+| Configuration | `/docs/configuration` |
+| User Management | `/docs/users` |
+| LLM Usage & Cost | `/docs/llm-usage` |
+| API Reference | `/docs/api` |
 
 ---
 

@@ -1,219 +1,195 @@
-# Quick Start Guide
+# Quick Start Guide — Paperless AI Analyzer
 
-Get the Paperless AI Analyzer running in 5 minutes.
+Get up and running in about 5 minutes.
+
+---
 
 ## Prerequisites
 
-- Running Paperless-ngx instance
 - Docker and Docker Compose
-- Paperless API token
+- A running [Paperless-ngx](https://github.com/paperless-ngx/paperless-ngx) instance
+- A Paperless API token (Settings → API Token in your Paperless UI)
 
-## Step 1: Build the Analyzer
+---
 
-```bash
-cd /home/dblagbro/docker
-docker compose build paperless-ai-analyzer
+## Step 1: Create a docker-compose.yml
+
+```yaml
+services:
+  paperless-ai-analyzer:
+    image: dblagbro/paperless-ai-analyzer:latest
+    container_name: paperless-ai-analyzer
+    restart: unless-stopped
+    environment:
+      PAPERLESS_API_BASE_URL: http://paperless-web:8000   # adjust to your Paperless URL
+      PAPERLESS_API_TOKEN: your_paperless_token_here
+      WEB_UI_ENABLED: "true"
+      WEB_HOST: 0.0.0.0
+      WEB_PORT: 8051
+    volumes:
+      - ./profiles:/app/profiles
+      - analyzer_data:/app/data
+      - /path/to/paperless/media:/paperless/media:ro   # optional — for local PDF access
+    ports:
+      - "8051:8051"
+
+volumes:
+  analyzer_data:
 ```
 
-This will:
-- Install Python dependencies
-- Set up Unstructured for PDF extraction
-- Install OpenCV for forensics analysis
+> **Behind a reverse proxy?** Add `URL_PREFIX: /paperless-ai-analyzer` (or whatever sub-path you use) to the `environment` section so all links and cookies are correctly scoped.
 
-**Note**: Initial build may take 5-10 minutes due to large dependencies.
+---
 
-## Step 2: Activate a Profile
-
-The analyzer needs at least one active profile to match documents:
-
-```bash
-# Copy the generic bank statement profile
-cp paperless-ai-analyzer/profiles/examples/bank_statement_generic.yaml \
-   paperless-ai-analyzer/profiles/active/
-```
-
-You can add more profiles later. See `profiles/README.md` for details.
-
-## Step 3: Start the Service
+## Step 2: Start the container
 
 ```bash
 docker compose up -d paperless-ai-analyzer
 ```
 
-## Step 4: Verify It's Working
+The first startup initializes the SQLite database, creates the Chroma vector store, and starts polling Paperless for new documents.
 
-Watch the logs:
+---
+
+## Step 3: Create the admin user
+
+The web UI requires authentication. Use the bundled CLI to create your first admin account:
 
 ```bash
-docker compose logs -f paperless-ai-analyzer
+docker exec paperless-ai-analyzer python manage_users.py create \
+  --username admin \
+  --password changeme \
+  --role admin \
+  --display-name "Admin"
 ```
 
-You should see:
+> Change the password after first login via **Configuration → Users**.
+
+---
+
+## Step 4: Open the dashboard
+
+Navigate to `http://your-host:8051` (or your reverse-proxy URL) and log in with the admin credentials you just created.
+
+You'll land on the **Dashboard** tab showing real-time stats, recent analyses, and anomaly activity.
+
+---
+
+## Step 5: Configure analysis
+
+### Connect to Paperless (verify)
+
+The analyzer starts polling automatically. Check the **Debug & Tools** tab → **Server Logs** to confirm:
+
 ```
-INFO - Starting polling loop (interval=30s)
 INFO - Paperless API health check passed
-INFO - Loaded 1 active profiles
-INFO - Polling for new documents...
+INFO - Starting polling loop (interval=30s)
 ```
 
-## Step 5: Access the Web UI
+### Enable AI Analysis (optional)
 
-Open your browser to:
-```
-http://localhost:8051
-```
+Add these to your `environment` block and restart:
 
-You should see the Paperless AI Analyzer dashboard with:
-- Real-time status
-- Statistics (will be 0 initially)
-- Active profiles list
-- Recent analyses (empty until documents are processed)
-
-To access via your domain (after nginx setup):
-```
-https://www.voipguru.org/paperless-ai-analyzer
+```yaml
+LLM_ENABLED: "true"
+LLM_PROVIDER: anthropic          # or openai
+LLM_API_KEY: sk-ant-your-key-here
+LLM_MODEL: claude-sonnet-4-6     # or gpt-4o, etc.
 ```
 
-See `UI_SETUP.md` for nginx configuration.
+Documents will then receive AI-generated narrative summaries and `aianomaly:*` tags in Paperless.
 
-## Step 6: Run the Smoke Test
+---
+
+## Step 6: Upload or wait for documents
+
+### Automatic: let it poll
+The analyzer checks Paperless every 30 seconds for new or modified documents. Any document added to Paperless will be picked up automatically.
+
+### Manual: use the Upload tab
+Go to the **📤 Upload** tab to:
+- Drag-and-drop a file directly
+- Fetch a document from a URL (including Google Drive, Dropbox, OneDrive share links)
+- Browse a directory URL and select which files to import
+
+---
+
+## Using the Web UI
+
+| Tab | What it does |
+|-----|--------------|
+| 📊 Dashboard | Live stats, recent analyses, anomaly activity chart |
+| 📋 Anomaly Detector | Browse all analyzed documents, filter by risk level |
+| 💬 AI Chat | Chat with your documents using RAG (scoped to the selected project) |
+| 🔍 Search | Full-text semantic search across your document vector store |
+| 📤 Upload | Import documents from file, URL, or cloud links |
+| 🗂️ Manage Projects | Create/archive projects, see document counts, migrate docs between projects |
+| ⚙️ Configuration | API keys, SMTP, LLM model selection, vector store management, user management (admin) |
+| 🛠️ Debug & Tools | Live logs, reprocess-all, reconcile index, Chroma status |
+
+The **📖 Users Manual** button in the header opens the built-in 12-page manual at `/docs/`.
+
+---
+
+## User Management
 
 ```bash
-./paperless-ai-analyzer/smoke_test.sh 146
+# List all users
+docker exec paperless-ai-analyzer python manage_users.py list
+
+# Add a basic (non-admin) user
+docker exec paperless-ai-analyzer python manage_users.py create \
+  --username alice --password secret --role basic
+
+# Reset a password
+docker exec paperless-ai-analyzer python manage_users.py reset-password alice newpassword
+
+# Deactivate a user
+docker exec paperless-ai-analyzer python manage_users.py deactivate alice
 ```
 
-Replace `146` with any document ID from your Paperless instance.
+Or manage users through **Configuration → Users** in the web UI (admin only).
 
-The smoke test will:
-1. Check dependencies
-2. Verify API connectivity
-3. Analyze the document (dry run)
-4. Show any detected anomalies
+---
 
-## Step 6: Check Results
+## Reprocessing Documents
 
-### View Tags in Paperless UI
+To re-analyze all documents from scratch:
 
-1. Go to your Paperless UI
-2. Open the document you tested
-3. Look for new tags:
-   - `analyzed:deterministic:v1`
-   - `anomaly:*` (if anomalies were found)
-   - `needs_profile:unmatched` (if no profile matched)
+1. Go to **Debug & Tools** → click **🔄 Reprocess All**
+2. Or delete `/app/data/state_default.json` and restart the container
 
-### Check Staging Profiles
+To clean up stale index records after deleting docs from Paperless:
 
-If documents didn't match any profile, check for auto-generated suggestions:
+- **Debug & Tools** → **🔁 Reconcile Now**
 
-```bash
-ls -la paperless-ai-analyzer/profiles/staging/
-```
-
-Review and promote useful profiles:
-
-```bash
-# Review a suggested profile
-cat paperless-ai-analyzer/profiles/staging/suggested_*.yaml
-
-# If it looks good, promote it
-mv paperless-ai-analyzer/profiles/staging/suggested_20240130_doc_147.yaml \
-   paperless-ai-analyzer/profiles/active/my_custom_profile.yaml
-
-# Restart to load new profile
-docker compose restart paperless-ai-analyzer
-```
-
-## Optional: Enable AI Analysis
-
-To enable Claude/GPT-assisted analysis:
-
-1. Edit `docker-compose.yml`:
-   ```yaml
-   environment:
-     LLM_ENABLED: "true"
-     LLM_PROVIDER: anthropic
-     LLM_API_KEY: sk-ant-your-key-here
-   ```
-
-2. Restart:
-   ```bash
-   docker compose up -d paperless-ai-analyzer
-   ```
-
-3. Documents will now get `analyzed:ai:v1` and `aianomaly:*` tags.
+---
 
 ## Troubleshooting
 
-### "No documents to process"
-
-The analyzer only processes documents modified after it started. To reprocess existing documents:
-
+### Container won't start
 ```bash
-# Reset state
-docker exec paperless-ai-analyzer rm /app/data/state.json
-docker compose restart paperless-ai-analyzer
+docker logs paperless-ai-analyzer
 ```
 
-### "No active profiles found"
+### "Cannot reach Paperless API"
+- Verify `PAPERLESS_API_BASE_URL` is reachable from inside the container
+- Check that `PAPERLESS_API_TOKEN` is correct
+- If Paperless is on the same Docker network, use its service name (e.g. `http://paperless-web:8000`)
 
-Copy at least one example profile to `profiles/active/`:
+### Dashboard shows all zeros after login
+- Wait ~30 seconds for the first poll cycle to complete
+- Check logs for errors
 
-```bash
-cp paperless-ai-analyzer/profiles/examples/*.yaml \
-   paperless-ai-analyzer/profiles/active/
-docker compose restart paperless-ai-analyzer
-```
+### Links in emails go to the wrong URL
+- Set `URL_PREFIX` to your sub-path (e.g. `/paperless-ai-analyzer`) if running behind a reverse proxy
+- Set `SMTP_*` environment variables in Configuration → Notifications
 
-### Analysis fails with "unstructured not available"
-
-Rebuild the container:
-
-```bash
-docker compose build --no-cache paperless-ai-analyzer
-docker compose up -d paperless-ai-analyzer
-```
+---
 
 ## Next Steps
 
-- **Customize profiles**: Edit `profiles/active/*.yaml` to match your document types
-- **Monitor continuously**: `docker compose logs -f paperless-ai-analyzer`
-- **Adjust sensitivity**: Change `BALANCE_TOLERANCE` in docker-compose.yml
-- **Review staging profiles**: Check `profiles/staging/` for auto-generated suggestions
-
-## Common Use Cases
-
-### Analyzing Specific Documents
-
-```bash
-# Dry run (no tags written)
-docker exec paperless-ai-analyzer python -m analyzer.main --doc-id 146 --dry-run
-
-# Actually write tags
-docker exec paperless-ai-analyzer python -m analyzer.main --doc-id 146
-```
-
-### Reprocessing All Documents
-
-```bash
-# Clear state to reprocess everything
-docker exec paperless-ai-analyzer rm /app/data/state.json
-docker compose restart paperless-ai-analyzer
-
-# The analyzer will now process all documents
-```
-
-### Checking What Got Analyzed
-
-```bash
-# View state
-docker exec paperless-ai-analyzer cat /app/data/state.json | python3 -m json.tool
-
-# Search logs for specific document
-docker compose logs paperless-ai-analyzer | grep "document 146"
-```
-
-## Support
-
-- README: `paperless-ai-analyzer/README.md`
-- Profile docs: `paperless-ai-analyzer/profiles/README.md`
-- View logs: `docker compose logs paperless-ai-analyzer`
+- Read the full **[README.md](README.md)** for all environment variables, profile docs, and architecture details
+- Open the **📖 Users Manual** in the dashboard for tab-by-tab guidance
+- Set up [SMTP notifications](README.md#smtp--notifications) to receive welcome emails and bug reports
+- Create **document profiles** (`profiles/active/*.yaml`) to tune anomaly detection for your document types
