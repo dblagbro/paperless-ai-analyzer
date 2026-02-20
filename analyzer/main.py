@@ -461,7 +461,7 @@ Format the output as structured text that preserves the layout and relationships
             _time.sleep(30)
             try:
                 from analyzer.db import get_analyzed_doc_ids
-                analyzed_ids = get_analyzed_doc_ids()
+                analyzed_ids = get_analyzed_doc_ids(project_slug=self.config.get('project_slug', 'default'))
                 all_docs = []
                 page = 1
                 while True:
@@ -737,6 +737,13 @@ Format the output as structured text that preserves the layout and relationships
             # We read those to provide context to the LLM
             existing_tags = self.paperless.get_document_tags(doc_id)
             logger.info(f"Existing tags: {existing_tags}")
+
+            # Determine which project this document belongs to (from project: tag)
+            doc_project_slug = self.config.get('project_slug', 'default')
+            for _t in existing_tags:
+                if _t.startswith('project:'):
+                    doc_project_slug = _t.split('project:', 1)[1]
+                    break
 
             # Extract anomaly tags written by anomaly-detector
             anomaly_tags = [tag for tag in existing_tags if tag.startswith('anomaly:')]
@@ -1022,6 +1029,7 @@ Format the output as structured text that preserves the layout and relationships
                 'doc_id': doc_id,
                 'title': doc_title,
                 'timestamp': datetime.utcnow().isoformat(),
+                'project_slug': doc_project_slug,
                 'profile_matched': profile.profile_id if profile else None,
                 'anomalies_found': deterministic_results.get('anomalies_found', []),
                 'risk_score': risk_score,
@@ -1214,12 +1222,7 @@ Format the output as structured text that preserves the layout and relationships
                             'max_severity': self._get_max_severity(integrity_analysis.get('findings', []))
                         })
 
-                    # Route to the correct project collection based on document's project: tag
-                    doc_project_slug = self.config.get('project_slug', 'default')
-                    for tag in existing_tags:
-                        if tag.startswith('project:'):
-                            doc_project_slug = tag.split('project:', 1)[1]
-                            break
+                    # Route to the correct project collection (doc_project_slug set above)
                     if doc_project_slug == self.config.get('project_slug', 'default'):
                         embed_store = self.vector_store
                     else:
