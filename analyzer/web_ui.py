@@ -2060,6 +2060,92 @@ def api_reprocess_document(doc_id):
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/reconcile', methods=['POST'])
+@login_required
+@admin_required
+def api_reconcile():
+    """Reconcile processed_documents and vector store against current Paperless contents.
+    Removes stale records for documents deleted from Paperless. Does NOT re-analyze anything."""
+    try:
+        if not hasattr(app, 'paperless_client') or not app.paperless_client:
+            return jsonify({'error': 'Paperless client not available'}), 503
+
+        project_slug = session.get('current_project', 'default')
+
+        # 1. Fetch every doc ID currently in Paperless (paginated)
+        paperless_ids = set()
+        page = 1
+        while True:
+            resp = app.paperless_client.get_documents(ordering='id', page_size=100, page=page)
+            for doc in resp.get('results', []):
+                paperless_ids.add(doc['id'])
+            if not resp.get('next'):
+                break
+            page += 1
+
+        # 2. Get doc IDs from processed_documents for this project
+        from analyzer.db import get_analyzed_doc_ids
+        import sqlite3 as _sqlite3
+        with _sqlite3.connect('/app/data/app.db') as _conn:
+            _conn.row_factory = _sqlite3.Row
+            db_rows = _conn.execute(
+                "SELECT doc_id FROM processed_documents WHERE project_slug = ?", (project_slug,)
+            ).fetchall()
+        db_ids = {r['doc_id'] for r in db_rows}
+
+        # 3. Get doc IDs from Chroma for this project
+        from analyzer.vector_store import VectorStore
+        vs = VectorStore(project_slug=project_slug)
+        chroma_ids = set()
+        if vs.enabled:
+            raw = vs.collection.get(include=['metadatas'])
+            for meta in (raw.get('metadatas') or []):
+                if meta and meta.get('document_id'):
+                    chroma_ids.add(int(meta['document_id']))
+
+        # 4. Find orphans (in our indexes but deleted from Paperless)
+        db_orphans    = db_ids    - paperless_ids
+        chroma_orphans = chroma_ids - paperless_ids
+
+        # 5. Remove orphans from processed_documents
+        db_removed = 0
+        if db_orphans:
+            with _sqlite3.connect('/app/data/app.db') as _conn:
+                for oid in db_orphans:
+                    _conn.execute("DELETE FROM processed_documents WHERE doc_id = ?", (oid,))
+                    db_removed += 1
+            logger.info(f"Reconcile: removed {db_removed} stale records from processed_documents")
+
+        # 6. Remove orphans from Chroma
+        chroma_removed = 0
+        if chroma_orphans and vs.enabled:
+            for oid in chroma_orphans:
+                vs.delete_document(oid)
+                chroma_removed += 1
+            logger.info(f"Reconcile: removed {chroma_removed} stale embeddings from Chroma")
+
+        # 7. Compute gaps (in Paperless but missing from our indexes)
+        not_in_db     = len(paperless_ids - db_ids)
+        not_in_chroma = len(paperless_ids - chroma_ids)
+
+        return jsonify({
+            'success': True,
+            'paperless_total': len(paperless_ids),
+            'db_orphans_removed': db_removed,
+            'chroma_orphans_removed': chroma_removed,
+            'not_analyzed': not_in_db,
+            'not_embedded': not_in_chroma,
+            'message': (
+                f"Removed {db_removed} stale DB record(s) and {chroma_removed} stale embedding(s). "
+                f"{not_in_db} doc(s) not yet analyzed, {not_in_chroma} doc(s) not yet embedded."
+            )
+        })
+
+    except Exception as e:
+        logger.error(f"Reconcile error: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/change-password', methods=['POST'])
 @login_required
 def api_change_password():
