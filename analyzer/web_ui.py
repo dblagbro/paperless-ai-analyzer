@@ -1034,7 +1034,10 @@ def api_chat():
         # ────────────────────────────────────────────────────────────────────────
 
         # If we don't have analyses, fetch from Paperless
-        if not recent_analyses or len(recent_analyses) < 5:
+        # Only fall back if Chroma returned nothing — do NOT use < 5 threshold
+        # because small projects legitimately have few docs and the fallback
+        # is not project-scoped (it returns all analyzed docs from Paperless).
+        if not recent_analyses:
             try:
                 # Get documents with analyzed tags
                 paperless_client = app.paperless_client
