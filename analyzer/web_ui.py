@@ -374,23 +374,24 @@ def api_status():
     with ui_state['lock']:
         state_stats = app.state_manager.get_stats()
 
-        # Refresh total_analyzed from DB on every status call so the counter is always accurate
-        # (in-memory += 1 drifts during re-analysis; DB count_processed_documents is the ground truth)
+        # Get project-scoped analyzed count from DB (don't mutate shared ui_state —
+        # that would corrupt counts for concurrent requests from other projects).
+        project_slug = session.get('current_project', 'default')
         try:
-            ui_state['stats']['total_analyzed'] = count_processed_documents()
+            project_analyzed = count_processed_documents(project_slug=project_slug)
         except Exception:
-            pass
+            project_analyzed = ui_state['stats'].get('total_analyzed', 0)
 
         # Get vector store stats for current project
         from analyzer.vector_store import VectorStore
-        vector_store = VectorStore(project_slug=session.get('current_project', 'default'))
+        vector_store = VectorStore(project_slug=project_slug)
         vector_stats = vector_store.get_stats() if vector_store.enabled else {'enabled': False, 'total_documents': 0}
 
         return jsonify({
             'status': 'running',
             'uptime_seconds': _get_uptime(),
             'state': state_stats,
-            'stats': ui_state['stats'],
+            'stats': {**ui_state['stats'], 'total_analyzed': project_analyzed},
             'last_update': ui_state['last_update'],
             'active_profiles': len(app.profile_loader.profiles),
             'vector_store': vector_stats
