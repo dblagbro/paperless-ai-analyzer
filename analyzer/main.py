@@ -117,6 +117,9 @@ class DocumentAnalyzer:
         # v2.0.4: Stale embedding detection
         self._stale_check_counter = 0  # Incremented each poll; triggers check every 10 polls
 
+        # v2.0.5: Guard so re_analyze_project never runs concurrently with itself
+        self._reanalysis_running = False
+
         self.archive_path = config.get('archive_path', '/paperless/media/documents/archive')
         logger.info("DocumentAnalyzer initialization complete")
 
@@ -298,10 +301,23 @@ Format the output as structured text that preserves the layout and relationships
             if (time_since_last_doc >= self.reanalysis_delay_seconds and
                 last_doc_time > last_reanalysis):
 
+                if self._reanalysis_running:
+                    logger.debug("Re-analysis already in progress, skipping trigger")
+                    return
+
                 logger.info(f"⏰ Triggering automatic re-analysis for project '{project_slug}' " +
                            f"({int(time_since_last_doc/60)} minutes since last document)")
-                self.re_analyze_project(project_slug)
                 self.last_reanalysis_time[project_slug] = current_time
+                self._reanalysis_running = True
+
+                def _run_reanalysis():
+                    try:
+                        self.re_analyze_project(project_slug)
+                    finally:
+                        self._reanalysis_running = False
+
+                import threading
+                threading.Thread(target=_run_reanalysis, daemon=True).start()
 
     def re_analyze_project(self, project_slug: str) -> None:
         """
