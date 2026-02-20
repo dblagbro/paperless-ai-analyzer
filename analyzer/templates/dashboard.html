@@ -2424,7 +2424,7 @@
                     const summaryHtml = briefSummary ? `
                         <div style="margin-top: 8px; padding: 8px 10px; background: rgba(52, 152, 219, 0.08); border-left: 3px solid #3498db; border-radius: 4px; font-size: 0.9em;">
                             <div style="color: #444; line-height: 1.5;"><strong>Brief Summary:</strong> ${briefSummary}</div>
-                            ${fullSummary && fullSummary !== briefSummary ? `
+                            ${fullSummary ? `
                                 <div style="margin-top: 6px; color: #555; line-height: 1.5; border-top: 1px solid rgba(52,152,219,0.2); padding-top: 6px;"><strong>Full Summary:</strong> ${fullSummary}</div>
                             ` : ''}
                         </div>
@@ -3575,9 +3575,9 @@
                         const fullSummary = analysis.full_summary || '';
                         const summaryHtml = briefSummary ? `
                             <div style="margin-top: 8px; padding: 8px 10px; background: rgba(52, 152, 219, 0.08); border-left: 3px solid #3498db; border-radius: 4px; font-size: 0.9em;">
-                                <div style="color: #444; font-style: italic; line-height: 1.5;">💡 ${briefSummary}</div>
-                                ${fullSummary && fullSummary !== briefSummary ? `
-                                    <div style="margin-top: 6px; color: #555; line-height: 1.5; border-top: 1px solid rgba(52,152,219,0.2); padding-top: 6px;">${fullSummary}</div>
+                                <div style="color: #444; line-height: 1.5;"><strong>Brief Summary:</strong> ${briefSummary}</div>
+                                ${fullSummary ? `
+                                    <div style="margin-top: 6px; color: #555; line-height: 1.5; border-top: 1px solid rgba(52,152,219,0.2); padding-top: 6px;"><strong>Full Summary:</strong> ${fullSummary}</div>
                                 ` : ''}
                             </div>
                         ` : '';

@@ -349,6 +349,13 @@ def api_status():
     with ui_state['lock']:
         state_stats = app.state_manager.get_stats()
 
+        # Refresh total_analyzed from DB on every status call so the counter is always accurate
+        # (in-memory += 1 drifts during re-analysis; DB count_processed_documents is the ground truth)
+        try:
+            ui_state['stats']['total_analyzed'] = count_processed_documents()
+        except Exception:
+            pass
+
         # Get vector store stats
         from analyzer.vector_store import VectorStore
         vector_store = VectorStore()
