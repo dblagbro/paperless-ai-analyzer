@@ -146,20 +146,26 @@ class VectorStore:
 
             embedding = response.embeddings[0]
 
+            # Build metadata dict — include all fields needed for stale detection and summary display
+            chroma_meta = {
+                'document_id': document_id,
+                'title': title,
+                'risk_score': metadata.get('risk_score', 0),
+                'anomalies': ','.join(metadata.get('anomalies', [])),
+                'timestamp': metadata.get('timestamp', ''),
+                'document_type': metadata.get('document_type', 'unknown'),
+                'paperless_modified': metadata.get('paperless_modified', ''),
+                'brief_summary': metadata.get('brief_summary', ''),
+                'full_summary': metadata.get('full_summary', ''),
+            }
+
             # Store in ChromaDB - recreate collection if it doesn't exist
             try:
                 self.collection.upsert(
                     ids=[str(document_id)],
                     embeddings=[embedding],
                     documents=[text_to_embed],
-                    metadatas=[{
-                        'document_id': document_id,
-                        'title': title,
-                        'risk_score': metadata.get('risk_score', 0),
-                        'anomalies': ','.join(metadata.get('anomalies', [])),
-                        'timestamp': metadata.get('timestamp', ''),
-                        'document_type': metadata.get('document_type', 'unknown')
-                    }]
+                    metadatas=[chroma_meta]
                 )
             except Exception as collection_error:
                 # Collection might have been deleted - recreate it
@@ -174,14 +180,7 @@ class VectorStore:
                         ids=[str(document_id)],
                         embeddings=[embedding],
                         documents=[text_to_embed],
-                        metadatas=[{
-                            'document_id': document_id,
-                            'title': title,
-                            'risk_score': metadata.get('risk_score', 0),
-                            'anomalies': ','.join(metadata.get('anomalies', [])),
-                            'timestamp': metadata.get('timestamp', ''),
-                            'document_type': metadata.get('document_type', 'unknown')
-                        }]
+                        metadatas=[chroma_meta]
                     )
                 else:
                     raise
