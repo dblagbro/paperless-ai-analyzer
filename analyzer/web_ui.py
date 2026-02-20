@@ -4249,9 +4249,10 @@ def api_users_deactivate(uid):
 def api_users_send_manual(uid):
     """Send the user manual link to a user via email (admin only)."""
     try:
-        user = get_user_by_id(uid)
-        if not user:
+        row = get_user_by_id(uid)
+        if not row:
             return jsonify({'error': 'User not found'}), 404
+        user = dict(row)
         if not user.get('email'):
             return jsonify({'error': 'User has no email address configured'}), 400
         url_prefix = app.config.get('URL_PREFIX', '')
