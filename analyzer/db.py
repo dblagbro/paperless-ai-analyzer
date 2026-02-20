@@ -43,6 +43,7 @@ def init_db():
                 user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
                 title         TEXT    NOT NULL DEFAULT 'New Chat',
                 document_type TEXT,
+                project_slug  TEXT    NOT NULL DEFAULT 'default',
                 created_at    TEXT    NOT NULL DEFAULT (datetime('now')),
                 updated_at    TEXT    NOT NULL DEFAULT (datetime('now'))
             );
@@ -78,12 +79,23 @@ def init_db():
 
             CREATE TABLE IF NOT EXISTS processed_documents (
                 doc_id            INTEGER PRIMARY KEY,
+                project_slug      TEXT NOT NULL DEFAULT 'default',
                 first_analyzed_at TEXT NOT NULL DEFAULT (datetime('now')),
                 last_analyzed_at  TEXT NOT NULL DEFAULT (datetime('now'))
             );
         """)
 
         # Migrations — ADD COLUMN is idempotent-safe (ignored if column exists)
+        for _tbl, _col in (
+            ("chat_sessions",       "project_slug TEXT NOT NULL DEFAULT 'default'"),
+            ("processed_documents", "project_slug TEXT NOT NULL DEFAULT 'default'"),
+        ):
+            try:
+                conn.execute(f"ALTER TABLE {_tbl} ADD COLUMN {_col}")
+                logger.info(f"Migration: added {_tbl}.project_slug column")
+            except Exception:
+                pass  # column already exists
+
         try:
             conn.execute("ALTER TABLE users ADD COLUMN email TEXT NOT NULL DEFAULT ''")
             logger.info("Migration: added users.email column")
@@ -181,20 +193,23 @@ def list_users():
 # Chat sessions CRUD
 # ---------------------------------------------------------------------------
 
-def get_sessions(user_id: int):
-    """Return own sessions + sessions shared with this user, newest first."""
+def get_sessions(user_id: int, project_slug: str = 'default'):
+    """Return own sessions + sessions shared with this user for the given project, newest first."""
     with _get_conn() as conn:
         return conn.execute("""
             SELECT cs.*, u.username AS owner_username,
                    CASE WHEN cs.user_id = ? THEN 0 ELSE 1 END AS is_shared
             FROM chat_sessions cs
             JOIN users u ON u.id = cs.user_id
-            WHERE cs.user_id = ?
-               OR cs.id IN (
-                   SELECT session_id FROM chat_shares WHERE shared_with_user_id = ?
-               )
+            WHERE cs.project_slug = ?
+              AND (
+                   cs.user_id = ?
+                   OR cs.id IN (
+                       SELECT session_id FROM chat_shares WHERE shared_with_user_id = ?
+                   )
+              )
             ORDER BY cs.updated_at DESC
-        """, (user_id, user_id, user_id)).fetchall()
+        """, (user_id, project_slug, user_id, user_id)).fetchall()
 
 
 def get_all_sessions_by_user():
@@ -208,12 +223,13 @@ def get_all_sessions_by_user():
         """).fetchall()
 
 
-def create_session(user_id: int, title: str = 'New Chat', document_type: str = None) -> str:
+def create_session(user_id: int, title: str = 'New Chat', document_type: str = None,
+                   project_slug: str = 'default') -> str:
     session_id = str(uuid.uuid4())
     with _get_conn() as conn:
         conn.execute(
-            "INSERT INTO chat_sessions (id, user_id, title, document_type) VALUES (?, ?, ?, ?)",
-            (session_id, user_id, title, document_type)
+            "INSERT INTO chat_sessions (id, user_id, title, document_type, project_slug) VALUES (?, ?, ?, ?, ?)",
+            (session_id, user_id, title, document_type, project_slug)
         )
     return session_id
 
@@ -318,7 +334,7 @@ def log_import(user_id: int, source: str, filename: str, url: str = None,
         )
 
 
-def mark_document_processed(doc_id: int) -> None:
+def mark_document_processed(doc_id: int, project_slug: str = 'default') -> None:
     """Record that the AI analyzer has processed a document.  Uses INSERT OR REPLACE so the
     last_analyzed_at timestamp is updated on re-analysis while first_analyzed_at is preserved."""
     if not doc_id:
@@ -329,31 +345,44 @@ def mark_document_processed(doc_id: int) -> None:
         ).fetchone()
         if existing:
             conn.execute(
-                "UPDATE processed_documents SET last_analyzed_at = datetime('now') WHERE doc_id = ?",
-                (doc_id,)
+                "UPDATE processed_documents SET last_analyzed_at = datetime('now'), project_slug = ? WHERE doc_id = ?",
+                (project_slug, doc_id)
             )
         else:
             conn.execute(
-                "INSERT INTO processed_documents (doc_id) VALUES (?)", (doc_id,)
+                "INSERT INTO processed_documents (doc_id, project_slug) VALUES (?, ?)",
+                (doc_id, project_slug)
             )
 
 
-def count_processed_documents() -> int:
-    """Return the total number of unique documents ever processed by the AI analyzer."""
+def count_processed_documents(project_slug: str = None) -> int:
+    """Return the total number of unique documents ever processed by the AI analyzer.
+    If project_slug is given, counts only documents for that project."""
     try:
         with _get_conn() as conn:
-            row = conn.execute("SELECT COUNT(*) FROM processed_documents").fetchone()
+            if project_slug:
+                row = conn.execute(
+                    "SELECT COUNT(*) FROM processed_documents WHERE project_slug = ?", (project_slug,)
+                ).fetchone()
+            else:
+                row = conn.execute("SELECT COUNT(*) FROM processed_documents").fetchone()
             return row[0] if row else 0
     except Exception as e:
         logger.error(f"Failed to count processed documents: {e}")
         return 0
 
 
-def get_analyzed_doc_ids() -> set:
-    """Return the set of doc_ids in the processed_documents table."""
+def get_analyzed_doc_ids(project_slug: str = None) -> set:
+    """Return the set of doc_ids in the processed_documents table.
+    If project_slug is given, returns only IDs for that project."""
     try:
         with _get_conn() as conn:
-            rows = conn.execute("SELECT doc_id FROM processed_documents").fetchall()
+            if project_slug:
+                rows = conn.execute(
+                    "SELECT doc_id FROM processed_documents WHERE project_slug = ?", (project_slug,)
+                ).fetchall()
+            else:
+                rows = conn.execute("SELECT doc_id FROM processed_documents").fetchall()
             return {r[0] for r in rows}
     except Exception as e:
         logger.error(f"Failed to get analyzed doc IDs: {e}")

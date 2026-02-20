@@ -13,7 +13,7 @@ from email.message import EmailMessage
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Dict, Any, List
-from flask import Flask, render_template, jsonify, request, redirect, url_for, make_response
+from flask import Flask, render_template, jsonify, request, redirect, url_for, make_response, session
 from flask_login import login_required, login_user, logout_user, current_user
 from werkzeug.security import check_password_hash
 from threading import Thread, Lock
@@ -2594,8 +2594,7 @@ def api_list_projects():
         return jsonify({'error': 'Project management not enabled'}), 503
 
     try:
-        include_archived = request.args.get('archived', type=bool, default=False)
-        projects = app.project_manager.list_projects(include_archived=include_archived)
+        projects = app.project_manager.list_projects(include_archived=True)
 
         # Add statistics to each project
         for project in projects:
@@ -3945,7 +3944,7 @@ def api_chat_sessions_list():
                 })
             return jsonify({'sessions_by_user': by_user, 'is_admin': True})
         else:
-            rows = get_sessions(current_user.id)
+            rows = get_sessions(current_user.id, project_slug=session.get('current_project', 'default'))
             sessions = [{
                 'id': r['id'],
                 'title': r['title'],
@@ -3970,7 +3969,9 @@ def api_chat_sessions_create():
         data = request.json or {}
         title = data.get('title', 'New Chat')
         document_type = data.get('document_type')
-        session_id = create_session(current_user.id, title=title, document_type=document_type)
+        project_slug = session.get('current_project', 'default')
+        session_id = create_session(current_user.id, title=title, document_type=document_type,
+                                    project_slug=project_slug)
         return jsonify({'session_id': session_id, 'title': title})
     except Exception as e:
         logger.error(f"Create session error: {e}")
@@ -4283,7 +4284,7 @@ def update_ui_stats(analysis_result: Dict[str, Any]) -> None:
         doc_id = analysis_result.get('doc_id')
         if doc_id:
             try:
-                mark_document_processed(doc_id)
+                mark_document_processed(doc_id, project_slug=analysis_result.get('project_slug', 'default'))
             except Exception:
                 pass
 
