@@ -1214,8 +1214,19 @@ Format the output as structured text that preserves the layout and relationships
                             'max_severity': self._get_max_severity(integrity_analysis.get('findings', []))
                         })
 
+                    # Route to the correct project collection based on document's project: tag
+                    doc_project_slug = self.config.get('project_slug', 'default')
+                    for tag in existing_tags:
+                        if tag.startswith('project:'):
+                            doc_project_slug = tag.split('project:', 1)[1]
+                            break
+                    if doc_project_slug == self.config.get('project_slug', 'default'):
+                        embed_store = self.vector_store
+                    else:
+                        embed_store = VectorStore(project_slug=doc_project_slug)
+
                     # Embed and store with rich metadata
-                    self.vector_store.embed_document(
+                    embed_store.embed_document(
                         document_id=doc_id,
                         title=doc_title,
                         content=content_text,
