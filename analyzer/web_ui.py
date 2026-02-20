@@ -3743,7 +3743,7 @@ _DOCS_PAGES = {
 def docs(page=''):
     """Serve the user manual."""
     slug = _DOCS_PAGES.get(page.strip('/'), 'overview')
-    url_prefix = app.config.get('URL_PREFIX', '')
+    url_prefix = request.script_root
     github_url = 'https://github.com/dblagbro/paperless-ai-analyzer'
     version = _APP_VERSION
     return render_template(
