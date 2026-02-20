@@ -2174,6 +2174,7 @@
                         <li><strong>Reprocess All</strong> — Clears existing analysis results and re-runs the AI on every document. Use this after changing profiles or AI settings.</li>
                         <li><strong>Reprocess Document</strong> — Re-runs analysis on a single document by its Paperless document ID.</li>
                         <li><strong>Live Logs</strong> — Shows the last 200 log lines from the analyzer in real time. Useful for diagnosing why a document wasn't processed.</li>
+                        <li><strong>Reconcile Index</strong> — Removes stale DB records and vector embeddings for documents deleted from Paperless. Does not re-analyze anything.</li>
                         <li>If documents are stuck or incorrectly tagged, check the logs here first before filing a bug report.</li>
                     </ul>
                     <div style="margin-top:8px; font-size:12px;"><a href="{{ request.script_root }}/docs/tools" target="_blank" style="color:#5dade2;">📖 Full manual for this section →</a></div>
@@ -2187,6 +2188,13 @@
                 <div style="font-size: 12px; color: #666; margin-bottom: 30px;">
                     ℹ️ Reprocessing will analyze documents on the next poll cycle (every 30 seconds)
                 </div>
+
+                <h2 style="margin-top: 10px; padding-top: 20px; border-top: 2px solid #ecf0f1;">🔁 Reconcile Index</h2>
+                <p style="color:#666; font-size:14px; margin-bottom:14px;">Removes stale records from the analyzed-docs database and vector store for any document that has been deleted from Paperless. Does <strong>not</strong> re-analyze anything.</p>
+                <div class="action-group" style="margin-bottom:12px;">
+                    <button class="btn" id="reconcile-btn" onclick="runReconcile()">🔁 Reconcile Now</button>
+                </div>
+                <div id="reconcile-result" style="display:none; font-size:13px; padding:10px 14px; border-radius:6px; margin-bottom:24px;"></div>
 
                 <h2 style="margin-top: 30px; padding-top: 20px; border-top: 2px solid #ecf0f1;">📋 Live Logs <button class="btn btn-small" onclick="refreshLogs()">Refresh</button></h2>
                 <div class="logs-viewer" id="logs-viewer" style="margin-top: 15px;">
@@ -3416,6 +3424,41 @@
                 }
             } catch (error) {
                 alert('❌ Failed to reprocess: ' + error.message);
+            }
+        }
+
+        async function runReconcile() {
+            const btn = document.getElementById('reconcile-btn');
+            const result = document.getElementById('reconcile-result');
+            btn.disabled = true;
+            btn.textContent = '⏳ Reconciling...';
+            result.style.display = 'none';
+            try {
+                const r = await apiFetch(apiUrl('/api/reconcile'), { method: 'POST' });
+                const d = await r.json();
+                if (!r.ok) throw new Error(d.error || 'Failed');
+                const cleaned = d.db_orphans_removed + d.chroma_orphans_removed > 0;
+                result.style.background = cleaned ? '#f0fdf4' : '#f8fafc';
+                result.style.border = `1px solid ${cleaned ? '#86efac' : '#e2e8f0'}`;
+                result.style.color = cleaned ? '#166534' : '#475569';
+                result.innerHTML = `
+                    <strong>${cleaned ? '✅ Reconcile complete' : 'ℹ️ Everything looks clean'}</strong><br>
+                    📄 Paperless documents: <strong>${d.paperless_total}</strong><br>
+                    🗑️ Stale DB records removed: <strong>${d.db_orphans_removed}</strong><br>
+                    🗑️ Stale embeddings removed: <strong>${d.chroma_orphans_removed}</strong><br>
+                    ⏳ Not yet analyzed: <strong>${d.not_analyzed}</strong><br>
+                    ⏳ Not yet embedded: <strong>${d.not_embedded}</strong>
+                `;
+                result.style.display = 'block';
+            } catch(e) {
+                result.style.background = '#fef2f2';
+                result.style.border = '1px solid #fca5a5';
+                result.style.color = '#991b1b';
+                result.innerHTML = `<strong>❌ Error:</strong> ${e.message}`;
+                result.style.display = 'block';
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '🔁 Reconcile Now';
             }
         }
 
