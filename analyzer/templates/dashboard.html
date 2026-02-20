@@ -2022,14 +2022,18 @@
                     <!-- Add User Form (hidden by default) -->
                     <div id="add-user-form" style="display: none; background: #f8f9fa; padding: 16px; border-radius: 6px; margin-bottom: 16px;">
                         <h3 style="margin-bottom: 12px; font-size: 15px;">New User</h3>
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
-                            <input type="text" id="new-user-username" placeholder="Username" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px;">
-                            <input type="text" id="new-user-display" placeholder="Display Name (optional)" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px;">
-                            <input type="password" id="new-user-password" placeholder="Password" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px;">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 10px;">
+                            <input type="text" id="new-user-username" placeholder="Username *" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px;">
+                            <input type="text" id="new-user-display" placeholder="Display Name" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px;">
+                            <input type="email" id="new-user-email" placeholder="Email (for notifications)" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px;">
+                            <input type="password" id="new-user-password" placeholder="Password *" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px;">
                             <select id="new-user-role" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px;">
                                 <option value="basic">Basic</option>
                                 <option value="admin">Admin</option>
                             </select>
+                            <div style="display:flex; align-items:center; font-size:12px; color:#888;">
+                                A welcome email will be sent if SMTP is configured and an email is provided.
+                            </div>
                         </div>
                         <div id="add-user-error" style="color: #e74c3c; font-size: 13px; margin-bottom: 8px; display:none;"></div>
                         <div style="display: flex; gap: 8px;">
@@ -2038,11 +2042,38 @@
                         </div>
                     </div>
 
+                    <!-- Edit User Modal -->
+                    <div id="edit-user-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.45); z-index:9999; align-items:center; justify-content:center;">
+                        <div style="background:#fff; border-radius:8px; padding:28px; width:420px; max-width:95vw; box-shadow:0 8px 32px rgba(0,0,0,0.2);">
+                            <h3 style="margin:0 0 18px; font-size:16px;">✏️ Edit User: <span id="edit-user-name-label"></span></h3>
+                            <input type="hidden" id="edit-user-id">
+                            <div style="display:flex; flex-direction:column; gap:10px;">
+                                <label style="font-size:13px; font-weight:600;">Display Name</label>
+                                <input type="text" id="edit-display-name" style="padding:8px 12px; border:1px solid #ddd; border-radius:4px;">
+                                <label style="font-size:13px; font-weight:600;">Email</label>
+                                <input type="email" id="edit-email" style="padding:8px 12px; border:1px solid #ddd; border-radius:4px;">
+                                <label style="font-size:13px; font-weight:600;">Role</label>
+                                <select id="edit-role" style="padding:8px 12px; border:1px solid #ddd; border-radius:4px;">
+                                    <option value="basic">Basic</option>
+                                    <option value="admin">Admin</option>
+                                </select>
+                                <label style="font-size:13px; font-weight:600;">New Password <span style="font-weight:400; color:#888;">(leave blank to keep current)</span></label>
+                                <input type="password" id="edit-password" placeholder="New password (optional)" style="padding:8px 12px; border:1px solid #ddd; border-radius:4px;">
+                            </div>
+                            <div id="edit-user-error" style="color:#e74c3c; font-size:13px; margin-top:10px; display:none;"></div>
+                            <div style="display:flex; gap:8px; margin-top:18px; justify-content:flex-end;">
+                                <button class="btn" onclick="closeEditUserModal()">Cancel</button>
+                                <button class="btn btn-success" onclick="saveEditUser()">Save Changes</button>
+                            </div>
+                        </div>
+                    </div>
+
                     <table class="user-table" id="users-table">
                         <thead>
                             <tr>
                                 <th>Username</th>
                                 <th>Display Name</th>
+                                <th>Email</th>
                                 <th>Role</th>
                                 <th>Last Login</th>
                                 <th>Active</th>
@@ -2050,7 +2081,7 @@
                             </tr>
                         </thead>
                         <tbody id="users-table-body">
-                            <tr><td colspan="6" class="loading">Loading users...</td></tr>
+                            <tr><td colspan="7" class="loading">Loading users...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -4426,21 +4457,18 @@
             const tbody = document.getElementById('users-table-body');
             if (!tbody) return;
             if (!users || !users.length) {
-                tbody.innerHTML = '<tr><td colspan="6" style="color:#999;">No users found</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="7" style="color:#999;">No users found</td></tr>';
                 return;
             }
             tbody.innerHTML = users.map(u => `<tr>
                 <td><strong>${escapeHtml(u.username)}</strong></td>
                 <td>${escapeHtml(u.display_name || '')}</td>
+                <td style="font-size:12px; color:#555;">${escapeHtml(u.email || '—')}</td>
                 <td><span class="role-badge ${u.role}">${u.role}</span></td>
                 <td style="font-size:12px; color:#666;">${u.last_login ? u.last_login.split('T')[0] : 'Never'}</td>
                 <td>${u.is_active ? '✅' : '❌'}</td>
                 <td style="display:flex; gap:6px; flex-wrap:wrap;">
-                    <select id="role-sel-${u.id}" style="padding:3px 6px; font-size:12px; border:1px solid #ddd; border-radius:3px;">
-                        <option value="basic" ${u.role==='basic'?'selected':''}>Basic</option>
-                        <option value="admin" ${u.role==='admin'?'selected':''}>Admin</option>
-                    </select>
-                    <button class="btn" style="font-size:11px; padding:3px 8px;" onclick="updateUserRole(${u.id})">Save</button>
+                    <button class="btn" style="font-size:11px; padding:3px 8px;" onclick="openEditUserModal(${JSON.stringify(u).replace(/"/g,'&quot;')})">✏️ Edit</button>
                     ${u.is_active
                         ? `<button class="btn btn-danger" style="font-size:11px; padding:3px 8px;" onclick="deactivateUser(${u.id})">Deactivate</button>`
                         : `<button class="btn btn-success" style="font-size:11px; padding:3px 8px;" onclick="activateUser(${u.id})">Activate</button>`
@@ -4460,6 +4488,7 @@
             const username = document.getElementById('new-user-username').value.trim();
             const password = document.getElementById('new-user-password').value.trim();
             const display_name = document.getElementById('new-user-display').value.trim();
+            const email = document.getElementById('new-user-email').value.trim();
             const role = document.getElementById('new-user-role').value;
             const errEl = document.getElementById('add-user-error');
             if (!username || !password) { errEl.textContent = 'Username and password required'; errEl.style.display = 'block'; return; }
@@ -4468,26 +4497,56 @@
                 const res = await apiFetch(apiUrl('/api/users'), {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({username, password, role, display_name}),
+                    body: JSON.stringify({username, password, role, display_name, email}),
                 });
                 const data = await res.json();
                 if (!res.ok) { errEl.textContent = data.error || 'Failed to create user'; errEl.style.display = 'block'; return; }
                 hideAddUserForm();
-                document.getElementById('new-user-username').value = '';
-                document.getElementById('new-user-password').value = '';
-                document.getElementById('new-user-display').value = '';
+                ['new-user-username','new-user-password','new-user-display','new-user-email'].forEach(id => {
+                    const el = document.getElementById(id); if (el) el.value = '';
+                });
+                if (data.email_sent) alert(`✅ User created and welcome email sent to ${email}`);
                 loadUsers();
             } catch (e) { errEl.textContent = e.message; errEl.style.display = 'block'; }
         }
 
-        async function updateUserRole(uid) {
-            const role = document.getElementById(`role-sel-${uid}`).value;
-            await apiFetch(apiUrl(`/api/users/${uid}`), {
-                method: 'PATCH',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({role}),
-            });
-            loadUsers();
+        function openEditUserModal(u) {
+            document.getElementById('edit-user-id').value = u.id;
+            document.getElementById('edit-user-name-label').textContent = u.username;
+            document.getElementById('edit-display-name').value = u.display_name || '';
+            document.getElementById('edit-email').value = u.email || '';
+            document.getElementById('edit-role').value = u.role || 'basic';
+            document.getElementById('edit-password').value = '';
+            document.getElementById('edit-user-error').style.display = 'none';
+            const modal = document.getElementById('edit-user-modal');
+            modal.style.display = 'flex';
+        }
+
+        function closeEditUserModal() {
+            document.getElementById('edit-user-modal').style.display = 'none';
+        }
+
+        async function saveEditUser() {
+            const uid = document.getElementById('edit-user-id').value;
+            const display_name = document.getElementById('edit-display-name').value.trim();
+            const email = document.getElementById('edit-email').value.trim();
+            const role = document.getElementById('edit-role').value;
+            const password = document.getElementById('edit-password').value;
+            const errEl = document.getElementById('edit-user-error');
+            errEl.style.display = 'none';
+            const payload = {display_name, email, role};
+            if (password) payload.password = password;
+            try {
+                const res = await apiFetch(apiUrl(`/api/users/${uid}`), {
+                    method: 'PATCH',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload),
+                });
+                const data = await res.json();
+                if (!res.ok) { errEl.textContent = data.error || 'Failed to save'; errEl.style.display = 'block'; return; }
+                closeEditUserModal();
+                loadUsers();
+            } catch (e) { errEl.textContent = e.message; errEl.style.display = 'block'; }
         }
 
         async function deactivateUser(uid) {

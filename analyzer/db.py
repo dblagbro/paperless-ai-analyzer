@@ -82,6 +82,14 @@ def init_db():
                 last_analyzed_at  TEXT NOT NULL DEFAULT (datetime('now'))
             );
         """)
+
+        # Migrations — ADD COLUMN is idempotent-safe (ignored if column exists)
+        try:
+            conn.execute("ALTER TABLE users ADD COLUMN email TEXT NOT NULL DEFAULT ''")
+            logger.info("Migration: added users.email column")
+        except Exception:
+            pass  # column already exists
+
     logger.info("Database initialized (tables created if not exist)")
 
 
@@ -103,12 +111,12 @@ def get_user_by_id(user_id: int):
         ).fetchone()
 
 
-def create_user(username: str, password: str, role: str = 'basic', display_name: str = None):
+def create_user(username: str, password: str, role: str = 'basic', display_name: str = None, email: str = ''):
     pw_hash = generate_password_hash(password)
     with _get_conn() as conn:
         conn.execute(
-            "INSERT INTO users (username, password_hash, role, display_name) VALUES (?, ?, ?, ?)",
-            (username, pw_hash, role, display_name or username)
+            "INSERT INTO users (username, password_hash, role, display_name, email) VALUES (?, ?, ?, ?, ?)",
+            (username, pw_hash, role, display_name or username, email or '')
         )
     logger.info(f"Created user '{username}' with role '{role}'")
 
@@ -121,8 +129,8 @@ def update_last_login(user_id: int):
 
 
 def update_user(user_id: int, **kwargs):
-    """Update role, display_name, or password for a user."""
-    allowed = {'role', 'display_name', 'password', 'is_active'}
+    """Update role, display_name, email, password, or is_active for a user."""
+    allowed = {'role', 'display_name', 'email', 'password', 'is_active'}
     updates = {}
     for k, v in kwargs.items():
         if k not in allowed:
@@ -142,7 +150,7 @@ def update_user(user_id: int, **kwargs):
 def list_users():
     with _get_conn() as conn:
         return conn.execute(
-            "SELECT id, username, display_name, role, created_at, last_login, is_active FROM users ORDER BY id"
+            "SELECT id, username, display_name, email, role, created_at, last_login, is_active FROM users ORDER BY id"
         ).fetchall()
 
 
