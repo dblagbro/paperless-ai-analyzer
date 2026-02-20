@@ -246,14 +246,18 @@ class PaperlessClient:
             Tag ID or None if failed
         """
         try:
-            # First try to get existing tag
+            # First try to get existing tag — use name__iexact for exact match,
+            # then filter client-side as defence against Paperless versions that
+            # ignore the filter and return all tags.
             url = f'{self.base_url}/api/tags/'
-            response = self.session.get(url, params={'name': tag_name})
+            response = self.session.get(url, params={'name__iexact': tag_name})
             response.raise_for_status()
 
             results = response.json().get('results', [])
-            if results:
-                tag_id = results[0]['id']
+            # Filter client-side: only accept an exact name match
+            matching = [r for r in results if r['name'].lower() == tag_name.lower()]
+            if matching:
+                tag_id = matching[0]['id']
                 logger.debug(f"Found existing tag '{tag_name}': ID {tag_id}")
                 return tag_id
 
@@ -261,7 +265,7 @@ class PaperlessClient:
             color = color or '#3498db'  # Default blue
             payload = {
                 'name': tag_name,
-                'color': color.lstrip('#'),  # Paperless expects color without #
+                'color': color,
                 'is_inbox_tag': False
             }
 

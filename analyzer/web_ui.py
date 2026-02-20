@@ -3300,14 +3300,22 @@ def api_upload_from_url():
                     loop.close()
                 title = metadata_in.get('suggested_title') or filename
             else:
-                # Direct upload without AI metadata
-                result = app.paperless_client.upload_document(file_path, title=filename)
+                # Direct upload without AI metadata — still apply project tag if selected
+                tag_ids = []
+                if project_slug and app.paperless_client:
+                    proj_tag = app.paperless_client.get_or_create_tag(f"project:{project_slug}")
+                    if proj_tag and proj_tag.get('id'):
+                        tag_ids.append(proj_tag['id'])
+                result = app.paperless_client.upload_document(file_path, title=filename,
+                                                              tags=tag_ids or None)
                 title = filename
         finally:
             downloader.cleanup(file_path)
 
         if result:
             doc_id = result.get('id')
+            if project_slug and not metadata_in and app.project_manager:
+                app.project_manager.increment_document_count(project_slug, delta=1)
             logger.info(f"Uploaded from URL ({source}): {filename}")
             log_import(current_user.id, source, title, url=url,
                        doc_id=doc_id, status='uploaded')
@@ -3415,9 +3423,15 @@ def api_submit_upload():
                     loop.close()
                 title = metadata.get('suggested_title') or file.filename
             else:
-                # Direct upload without AI metadata
+                # Direct upload without AI metadata — still apply project tag if selected
+                tag_ids = []
+                if project_slug and app.paperless_client:
+                    proj_tag = app.paperless_client.get_or_create_tag(f"project:{project_slug}")
+                    if proj_tag and proj_tag.get('id'):
+                        tag_ids.append(proj_tag['id'])
                 result = app.paperless_client.upload_document(
-                    file_path, title=file.filename.rsplit('.', 1)[0]
+                    file_path, title=file.filename.rsplit('.', 1)[0],
+                    tags=tag_ids or None
                 )
                 title = file.filename
         finally:
@@ -3429,6 +3443,8 @@ def api_submit_upload():
 
         if result:
             doc_id = result.get('id')
+            if project_slug and not metadata and app.project_manager:
+                app.project_manager.increment_document_count(project_slug, delta=1)
             logger.info(f"Uploaded {file.filename} (project={project_slug or 'none'})")
             log_import(current_user.id, 'file', title,
                        doc_id=doc_id, status='uploaded')

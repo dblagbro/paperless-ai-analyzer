@@ -311,8 +311,22 @@ class ProjectManager:
         if not project:
             raise ValueError(f"Project '{slug}' not found")
 
+        # Query live Chroma count so the UI always reflects reality
+        # (the cached document_count in projects.db is only updated by explicit
+        # upload paths, not by the normal analysis loop)
+        try:
+            from analyzer.vector_store import VectorStore
+            vs = VectorStore(project_slug=slug)
+            live_count = vs.collection.count()
+        except Exception:
+            live_count = project['document_count']  # fall back to cached
+
+        # Sync the DB cache if it drifted
+        if live_count != project['document_count']:
+            self.update_document_count(slug, live_count)
+
         stats = {
-            'document_count': project['document_count'],
+            'document_count': live_count,
             'last_analyzed_at': project['last_analyzed_at'],
             'created_at': project['created_at'],
             'updated_at': project['updated_at']
