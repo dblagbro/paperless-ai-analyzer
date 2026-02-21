@@ -1287,19 +1287,27 @@
         .user-table th { background: #f8f9fa; font-weight: 600; color: #555; font-size: 12px; text-transform: uppercase; }
         .user-table tr:hover td { background: #fafafa; }
 
-        /* ── Full-height layout: header fixed, tabs fill remaining height ── */
-        #app-layout { flex-direction: column; }
-        #main-content { overflow: hidden; min-height: 0; }
-        header { margin-bottom: 0; flex-shrink: 0; }
+        /* ── Full-width, full-height layout ── */
+        /* Remove max-width constraint so tabs fill the screen at any zoom level */
+        .container { max-width: 100%; }
+        header .container { padding: 6px 20px; }        /* keep header content padded */
         #main-content > .container {
             flex: 1; overflow: hidden; display: flex; flex-direction: column;
-            padding-bottom: 0; min-height: 0;
+            padding: 0; min-height: 0; margin: 0;
         }
+        /* Compact header — reduce wasted dark-grey space */
+        header { padding: 6px 0; margin-bottom: 0; flex-shrink: 0; }
+        header h1 { font-size: 20px; }
+        header p  { font-size: 11px; margin-top: 1px; opacity: 0.75; }
+        /* Tabs full-width, no rounded corners at page edges */
         .tabs-container {
             flex: 1; overflow: hidden; display: flex; flex-direction: column;
             margin-bottom: 0; min-height: 0;
+            border-radius: 0; box-shadow: none; border-top: 1px solid #dde1e7;
         }
         .tabs-nav { flex-shrink: 0; }
+        /* Tab buttons: tighter padding at full width */
+        .tab-button { padding: 11px 16px; font-size: 13px; }
         /* Non-chat tabs scroll within the tab panel */
         .tab-content.active { flex: 1; overflow-y: auto; min-height: 0; }
 
