@@ -1286,28 +1286,64 @@
         }
         .user-table th { background: #f8f9fa; font-weight: 600; color: #555; font-size: 12px; text-transform: uppercase; }
         .user-table tr:hover td { background: #fafafa; }
+
+        /* ── Full-height layout: header fixed, tabs fill remaining height ── */
+        #app-layout { flex-direction: column; }
+        #main-content { overflow: hidden; min-height: 0; }
+        header { margin-bottom: 0; flex-shrink: 0; }
+        #main-content > .container {
+            flex: 1; overflow: hidden; display: flex; flex-direction: column;
+            padding-bottom: 0; min-height: 0;
+        }
+        .tabs-container {
+            flex: 1; overflow: hidden; display: flex; flex-direction: column;
+            margin-bottom: 0; min-height: 0;
+        }
+        .tabs-nav { flex-shrink: 0; }
+        /* Non-chat tabs scroll within the tab panel */
+        .tab-content.active { flex: 1; overflow-y: auto; min-height: 0; }
+
+        /* ── AI Chat tab: two-column full-height layout ── */
+        #tab-ai-chat.active {
+            display: flex; flex-direction: column;
+            overflow: hidden; padding: 0; flex: 1;
+        }
+        #tab-ai-chat .tab-help-panel {
+            margin: 0; border-radius: 0;
+            border-bottom: 1px solid #d0d5dd; flex-shrink: 0;
+        }
+        .chat-layout {
+            flex: 1; display: flex; flex-direction: row;
+            overflow: hidden; min-height: 0;
+        }
+        /* Sessions sidebar inside chat tab */
+        .chat-sessions-panel {
+            width: 220px; flex-shrink: 0;
+            background: #1e2a38; color: #cdd4dc;
+            display: flex; flex-direction: column;
+            overflow: hidden; border-right: 1px solid #263444;
+        }
+        .sessions-panel-header {
+            padding: 14px 12px 12px; border-bottom: 1px solid #263444;
+            display: flex; flex-direction: column; gap: 8px; flex-shrink: 0;
+        }
+        .sessions-panel-header h3 { font-size: 13px; font-weight: 700; color: #fff; margin: 0; }
+        /* Main chat area */
+        .chat-main-panel {
+            flex: 1; display: flex; flex-direction: column;
+            overflow: hidden; min-width: 0; background: #f8f9fa;
+        }
+        #tab-ai-chat #ai-key-warning { flex-shrink: 0; margin: 10px 16px; }
+        #tab-ai-chat .chat-container {
+            flex: 1; height: auto; margin: 0;
+            border-radius: 0; box-shadow: none; min-height: 0;
+        }
+        #tab-ai-chat .chat-messages { flex: 1; min-height: 0; }
     </style>
 </head>
 <body>
 <div id="app-layout">
     <!-- ── Chat Sidebar ─────────────────────────────── -->
-    <div id="chat-sidebar">
-        <div class="sidebar-header">
-            <h3>💬 Chat Sessions</h3>
-            <button class="btn-new-chat" onclick="newChat()">+ New Chat</button>
-        </div>
-        <div id="session-list">
-            <div style="padding: 20px 14px; font-size: 12px; color: #556677;">Loading sessions...</div>
-        </div>
-        <div class="sidebar-footer">
-            <div class="sidebar-user-info">
-                <span style="color: #cdd4dc; font-weight: 600;">{{ current_user.display_name }}</span>
-                <span class="role-badge {{ 'admin' if is_admin else 'basic' }}">{{ 'Admin' if is_admin else 'Basic' }}</span>
-            </div>
-            <a href="{{ url_for('logout') }}" class="btn-logout">Sign Out</a>
-        </div>
-    </div>
-
     <!-- ── Main Content ─────────────────────────────── -->
     <div id="main-content">
     <header>
@@ -1720,69 +1756,91 @@
 
             <!-- AI Chat Tab -->
             <div id="tab-ai-chat" class="tab-content">
+                <!-- Help panel (flex-shrink: 0, hidden by default) -->
                 <div class="tab-help-panel" id="help-ai-chat">
                     <strong>💬 AI Chat</strong> — Ask the AI questions about your documents using natural language.
                     <ul style="margin:8px 0 0 0; padding-left:18px;">
                         <li>The AI has access to all analyzed documents in the <strong>Current Project</strong> selected in the header.</li>
                         <li>Ask things like: <em>"Are there any documents with balance mismatches?"</em> or <em>"Summarize documents from March 2024."</em></li>
-                        <li>Use <strong>+ New Chat</strong> in the sidebar to start a fresh conversation.</li>
-                        <li>Chat sessions can be <strong>shared</strong> with other users using the share button in the header bar.</li>
+                        <li>Use <strong>+ New Chat</strong> to start a fresh conversation.</li>
+                        <li>Chat sessions can be <strong>shared</strong> with other users using the share button above the chat.</li>
                         <li>Requires an AI API key — configure one under <strong>⚙️ Configuration → AI Settings</strong>.</li>
                     </ul>
                     <div style="margin-top:8px; font-size:12px;"><a href="{{ request.script_root }}/docs/chat" target="_blank" style="color:#5dade2;">📖 Full manual for this section →</a></div>
                 </div>
-                <!-- API key warning banner (hidden until checked) -->
-                <div id="ai-key-warning" style="display:none; background:#fff3cd; border:1px solid #ffc107; color:#856404; padding:12px 16px; border-radius:6px; margin-bottom:14px; font-size:13px;">
-                    ⚠️ <strong>No AI API key configured.</strong> Chat will not work until you add one.
-                    Go to the <a href="#" onclick="switchTab('config'); return false;" style="color:#856404; font-weight:600;">⚙️ Configuration tab</a> → AI Configuration section to add your key.
-                </div>
-                <!-- Session header -->
-                <div class="chat-session-header">
-                    <span style="font-size: 11px; color: #888; margin-right: 6px; white-space: nowrap;">Title:</span><span class="chat-session-title" id="active-session-title">New Chat</span>
-                    <div class="chat-session-actions">
-                        <button class="btn-session-action" onclick="shareCurrentChat()" id="btn-share-chat" title="Share chat">🔗 Share</button>
-                        <button class="btn-session-action" onclick="exportCurrentChat()" id="btn-export-chat" title="Export as PDF">📥 Export PDF</button>
-                        <button class="btn-session-action" onclick="clearChat()" title="Clear chat">🗑️ Clear</button>
+
+                <!-- Two-column layout: sessions list left, chat right -->
+                <div class="chat-layout">
+
+                    <!-- Left: chat sessions panel -->
+                    <div class="chat-sessions-panel">
+                        <div class="sessions-panel-header">
+                            <h3>💬 Sessions</h3>
+                            <button class="btn-new-chat" onclick="newChat()">+ New Chat</button>
+                        </div>
+                        <div id="session-list">
+                            <div style="padding: 20px 14px; font-size: 12px; color: #556677;">Loading sessions…</div>
+                        </div>
                     </div>
-                </div>
-                <div class="chat-container" style="margin: 0;">
-                    <div class="chat-header">
-                        <h2>💬 AI Document Assistant</h2>
-                    </div>
-                    <div class="chat-messages" id="chat-messages">
-                        <div class="chat-message assistant">
-                            <div class="message-bubble">
-                                <div>👋 Hi! I'm your AI document assistant. I can help you:</div>
-                                <ul style="margin: 10px 0 0 20px; line-height: 1.8;">
-                                    <li>Analyze patterns across all your documents</li>
-                                    <li>Find specific transactions or anomalies</li>
-                                    <li>Generate reports and ledgers</li>
-                                    <li>Answer questions about your financial documents</li>
-                                </ul>
-                                <div style="margin-top: 10px;">Try asking me something!</div>
+
+                    <!-- Right: chat interface -->
+                    <div class="chat-main-panel">
+                        <!-- API key warning banner -->
+                        <div id="ai-key-warning" style="display:none; background:#fff3cd; border:1px solid #ffc107; color:#856404; padding:10px 14px; border-radius:6px; font-size:13px;">
+                            ⚠️ <strong>No AI API key configured.</strong> Chat will not work until you add one.
+                            Go to the <a href="#" onclick="switchTab('config'); return false;" style="color:#856404; font-weight:600;">⚙️ Configuration tab</a> → AI Configuration section.
+                        </div>
+                        <!-- Session title + action buttons -->
+                        <div class="chat-session-header">
+                            <span style="font-size: 11px; color: #888; margin-right: 6px; white-space: nowrap;">Title:</span><span class="chat-session-title" id="active-session-title">New Chat</span>
+                            <div class="chat-session-actions">
+                                <button class="btn-session-action" onclick="shareCurrentChat()" id="btn-share-chat" title="Share chat">🔗 Share</button>
+                                <button class="btn-session-action" onclick="exportCurrentChat()" id="btn-export-chat" title="Export as PDF">📥 Export PDF</button>
+                                <button class="btn-session-action" onclick="clearChat()" title="Clear chat">🗑️ Clear</button>
                             </div>
                         </div>
-                        <div class="chat-suggestions">
-                            <div class="suggestion-chip" onclick="sendSuggestion('Show me all high-risk documents')">Show me all high-risk documents</div>
-                            <div class="suggestion-chip" onclick="sendSuggestion('What anomalies were most common?')">What anomalies were most common?</div>
-                            <div class="suggestion-chip" onclick="sendSuggestion('Generate a summary of all analyzed documents')">Generate a summary</div>
+                        <!-- Chat container: header + messages + input -->
+                        <div class="chat-container">
+                            <div class="chat-header">
+                                <h2>💬 AI Document Assistant</h2>
+                            </div>
+                            <div class="chat-messages" id="chat-messages">
+                                <div class="chat-message assistant">
+                                    <div class="message-bubble">
+                                        <div>👋 Hi! I'm your AI document assistant. I can help you:</div>
+                                        <ul style="margin: 10px 0 0 20px; line-height: 1.8;">
+                                            <li>Analyze patterns across all your documents</li>
+                                            <li>Find specific transactions or anomalies</li>
+                                            <li>Generate reports and ledgers</li>
+                                            <li>Answer questions about your financial documents</li>
+                                        </ul>
+                                        <div style="margin-top: 10px;">Try asking me something!</div>
+                                    </div>
+                                </div>
+                                <div class="chat-suggestions">
+                                    <div class="suggestion-chip" onclick="sendSuggestion('Show me all high-risk documents')">Show me all high-risk documents</div>
+                                    <div class="suggestion-chip" onclick="sendSuggestion('What anomalies were most common?')">What anomalies were most common?</div>
+                                    <div class="suggestion-chip" onclick="sendSuggestion('Generate a summary of all analyzed documents')">Generate a summary</div>
+                                </div>
+                            </div>
+                            <div class="chat-input-area">
+                                <div style="margin-bottom: 10px; display: flex; align-items: center; gap: 10px;">
+                                    <label for="document-type-filter" style="font-size: 14px; color: #666;">Filter by type:</label>
+                                    <select id="document-type-filter" style="padding: 5px 10px; border-radius: 4px; border: 1px solid #ddd; background: white;">
+                                        <option value="all">All Documents</option>
+                                    </select>
+                                    <span id="type-breakdown" style="font-size: 12px; color: #999;"></span>
+                                </div>
+                                <div class="chat-input-container">
+                                    <textarea class="chat-input" id="chat-input" rows="1" placeholder="Ask me anything about your documents… (Enter to send, Ctrl+Enter for new line)" onkeydown="handleChatKeypress(event)"></textarea>
+                                    <button class="chat-send-btn" id="chat-send-btn" onclick="sendChatMessage()">Send</button>
+                                </div>
+                            </div>
                         </div>
-                    </div>
-                    <div class="chat-input-area">
-                        <div style="margin-bottom: 10px; display: flex; align-items: center; gap: 10px;">
-                            <label for="document-type-filter" style="font-size: 14px; color: #666;">Filter by type:</label>
-                            <select id="document-type-filter" style="padding: 5px 10px; border-radius: 4px; border: 1px solid #ddd; background: white;">
-                                <option value="all">All Documents</option>
-                            </select>
-                            <span id="type-breakdown" style="font-size: 12px; color: #999;"></span>
-                        </div>
-                        <div class="chat-input-container">
-                            <textarea class="chat-input" id="chat-input" rows="1" placeholder="Ask me anything about your documents… (Enter to send, Ctrl+Enter for new line)" onkeydown="handleChatKeypress(event)"></textarea>
-                            <button class="chat-send-btn" id="chat-send-btn" onclick="sendChatMessage()">Send</button>
-                        </div>
-                    </div>
-                </div>
-            </div>
+                    </div><!-- .chat-main-panel -->
+
+                </div><!-- .chat-layout -->
+            </div><!-- #tab-ai-chat -->
 
             <!-- Search & Analysis Tab -->
             <div id="tab-search" class="tab-content">
@@ -2357,10 +2415,6 @@
             if (selectedTab) {
                 selectedTab.classList.add('active');
             }
-
-            // Sidebar only visible on AI Chat tab
-            const sidebar = document.getElementById('chat-sidebar');
-            if (sidebar) sidebar.style.display = tabName === 'ai-chat' ? 'flex' : 'none';
 
             // Activate selected tab button (match by onclick attribute, not text content)
             document.querySelectorAll('.tab-button').forEach(btn => {
