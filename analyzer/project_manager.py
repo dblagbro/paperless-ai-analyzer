@@ -332,16 +332,32 @@ class ProjectManager:
             'updated_at': project['updated_at']
         }
 
-        # Calculate storage size (vector store + state file)
+        # Calculate per-project storage size using the ChromaDB VECTOR segment directory.
+        # ChromaDB stores each collection's HNSW index in a UUID-named subdirectory whose
+        # UUID is the *segment* ID (not the collection ID). Look it up via the segments table.
         try:
-            chroma_dir = Path(f'/app/data/chroma')
-            state_file = Path(f'/app/data/state_{slug}.json')
-
+            import sqlite3 as _sqlite3
+            chroma_db = Path('/app/data/chroma/chroma.sqlite3')
+            chroma_dir = Path('/app/data/chroma')
             storage_size = 0
-            if chroma_dir.exists():
-                # Approximate size (ChromaDB stores data in multiple files)
-                storage_size += sum(f.stat().st_size for f in chroma_dir.rglob('*') if f.is_file())
 
+            if chroma_db.exists():
+                col_id = str(vs.collection.id)
+                _conn = _sqlite3.connect(str(chroma_db))
+                seg_row = _conn.execute(
+                    "SELECT id FROM segments WHERE collection = ? AND scope = 'VECTOR'",
+                    (col_id,)
+                ).fetchone()
+                _conn.close()
+                if seg_row:
+                    seg_dir = chroma_dir / seg_row[0]
+                    if seg_dir.exists():
+                        storage_size += sum(
+                            f.stat().st_size for f in seg_dir.rglob('*') if f.is_file()
+                        )
+
+            # Add per-project state file if present
+            state_file = Path(f'/app/data/state_{slug}.json')
             if state_file.exists():
                 storage_size += state_file.stat().st_size
 
