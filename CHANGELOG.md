@@ -4,6 +4,47 @@ All notable changes to Paperless AI Analyzer are documented here.
 
 ---
 
+## [2.1.6] — 2026-02-22
+
+### Bug Fixes
+
+**Search & Analysis — Chroma-backed search**
+- `api_search` was only searching `ui_state['recent_analyses']`, an in-memory list capped at 100 entries that resets to empty on every container restart — after any restart all searches returned no results and the **Has Anomalies** filter showed nothing
+- Fix: when any query or filter is provided the endpoint now queries the Chroma vector store directly (all embedded docs with full metadata), falling back to the in-memory cache only if Chroma is unavailable
+- Searching by document ID, keyword, title substring, anomaly type, or risk level now works immediately after startup — no warm-up period required
+- Semantic similarity search (via Cohere embeddings) is used for free-text queries; exact substring matching is applied across title, brief summary, full summary, and anomaly fields as a secondary pass
+
+---
+
+## [2.1.5] — 2026-02-21
+
+### New Features
+
+**AI Usage & Cost sub-tab** *(Configuration tab)*
+- New **AI Usage** sub-tab under ⚙️ Configuration showing daily token and cost history
+- Bar chart rendered with the Canvas 2D API (no external library) — blue bars show daily API cost, amber dashed overlay shows API call volume
+- Chart pulls data from the LLM usage tracker database and updates on tab open
+
+**Move Documents — UX improvements**
+- Move Documents dialog now closes automatically on success instead of requiring a manual dismiss
+- Success action shows a non-blocking toast notification confirming the move
+
+### Bug Fixes
+
+**Config sub-tab layout — whitespace gap eliminated**
+- Vector Store, Notifications, and Users sub-tabs showed 130–420 px of blank space between the sub-nav and content when switching tabs
+- Root cause: an extra `</div>` tag inside the Profiles section was prematurely closing `#tab-config`, causing `cfg-vectorstore`, `cfg-smtp`, and `cfg-users` to be rendered as siblings of the tab container instead of children — each silently received a `flex: 1` share of the full panel height, leaving the active pane crammed into the bottom half
+- Fix: removed the orphaned closing tag; `#tab-config` is now a flex-column where the sub-nav is a fixed header and the active pane scrolls in the remaining space; switching sub-tabs resets scroll position to the top
+- Debug & Tools tab top padding reduced to match other tabs
+- Config sub-nav no longer bleeds into adjacent tabs when the Config tab is hidden
+
+**Smart Upload — project tag dropped on upload**
+- Uploaded documents were not receiving their project tag in Paperless
+- Root cause: `get_or_create_tag` returns a tag ID integer, not a dict; the upload handler was calling `.get('id')` on an integer (always `None`), so the project tag was silently discarded before the Paperless API call
+- Fix: check `if proj_tag is not None` and append the integer directly
+
+---
+
 ## [2.1.4] — 2026-02-20
 
 ### Bug Fixes

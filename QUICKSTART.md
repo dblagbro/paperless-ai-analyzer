@@ -121,10 +121,10 @@ Go to the **📤 Upload** tab to:
 | 📊 Dashboard | Live stats, recent analyses, anomaly activity chart |
 | 📋 Anomaly Detector | Browse all analyzed documents, filter by risk level |
 | 💬 AI Chat | Chat with your documents using RAG (scoped to the selected project) |
-| 🔍 Search | Full-text semantic search across your document vector store |
+| 🔍 Search & Analysis | Search all embedded docs by keyword, doc ID, anomaly type, or risk — queries Chroma directly so results are available after every restart |
 | 📤 Upload | Import documents from file, URL, or cloud links |
 | 🗂️ Manage Projects | Create/archive projects, see document counts, migrate docs between projects |
-| ⚙️ Configuration | API keys, SMTP, LLM model selection, vector store management, user management (admin) |
+| ⚙️ Configuration | API keys, SMTP, LLM model selection, AI usage chart, vector store management, user management (admin) |
 | 🛠️ Debug & Tools | Live logs, reprocess-all, reconcile index, Chroma status |
 
 The **📖 Users Manual** button in the header opens the built-in 12-page manual at `/docs/`.
