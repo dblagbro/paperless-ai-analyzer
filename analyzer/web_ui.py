@@ -2985,6 +2985,79 @@ def api_unarchive_project(slug):
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/projects/<slug>/documents', methods=['GET'])
+@login_required
+def api_list_project_documents(slug):
+    """List all documents in a project's Chroma collection (lazy-loaded for expand panel)."""
+    if not app.project_manager:
+        return jsonify({'error': 'Project management not enabled'}), 503
+    try:
+        from analyzer.vector_store import VectorStore
+        vs = VectorStore(project_slug=slug)
+        if not vs.enabled:
+            return jsonify({'documents': [], 'count': 0})
+        raw = vs.collection.get(include=['metadatas'])
+        docs = []
+        for i, doc_id in enumerate(raw.get('ids', [])):
+            m = raw['metadatas'][i]
+            docs.append({
+                'doc_id':        int(m.get('document_id', 0)),
+                'title':         m.get('title', 'Untitled'),
+                'timestamp':     m.get('timestamp', ''),
+                'brief_summary': m.get('brief_summary', ''),
+                'full_summary':  m.get('full_summary', ''),
+            })
+        docs.sort(key=lambda x: x['doc_id'])
+        return jsonify({'documents': docs, 'count': len(docs)})
+    except Exception as e:
+        logger.error(f"Failed to list project documents for {slug}: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/projects/<slug>/documents/<int:doc_id>', methods=['DELETE'])
+@login_required
+def api_delete_project_document(slug, doc_id):
+    """Delete a document from Paperless-ngx, Chroma, and processed_documents."""
+    import sqlite3 as _sqlite3
+    warnings = []
+
+    # 1. Delete from Paperless-ngx
+    if app.paperless_client:
+        try:
+            url = f"{app.paperless_client.base_url}/api/documents/{doc_id}/"
+            resp = app.paperless_client.session.delete(url)
+            if resp.status_code not in (204, 404):
+                resp.raise_for_status()
+        except Exception as e:
+            warnings.append(f"Paperless: {e}")
+            logger.warning(f"Could not delete doc {doc_id} from Paperless: {e}")
+
+    # 2. Delete from Chroma vector store
+    try:
+        from analyzer.vector_store import VectorStore
+        vs = VectorStore(project_slug=slug)
+        if vs.enabled:
+            vs.delete_document(doc_id)
+    except Exception as e:
+        warnings.append(f"Chroma: {e}")
+        logger.warning(f"Could not delete doc {doc_id} from Chroma (slug={slug}): {e}")
+
+    # 3. Delete from processed_documents
+    try:
+        with _sqlite3.connect('/app/data/app.db') as conn:
+            conn.execute("DELETE FROM processed_documents WHERE doc_id = ?", (doc_id,))
+    except Exception as e:
+        warnings.append(f"DB: {e}")
+        logger.warning(f"Could not delete doc {doc_id} from processed_documents: {e}")
+
+    if warnings:
+        return jsonify({'success': True, 'warnings': warnings,
+                        'message': f'Document {doc_id} removed with warnings: ' + '; '.join(warnings)})
+
+    logger.info(f"Deleted document {doc_id} from project {slug} (Paperless + Chroma + DB)")
+    return jsonify({'success': True, 'message': f'Document {doc_id} deleted'})
+
+
 @app.route('/api/current-project', methods=['GET'])
 @login_required
 def api_get_current_project():

@@ -2985,36 +2985,49 @@
         let _projCache = [];        // last fetched project list
 
         function _renderProjectCard(p) {
-            const color = p.color || '#3b82f6';
+            const color    = p.color || '#3b82f6';
             const archived = p.is_archived;
+            const cardId   = `proj-docs-${p.slug}`;
             return `
-            <div style="background:#fff; border:1px solid #e5e7eb; border-left:4px solid ${color}; border-radius:8px; padding:18px 20px; margin-bottom:12px; display:flex; align-items:center; gap:16px; ${archived ? 'opacity:.6;' : ''}">
-                <div style="flex:1; min-width:0;">
-                    <div style="display:flex; align-items:center; gap:8px; margin-bottom:3px;">
-                        <span style="font-weight:700; font-size:15px; color:#111; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${p.name}</span>
+            <div style="background:#fff; border:1px solid #e5e7eb; border-left:4px solid ${color}; border-radius:8px; margin-bottom:12px; ${archived ? 'opacity:.6;' : ''}">
+                <div style="padding:18px 20px; display:flex; align-items:center; gap:16px;">
+                    <div style="flex:1; min-width:0;">
+                        <div style="display:flex; align-items:center; gap:8px; margin-bottom:3px;">
+                            <span style="font-weight:700; font-size:15px; color:#111; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${p.name}</span>
+                        </div>
+                        <div style="font-size:13px; color:#6b7280; margin-bottom:6px;">${p.description || '<em style="color:#aaa;">No description</em>'}</div>
+                        <div style="font-size:12px; color:#9ca3af;">
+                            📄 <strong style="color:#374151;">${p.document_count}</strong> docs &nbsp;·&nbsp;
+                            💾 ${(p.storage_size_mb||0).toFixed(2)} MB &nbsp;·&nbsp;
+                            📅 ${new Date(p.created_at).toLocaleDateString()} &nbsp;·&nbsp;
+                            <span style="font-family:monospace; font-size:11px; background:#f3f4f6; padding:1px 6px; border-radius:4px;">${p.slug}</span>
+                        </div>
                     </div>
-                    <div style="font-size:13px; color:#6b7280; margin-bottom:6px;">${p.description || '<em style="color:#aaa;">No description</em>'}</div>
-                    <div style="font-size:12px; color:#9ca3af;">
-                        📄 <strong style="color:#374151;">${p.document_count}</strong> docs &nbsp;·&nbsp;
-                        💾 ${(p.storage_size_mb||0).toFixed(2)} MB &nbsp;·&nbsp;
-                        📅 ${new Date(p.created_at).toLocaleDateString()} &nbsp;·&nbsp;
-                        <span style="font-family:monospace; font-size:11px; background:#f3f4f6; padding:1px 6px; border-radius:4px;">${p.slug}</span>
+                    <div style="display:flex; gap:6px; flex-shrink:0; align-items:center;">
+                        ${!archived ? `<button onclick="openEditProjectModal('${p.slug}')" title="Edit"
+                            style="padding:6px 11px; border:1px solid #d1d5db; border-radius:6px; background:#fff; cursor:pointer; font-size:13px;">✏️</button>
+                        <button onclick="openMoveModal('${p.slug}')" title="Move documents"
+                            style="padding:6px 11px; border:1px solid #d1d5db; border-radius:6px; background:#fff; cursor:pointer; font-size:13px;">📦 Move</button>` : ''}
+                        ${archived
+                            ? `<button onclick="toggleArchiveProject('${p.slug}', false)" title="Restore"
+                                style="padding:6px 11px; border:1px solid #6b7280; border-radius:6px; background:#fff; cursor:pointer; font-size:13px;">📂 Restore</button>`
+                            : `<button onclick="toggleArchiveProject('${p.slug}', true)" title="Archive"
+                                style="padding:6px 11px; border:1px solid #d1d5db; border-radius:6px; background:#fff; cursor:pointer; font-size:13px;">🗄️ Archive</button>`}
+                        ${p.slug !== 'default'
+                            ? `<button onclick="openDelProjModal('${p.slug}', '${p.name.replace(/'/g,"\\'")}', ${p.document_count})" title="Delete project"
+                                style="padding:6px 11px; border:1px solid #fca5a5; border-radius:6px; background:#fff; cursor:pointer; font-size:13px; color:#dc2626;">🗑️</button>`
+                            : ''}
+                        <button onclick="toggleProjDocs('${p.slug}')" id="proj-toggle-${p.slug}"
+                            title="Show/hide documents"
+                            style="padding:6px 11px; border:1px solid #d1d5db; border-radius:6px; background:#f9fafb; cursor:pointer; font-size:13px;">
+                            📋 Docs ▼
+                        </button>
                     </div>
                 </div>
-                <div style="display:flex; gap:6px; flex-shrink:0;">
-                    ${!archived ? `<button onclick="openEditProjectModal('${p.slug}')" title="Edit"
-                        style="padding:6px 11px; border:1px solid #d1d5db; border-radius:6px; background:#fff; cursor:pointer; font-size:13px;">✏️</button>
-                    <button onclick="openMoveModal('${p.slug}')" title="Move documents"
-                        style="padding:6px 11px; border:1px solid #d1d5db; border-radius:6px; background:#fff; cursor:pointer; font-size:13px;">📦 Move</button>` : ''}
-                    ${archived
-                        ? `<button onclick="toggleArchiveProject('${p.slug}', false)" title="Restore"
-                            style="padding:6px 11px; border:1px solid #6b7280; border-radius:6px; background:#fff; cursor:pointer; font-size:13px;">📂 Restore</button>`
-                        : `<button onclick="toggleArchiveProject('${p.slug}', true)" title="Archive"
-                            style="padding:6px 11px; border:1px solid #d1d5db; border-radius:6px; background:#fff; cursor:pointer; font-size:13px;">🗄️ Archive</button>`}
-                    ${p.slug !== 'default'
-                        ? `<button onclick="openDelProjModal('${p.slug}', '${p.name.replace(/'/g,"\\'")}', ${p.document_count})" title="Delete"
-                            style="padding:6px 11px; border:1px solid #fca5a5; border-radius:6px; background:#fff; cursor:pointer; font-size:13px; color:#dc2626;">🗑️</button>`
-                        : ''}
+                <div id="${cardId}" style="display:none; border-top:1px solid #e5e7eb; padding:0 20px 16px 20px;">
+                    <div id="${cardId}-inner" style="padding-top:12px; font-size:13px; color:#374151;">
+                        <em style="color:#9ca3af;">Loading…</em>
+                    </div>
                 </div>
             </div>`;
         }
@@ -3310,6 +3323,122 @@
                 errDiv.style.display = '';
                 btn.disabled = false;
             }
+        }
+
+        // ── Project document expand panel ─────────────────────────────────
+        const _projDocsLoaded = {};
+
+        async function toggleProjDocs(slug) {
+            const panel = document.getElementById(`proj-docs-${slug}`);
+            const btn   = document.getElementById(`proj-toggle-${slug}`);
+            const inner = document.getElementById(`proj-docs-${slug}-inner`);
+            if (panel.style.display === 'none') {
+                panel.style.display = '';
+                btn.textContent = '📋 Docs ▲';
+                if (!_projDocsLoaded[slug]) {
+                    inner.innerHTML = '<em style="color:#9ca3af;">Loading…</em>';
+                    await _loadProjDocs(slug);
+                }
+            } else {
+                panel.style.display = 'none';
+                btn.textContent = '📋 Docs ▼';
+            }
+        }
+
+        async function _loadProjDocs(slug) {
+            const inner = document.getElementById(`proj-docs-${slug}-inner`);
+            try {
+                const res  = await apiFetch(apiUrl(`/api/projects/${slug}/documents`));
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Request failed');
+                const docs = data.documents || [];
+                _projDocsLoaded[slug] = true;
+                if (!docs.length) {
+                    inner.innerHTML = '<p style="color:#9ca3af;text-align:center;padding:8px 0;">No analyzed documents in this project yet.</p>';
+                    return;
+                }
+                const rows = docs.map((d, idx) => {
+                    const brief    = _escHtml(d.brief_summary || '—');
+                    const full     = d.full_summary || '';
+                    const fullShort = _escHtml(full.length > 120 ? full.slice(0, 120) + '…' : full) || '—';
+                    const fullFull  = _escHtml(full) || '—';
+                    const date     = d.timestamp ? new Date(d.timestamp).toLocaleDateString() : '—';
+                    const rowId    = `doc-row-${slug}-${d.doc_id}`;
+                    const fullId   = `doc-full-${slug}-${d.doc_id}`;
+                    return `
+                    <tr id="${rowId}" style="border-bottom:1px solid #f3f4f6;">
+                        <td style="padding:6px 8px;white-space:nowrap;color:#9ca3af;">${idx + 1}</td>
+                        <td style="padding:6px 8px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${_escHtml(d.title)}">${_escHtml(d.title)}</td>
+                        <td style="padding:6px 8px;white-space:nowrap;color:#6b7280;">${date}</td>
+                        <td style="padding:6px 8px;max-width:180px;color:#374151;">${brief}</td>
+                        <td style="padding:6px 8px;max-width:220px;color:#374151;">
+                            <span id="${fullId}-short">${fullShort}</span>
+                            <span id="${fullId}-full" style="display:none;">${fullFull}</span>
+                            ${full.length > 120 ? `<button onclick="toggleDocFull('${fullId}')" id="${fullId}-btn"
+                                style="margin-left:4px;font-size:11px;color:#3b82f6;background:none;border:none;cursor:pointer;padding:0;">more</button>` : ''}
+                        </td>
+                        <td style="padding:6px 8px;white-space:nowrap;">
+                            <button onclick="confirmDeleteDoc('${slug}', ${d.doc_id}, ${JSON.stringify(d.title)})"
+                                style="padding:3px 8px;border:1px solid #fca5a5;border-radius:5px;background:#fff;cursor:pointer;font-size:12px;color:#dc2626;">
+                                🗑️ Delete
+                            </button>
+                        </td>
+                    </tr>`;
+                }).join('');
+                inner.innerHTML = `
+                <div style="overflow-x:auto;">
+                    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+                        <thead>
+                            <tr style="background:#f9fafb;text-align:left;">
+                                <th style="padding:5px 8px;font-weight:600;color:#374151;">#</th>
+                                <th style="padding:5px 8px;font-weight:600;color:#374151;">Title</th>
+                                <th style="padding:5px 8px;font-weight:600;color:#374151;">Date</th>
+                                <th style="padding:5px 8px;font-weight:600;color:#374151;">Brief Summary</th>
+                                <th style="padding:5px 8px;font-weight:600;color:#374151;">Full Summary</th>
+                                <th style="padding:5px 8px;font-weight:600;color:#374151;">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </div>`;
+            } catch (e) {
+                inner.innerHTML = `<p style="color:#e74c3c;padding:8px 0;">Error: ${e.message}</p>`;
+            }
+        }
+
+        function toggleDocFull(fullId) {
+            const s   = document.getElementById(fullId + '-short');
+            const f   = document.getElementById(fullId + '-full');
+            const btn = document.getElementById(fullId + '-btn');
+            const showing = f.style.display === '';
+            s.style.display = showing ? '' : 'none';
+            f.style.display = showing ? 'none' : '';
+            btn.textContent = showing ? 'more' : 'less';
+        }
+
+        async function confirmDeleteDoc(slug, docId, title) {
+            if (!confirm(`Delete "${title}" (Doc #${docId})?\n\nThis permanently removes the document from:\n• Paperless-ngx\n• The AI vector store\n• The analyzer database\n\nThis cannot be undone.`)) return;
+            try {
+                const res  = await apiFetch(apiUrl(`/api/projects/${slug}/documents/${docId}`), {method: 'DELETE'});
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Request failed');
+                const row = document.getElementById(`doc-row-${slug}-${docId}`);
+                if (row) row.remove();
+                delete _projDocsLoaded[slug];
+                if (data.warnings && data.warnings.length) {
+                    showToast('⚠️ Partial delete: ' + data.warnings.join('; '), 'warning', 7000);
+                } else {
+                    showToast(`✅ Document #${docId} deleted`, 'success', 3000);
+                }
+                loadProjectsList();
+            } catch (e) {
+                alert('Delete failed: ' + e.message);
+            }
+        }
+
+        function _escHtml(str) {
+            if (!str) return '';
+            return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
         }
 
         // ── Upload tab state ──────────────────────────────────────────────
