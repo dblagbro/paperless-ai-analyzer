@@ -387,11 +387,26 @@ def api_status():
         vector_store = VectorStore(project_slug=project_slug)
         vector_stats = vector_store.get_stats() if vector_store.enabled else {'enabled': False, 'total_documents': 0}
 
+        # Derive anomaly/high-risk counts from the current project's Chroma collection
+        # so they switch correctly when the user changes project (ui_state['stats'] is global)
+        try:
+            all_meta = vector_store.collection.get(include=['metadatas'])['metadatas']
+            project_anomalies = sum(1 for m in all_meta if m.get('anomalies', '').strip())
+            project_high_risk = sum(1 for m in all_meta if int(m.get('risk_score') or 0) >= 70)
+        except Exception:
+            project_anomalies = ui_state['stats'].get('anomalies_detected', 0)
+            project_high_risk = ui_state['stats'].get('high_risk_count', 0)
+
         return jsonify({
             'status': 'running',
             'uptime_seconds': _get_uptime(),
             'state': state_stats,
-            'stats': {**ui_state['stats'], 'total_analyzed': project_analyzed},
+            'stats': {
+                **ui_state['stats'],
+                'total_analyzed': project_analyzed,
+                'anomalies_detected': project_anomalies,
+                'high_risk_count': project_high_risk,
+            },
             'last_update': ui_state['last_update'],
             'active_profiles': len(app.profile_loader.profiles),
             'vector_store': vector_stats
@@ -3139,64 +3154,87 @@ def api_migrate_documents():
 
         def run_migration():
             try:
-                # Get or create project tags
+                from analyzer.vector_store import VectorStore
+                import sqlite3
+
                 source_tag = f"project:{source_slug}"
                 dest_tag = f"project:{dest_slug}"
 
-                # Get source tag ID
                 source_tag_id = app.paperless_client.get_or_create_tag(source_tag, color='#95a5a6')
                 dest_tag_id = app.paperless_client.get_or_create_tag(dest_tag, color='#e74c3c')
 
                 if not source_tag_id or not dest_tag_id:
                     raise Exception("Failed to get/create project tags")
 
-                # Get documents to migrate
+                # Use Chroma as the source of truth for which docs belong to the source
+                # project. Paperless tag lookup misses docs that predate the projects
+                # feature (they live in the default Chroma collection but have no
+                # project:default tag in Paperless).
+                source_vs = VectorStore(project_slug=source_slug)
+                dest_vs = VectorStore(project_slug=dest_slug)
+
                 if document_ids:
-                    # Specific documents
-                    docs_to_migrate = document_ids
+                    docs_to_migrate = [int(d) for d in document_ids]
                 else:
-                    # All documents with source project tag
-                    all_docs = app.paperless_client.get_documents_by_tag(source_tag_id)
-                    docs_to_migrate = [doc['id'] for doc in all_docs]
+                    chroma_all = source_vs.collection.get(include=['metadatas'])
+                    docs_to_migrate = [int(i) for i in chroma_all['ids']]
+
+                logger.info(f"Migration: {len(docs_to_migrate)} docs from {source_slug} → {dest_slug}")
 
                 migrated_count = 0
                 error_count = 0
 
                 for doc_id in docs_to_migrate:
                     try:
-                        # Get current document
+                        # ── 1. Move Chroma embedding ──────────────────────────────
+                        result = source_vs.collection.get(
+                            ids=[str(doc_id)],
+                            include=['embeddings', 'metadatas', 'documents']
+                        )
+                        if result['ids']:
+                            meta = dict(result['metadatas'][0])
+                            dest_vs.collection.upsert(
+                                ids=[str(doc_id)],
+                                embeddings=result['embeddings'],
+                                metadatas=[meta],
+                                documents=result['documents'],
+                            )
+                            source_vs.collection.delete(ids=[str(doc_id)])
+
+                        # ── 2. Update Paperless tags ──────────────────────────────
                         doc = app.paperless_client.get_document(doc_id)
-                        if not doc:
-                            error_count += 1
-                            continue
+                        if doc:
+                            current_tags = doc.get('tags', [])
+                            updated_tags = [t for t in current_tags if t != source_tag_id]
+                            if dest_tag_id not in updated_tags:
+                                updated_tags.append(dest_tag_id)
+                            app.paperless_client.update_document(doc_id, {'tags': updated_tags})
 
-                        current_tags = doc.get('tags', [])
-
-                        # Remove source tag, add dest tag
-                        updated_tags = [t for t in current_tags if t != source_tag_id]
-                        if dest_tag_id not in updated_tags:
-                            updated_tags.append(dest_tag_id)
-
-                        # Update document tags
-                        success = app.paperless_client.update_document(doc_id, {'tags': updated_tags})
-                        if success:
-                            migrated_count += 1
-                        else:
-                            error_count += 1
+                        migrated_count += 1
 
                     except Exception as e:
                         logger.error(f"Failed to migrate document {doc_id}: {e}")
                         error_count += 1
 
-                # Update project counts
-                app.project_manager.increment_document_count(source_slug, delta=-migrated_count)
-                app.project_manager.increment_document_count(dest_slug, delta=migrated_count)
+                # ── 3. Update processed_documents.project_slug ───────────────────
+                try:
+                    db_path = '/app/data/app.db'
+                    con = sqlite3.connect(db_path)
+                    for doc_id in docs_to_migrate:
+                        con.execute(
+                            'UPDATE processed_documents SET project_slug=? WHERE doc_id=?',
+                            (dest_slug, doc_id)
+                        )
+                    con.commit()
+                    con.close()
+                except Exception as e:
+                    logger.warning(f"Could not update processed_documents after migration: {e}")
 
                 migration_result['status'] = 'completed'
                 migration_result['migrated'] = migrated_count
                 migration_result['errors'] = error_count
 
-                logger.info(f"Migration completed: {migrated_count} docs migrated, {error_count} errors")
+                logger.info(f"Migration completed: {migrated_count} docs moved to {dest_slug}, {error_count} errors")
 
             except Exception as e:
                 logger.error(f"Migration failed: {e}")
