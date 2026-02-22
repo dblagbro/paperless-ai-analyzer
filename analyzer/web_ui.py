@@ -2335,10 +2335,89 @@ def api_search():
     risk_max = request.args.get('risk_max', type=int)
     has_anomalies = request.args.get('has_anomalies', type=bool)
 
+    def _chroma_meta_to_result(m):
+        anomalies_str = m.get('anomalies', '')
+        anomalies_list = [a.strip() for a in anomalies_str.split(',') if a.strip()] if anomalies_str else []
+        return {
+            'doc_id': m.get('document_id'),
+            'document_id': m.get('document_id'),
+            'title': m.get('title', ''),
+            'document_title': m.get('title', ''),
+            'brief_summary': m.get('brief_summary', ''),
+            'full_summary': m.get('full_summary', ''),
+            'anomalies_found': anomalies_list,
+            'risk_score': m.get('risk_score', 0),
+            'timestamp': m.get('timestamp', ''),
+        }
+
+    # When any search criteria is provided, query Chroma directly — it has all
+    # 744 docs with full metadata (unlike recent_analyses which is only the last 100
+    # analyzed in the current session and resets on container restart).
+    if query or has_anomalies or risk_min is not None or risk_max is not None:
+        try:
+            vs = app.document_analyzer.vector_store
+            if vs and vs.enabled:
+                results = []
+                seen_ids = set()
+
+                if query:
+                    # Exact doc_id match
+                    try:
+                        exact = vs.collection.get(ids=[query], include=['metadatas'])
+                        if exact['ids']:
+                            results.append(_chroma_meta_to_result(exact['metadatas'][0]))
+                            seen_ids.add(str(exact['ids'][0]))
+                    except Exception:
+                        pass
+
+                    # Semantic search across all embedded docs
+                    semantic = vs.search(query, n_results=50)
+                    for s in semantic:
+                        doc_id = str(s['document_id'])
+                        if doc_id not in seen_ids:
+                            # Re-fetch full metadata (vs.search strips brief/full_summary)
+                            try:
+                                raw = vs.collection.get(ids=[doc_id], include=['metadatas'])
+                                if raw['ids']:
+                                    results.append(_chroma_meta_to_result(raw['metadatas'][0]))
+                                    seen_ids.add(doc_id)
+                            except Exception:
+                                pass
+
+                    # Also filter all docs by title/summary/anomaly text for exact substring matches
+                    all_docs = vs.collection.get(include=['metadatas'])
+                    for m in all_docs['metadatas']:
+                        doc_id = str(m.get('document_id', ''))
+                        if doc_id in seen_ids:
+                            continue
+                        if (query in m.get('title', '').lower() or
+                                query in m.get('brief_summary', '').lower() or
+                                query in m.get('full_summary', '').lower() or
+                                query in m.get('anomalies', '').lower()):
+                            results.append(_chroma_meta_to_result(m))
+                            seen_ids.add(doc_id)
+                else:
+                    # No text query — fetch all and filter by metadata
+                    all_docs = vs.collection.get(include=['metadatas'])
+                    for m in all_docs['metadatas']:
+                        results.append(_chroma_meta_to_result(m))
+
+                # Apply risk and anomaly filters
+                if has_anomalies:
+                    results = [r for r in results if r.get('anomalies_found')]
+                if risk_min is not None:
+                    results = [r for r in results if r.get('risk_score', 0) >= risk_min]
+                if risk_max is not None:
+                    results = [r for r in results if r.get('risk_score', 0) <= risk_max]
+
+                return jsonify({'results': results, 'count': len(results)})
+        except Exception as _e:
+            logger.warning(f"Chroma search failed, falling back to recent_analyses: {_e}")
+
+    # Fallback: in-memory recent_analyses (last 100 from current session)
     with ui_state['lock']:
         results = ui_state['recent_analyses']
 
-        # Filter by query (search title, doc_id, anomalies, and summaries)
         if query:
             results = [r for r in results if
                       query in r.get('title', '').lower() or
@@ -2346,21 +2425,14 @@ def api_search():
                       query in r.get('brief_summary', '').lower() or
                       query in r.get('full_summary', '').lower() or
                       any(query in a.lower() for a in r.get('anomalies_found', []))]
-
-        # Filter by risk score
         if risk_min is not None:
             results = [r for r in results if r.get('risk_score', 0) >= risk_min]
         if risk_max is not None:
             results = [r for r in results if r.get('risk_score', 0) <= risk_max]
-
-        # Filter by anomalies
         if has_anomalies:
             results = [r for r in results if r.get('anomalies_found')]
 
-        return jsonify({
-            'results': results,
-            'count': len(results)
-        })
+        return jsonify({'results': results, 'count': len(results)})
 
 
 @app.route('/api/tag-evidence/<int:doc_id>')
