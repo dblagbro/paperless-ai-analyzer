@@ -3233,6 +3233,7 @@ def api_reanalyze_project(slug):
 
 @app.route('/api/projects/migrate-documents', methods=['POST'])
 @login_required
+@admin_required
 def api_migrate_documents():
     """Migrate documents from one project to another."""
     if not app.project_manager or not app.paperless_client:
