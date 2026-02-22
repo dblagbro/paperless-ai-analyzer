@@ -3411,8 +3411,8 @@ def api_upload_from_url():
                 tag_ids = []
                 if project_slug and app.paperless_client:
                     proj_tag = app.paperless_client.get_or_create_tag(f"project:{project_slug}")
-                    if proj_tag and proj_tag.get('id'):
-                        tag_ids.append(proj_tag['id'])
+                    if proj_tag is not None:
+                        tag_ids.append(proj_tag)
                 result = app.paperless_client.upload_document(file_path, title=filename,
                                                               tags=tag_ids or None)
                 title = filename
@@ -3534,8 +3534,8 @@ def api_submit_upload():
                 tag_ids = []
                 if project_slug and app.paperless_client:
                     proj_tag = app.paperless_client.get_or_create_tag(f"project:{project_slug}")
-                    if proj_tag and proj_tag.get('id'):
-                        tag_ids.append(proj_tag['id'])
+                    if proj_tag is not None:
+                        tag_ids.append(proj_tag)
                 result = app.paperless_client.upload_document(
                     file_path, title=file.filename.rsplit('.', 1)[0],
                     tags=tag_ids or None
