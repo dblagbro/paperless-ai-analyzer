@@ -373,6 +373,26 @@
             50% { opacity: 0.5; }
         }
 
+        /* ── Header Health Widget (v2.5.0) ─────────────────────────────────── */
+        .hh-dot { display:inline-block; width:10px; height:10px; border-radius:50%;
+                  background:var(--hh-color,#555); transition:background 0.4s; cursor:default; }
+        .hh-dot.hh-ok      { --hh-color:#27ae60; }
+        .hh-dot.hh-warning { --hh-color:#f39c12; animation:hh-pulse-warn 1.5s infinite; }
+        .hh-dot.hh-error   { --hh-color:#e74c3c; animation:hh-pulse-err  0.8s infinite; }
+        .hh-dot.hh-loading { --hh-color:#555; }
+        @keyframes hh-pulse-warn { 0%,100%{opacity:1} 50%{opacity:0.5} }
+        @keyframes hh-pulse-err  {
+          0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(231,76,60,.6)}
+          50%{opacity:.7;box-shadow:0 0 0 4px rgba(231,76,60,0)} }
+
+        /* ── Tools sub-tabs (mirror config-sub-* visuals) ───────────────────── */
+        .tools-sub-nav { display:flex; gap:6px; padding:0 0 12px 0; border-bottom:2px solid #ecf0f1; margin-bottom:16px; flex-wrap:wrap; }
+        .tools-sub-btn { padding:7px 16px; border-radius:6px; border:1px solid #dde3ea; background:#f8f9fa; color:#555; font-size:13px; cursor:pointer; font-weight:500; transition:background 0.15s,color 0.15s; }
+        .tools-sub-btn:hover { background:#f0f4f8; color:#333; }
+        .tools-sub-btn.active { background:#2980b9; color:#fff; border-color:#2980b9; }
+        .tools-sub-content { display:none; }
+        .tools-sub-content.active { display:block; animation:fadeIn 0.2s; }
+
         .full-width {
             grid-column: 1 / -1;
         }
@@ -1367,6 +1387,19 @@
                 <h1><span class="status-indicator"></span> Paperless AI Analyzer</h1>
                 <p>Intelligent document analysis and anomaly detection</p>
             </div>
+            <div id="header-health" style="flex-shrink:0; text-align:center;">
+                <div style="color:#aabbcc;font-size:11px;margin-bottom:4px;letter-spacing:.5px;text-transform:uppercase;">Systems</div>
+                <div style="display:flex;gap:6px;align-items:center;justify-content:center;">
+                    <span class="hh-dot hh-loading" data-comp="paperless_api"  title="Paperless API"></span>
+                    <span class="hh-dot hh-loading" data-comp="chromadb"       title="ChromaDB"></span>
+                    <span class="hh-dot hh-loading" data-comp="llm"            title="LLM"></span>
+                    <span class="hh-dot hh-loading" data-comp="analyzer_loop"  title="Analyzer Loop"></span>
+                    <span class="hh-dot hh-loading" data-comp="postgres"       title="PostgreSQL"></span>
+                    <span class="hh-dot hh-loading" data-comp="redis"          title="Redis"></span>
+                </div>
+                <div id="hh-overall" onclick="switchTab('tools')"
+                     style="font-size:10px;color:#aabbcc;margin-top:3px;cursor:pointer;" title="View Health Details">Checking…</div>
+            </div>
             <div style="text-align: right;">
                 <label for="project-selector" style="color: white; font-size: 14px; display: block; margin-bottom: 5px;">Current Project:</label>
                 <select id="project-selector" onchange="switchProject()" style="padding: 8px 12px; font-size: 14px; border-radius: 4px; border: 1px solid #bdc3c7; min-width: 200px;">
@@ -2353,37 +2386,122 @@
 
             <!-- Debug & Tools Tab -->
             <div id="tab-tools" class="tab-content">
-                <div class="tab-help-panel" id="help-tools">
-                    <strong>🛠️ Debug &amp; Tools</strong> — Force re-analysis and view live system logs.
+                <!-- Help panels — one per sub-tab; _refreshHelpPanel() picks the right one -->
+                <div class="tab-help-panel" id="help-tools-health">
+                    <strong>🩺 System Health</strong> — Live status of 6 components, checked in parallel (1.8 s timeout each). Auto-refreshes every 30 s while this sub-tab is open.
                     <ul style="margin:8px 0 0 0; padding-left:18px;">
-                        <li><strong>Reprocess All</strong> — Clears existing analysis results and re-runs the AI on every document. Use this after changing profiles or AI settings.</li>
-                        <li><strong>Reprocess Document</strong> — Re-runs analysis on a single document by its Paperless document ID.</li>
-                        <li><strong>Live Logs</strong> — Shows the last 200 log lines from the analyzer in real time. Useful for diagnosing why a document wasn't processed.</li>
-                        <li><strong>Reconcile Index</strong> — Removes stale DB records and vector embeddings for documents deleted from Paperless. Does not re-analyze anything.</li>
-                        <li>If documents are stuck or incorrectly tagged, check the logs here first before filing a bug report.</li>
+                        <li><strong>Paperless API</strong> — Calls the Paperless health endpoint. Red here means document analysis will fail for all users.</li>
+                        <li><strong>ChromaDB</strong> — Counts documents in the default vector store. Yellow if vector search is disabled; red if the database is unreachable or corrupt.</li>
+                        <li><strong>LLM</strong> — Reads <code>LLM_ENABLED</code> and <code>LLM_API_KEY</code> env vars. No live API call is made — yellow means disabled, red means enabled but no key set.</li>
+                        <li><strong>Analyzer Loop</strong> — Checks age of last completed poll. Yellow if more than 3× the poll interval has elapsed (default threshold: 90 s).</li>
+                        <li><strong>PostgreSQL / Redis</strong> — Checks running status via the Docker socket. Yellow (not red) when the Docker socket is unavailable in this container.</li>
                     </ul>
-                    <div style="margin-top:8px; font-size:12px;"><a href="{{ request.script_root }}/docs/tools" target="_blank" style="color:#5dade2;">📖 Full manual for this section →</a></div>
+                    <div style="margin-top:6px; font-size:12px; color:#667788;">The header dots mirror this data and update every 30 s regardless of which tab you're on. Click them to jump here.</div>
                 </div>
-                <h2>🎛️ Reprocess Controls</h2>
-                <div class="action-group" style="margin-bottom: 30px;">
-                    <button class="btn btn-danger" onclick="reprocessAll()">🔄 Reprocess All Documents</button>
-                    <input type="number" id="reprocess-doc-id" placeholder="Doc ID" />
-                    <button class="btn btn-success" onclick="reprocessDocument()">🔄 Reprocess Document</button>
+                <div class="tab-help-panel" id="help-tools-containers">
+                    <strong>🐳 Container Manager</strong> — View and control the 7 managed Docker containers without leaving the browser. Restart and log actions require Admin role.
+                    <ul style="margin:8px 0 0 0; padding-left:18px;">
+                        <li><strong>Restart</strong> — Sends SIGTERM, waits up to 15 s, then SIGKILL. The container will be briefly unavailable. The list reloads 3 s after you confirm.</li>
+                        <li><strong>View Logs</strong> — Fetches the last 100 lines with RFC 3339 timestamps from Docker. Click the same button again to close that container's log drawer.</li>
+                        <li><strong>Grey "not found" rows</strong> are normal for containers that don't run in every environment (e.g. <code>paperless-ai-analyzer-jacob</code>).</li>
+                        <li>If the list shows "Docker unavailable", add <code>/var/run/docker.sock:/var/run/docker.sock</code> to this container's volumes in docker-compose.yml and recreate it.</li>
+                    </ul>
+                    <div style="margin-top:6px; font-size:12px; color:#667788;">Auto-refreshes every 60 s while this sub-tab is open.</div>
                 </div>
-                <div style="font-size: 12px; color: #666; margin-bottom: 30px;">
-                    ℹ️ Reprocessing will analyze documents on the next poll cycle (every 30 seconds)
+                <div class="tab-help-panel" id="help-tools-reprocess">
+                    <strong>🔄 Reprocess Controls</strong> — Force the analyzer to re-examine documents it has already processed.
+                    <ul style="margin:8px 0 0 0; padding-left:18px;">
+                        <li><strong>Reprocess All</strong> — Clears every existing analysis result and re-queues all documents. Use this after changing profiles, AI settings, or anomaly rules. Processing runs on the next poll cycle (every 30 s) and may take minutes to hours depending on your document count.</li>
+                        <li><strong>Reprocess Document</strong> — Re-queues a single document by its Paperless document ID. Useful for testing a profile change on one document before committing to a full reprocess.</li>
+                    </ul>
+                    <div style="margin-top:6px; font-size:12px; color:#e07b00;">⚠️ Reprocessing overwrites previous AI results and re-applies all current tags and anomaly rules.</div>
+                </div>
+                <div class="tab-help-panel" id="help-tools-reconcile">
+                    <strong>🔁 Reconcile Index</strong> — Removes orphaned records from the local database and vector store after documents are deleted from Paperless.
+                    <ul style="margin:8px 0 0 0; padding-left:18px;">
+                        <li>When you delete a document in Paperless, the analyzer's DB record and ChromaDB embedding are <strong>not</strong> removed automatically. Over time this causes the document count to drift and wastes vector store storage.</li>
+                        <li>Reconcile checks every local record against the Paperless API and removes any that no longer exist.</li>
+                        <li>Does <strong>not</strong> re-analyze anything — safe to run at any time without triggering LLM calls or tag changes.</li>
+                        <li>If reconcile removes a large number of records, a Reprocess All afterward will re-embed the remaining documents cleanly.</li>
+                    </ul>
+                </div>
+                <div class="tab-help-panel" id="help-tools-logs">
+                    <strong>📋 Live Logs</strong> — The last 200 log lines from the analyzer process. Auto-refreshes every 15 s.
+                    <ul style="margin:8px 0 0 0; padding-left:18px;">
+                        <li><strong>INFO</strong> — Normal operation: documents found, analyzed, tags applied.</li>
+                        <li><strong>WARNING</strong> — Non-fatal issues worth noting (rate limits, slow API responses, stale embeddings).</li>
+                        <li><strong>ERROR</strong> — Failures: an analysis couldn't complete, an API call failed, a document couldn't be fetched.</li>
+                    </ul>
+                    <div style="margin-top:6px; font-size:12px; color:#667788;">If a document isn't being analyzed, search its title or ID here. Common causes: Paperless API 500s (check Health tab), LLM rate limits, or the document not matching any profile.</div>
                 </div>
 
-                <h2 style="margin-top: 10px; padding-top: 20px; border-top: 2px solid #ecf0f1;">🔁 Reconcile Index</h2>
-                <p style="color:#666; font-size:14px; margin-bottom:14px;">Removes stale records from the analyzed-docs database and vector store for any document that has been deleted from Paperless. Does <strong>not</strong> re-analyze anything.</p>
-                <div class="action-group" style="margin-bottom:12px;">
-                    <button class="btn" id="reconcile-btn" onclick="runReconcile()">🔁 Reconcile Now</button>
+                <!-- Tools sub-nav -->
+                <div class="tools-sub-nav">
+                    <button class="tools-sub-btn active" onclick="switchToolsTab('health')"      id="tools-btn-health">🩺 Health</button>
+                    <button class="tools-sub-btn"        onclick="switchToolsTab('containers')"  id="tools-btn-containers">🐳 Containers</button>
+                    <button class="tools-sub-btn"        onclick="switchToolsTab('reprocess')"   id="tools-btn-reprocess">🔄 Reprocess</button>
+                    <button class="tools-sub-btn"        onclick="switchToolsTab('reconcile')"   id="tools-btn-reconcile">🔁 Reconcile</button>
+                    <button class="tools-sub-btn"        onclick="switchToolsTab('logs')"        id="tools-btn-logs">📋 Logs</button>
                 </div>
-                <div id="reconcile-result" style="display:none; font-size:13px; padding:10px 14px; border-radius:6px; margin-bottom:24px;"></div>
 
-                <h2 style="margin-top: 30px; padding-top: 20px; border-top: 2px solid #ecf0f1;">📋 Live Logs <button class="btn btn-small" onclick="refreshLogs()">Refresh</button></h2>
-                <div class="logs-viewer" id="logs-viewer" style="margin-top: 15px;">
-                    <div class="loading">Loading logs...</div>
+                <!-- Health sub-tab -->
+                <div id="tools-health" class="tools-sub-content active">
+                    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
+                        <h2 style="margin:0;">🩺 System Health</h2>
+                        <div style="display:flex;align-items:center;gap:10px;">
+                            <span id="tools-countdown-health" style="font-size:12px;color:#888;"></span>
+                            <button class="btn btn-small" onclick="loadSystemHealth(true)">↻ Refresh</button>
+                        </div>
+                    </div>
+                    <div id="health-cards" style="display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:12px;">
+                        <div class="loading">Checking components…</div>
+                    </div>
+                </div>
+
+                <!-- Containers sub-tab -->
+                <div id="tools-containers" class="tools-sub-content">
+                    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
+                        <h2 style="margin:0;">🐳 Container Manager</h2>
+                        <div style="display:flex;align-items:center;gap:10px;">
+                            <span id="tools-countdown-containers" style="font-size:12px;color:#888;"></span>
+                            <button class="btn btn-small" onclick="loadContainers(true)">↻ Refresh</button>
+                        </div>
+                    </div>
+                    <div id="container-unavailable" style="display:none; background:#fff3cd; border:1px solid #ffc107; border-radius:6px; padding:12px 16px; margin-bottom:16px; font-size:13px; color:#664d03;">
+                        ⚠️ Docker socket not available. Add <code>/var/run/docker.sock:/var/run/docker.sock</code> to this container's volumes in docker-compose.yml, then recreate it.
+                    </div>
+                    <div id="container-cards" style="display:flex; flex-direction:column; gap:8px;"></div>
+                </div>
+
+                <!-- Reprocess sub-tab -->
+                <div id="tools-reprocess" class="tools-sub-content">
+                    <h2>🎛️ Reprocess Controls</h2>
+                    <div class="action-group" style="margin-bottom: 30px;">
+                        <button class="btn btn-danger" onclick="reprocessAll()">🔄 Reprocess All Documents</button>
+                        <input type="number" id="reprocess-doc-id" placeholder="Doc ID" />
+                        <button class="btn btn-success" onclick="reprocessDocument()">🔄 Reprocess Document</button>
+                    </div>
+                    <div style="font-size: 12px; color: #666; margin-bottom: 30px;">
+                        ℹ️ Reprocessing will analyze documents on the next poll cycle (every 30 seconds)
+                    </div>
+                </div>
+
+                <!-- Reconcile sub-tab -->
+                <div id="tools-reconcile" class="tools-sub-content">
+                    <h2>🔁 Reconcile Index</h2>
+                    <p style="color:#666; font-size:14px; margin-bottom:14px;">Removes stale records from the analyzed-docs database and vector store for any document that has been deleted from Paperless. Does <strong>not</strong> re-analyze anything.</p>
+                    <div class="action-group" style="margin-bottom:12px;">
+                        <button class="btn" id="reconcile-btn" onclick="runReconcile()">🔁 Reconcile Now</button>
+                    </div>
+                    <div id="reconcile-result" style="display:none; font-size:13px; padding:10px 14px; border-radius:6px; margin-bottom:24px;"></div>
+                </div>
+
+                <!-- Logs sub-tab -->
+                <div id="tools-logs" class="tools-sub-content">
+                    <h2>📋 Live Logs <button class="btn btn-small" onclick="refreshLogs()">Refresh</button></h2>
+                    <div class="logs-viewer" id="logs-viewer" style="margin-top: 15px;">
+                        <div class="loading">Loading logs...</div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -2392,6 +2510,7 @@
     <script>
         // Base path injected by Flask from URL_PREFIX env var (set in docker-compose)
         const BASE_PATH = "{{ request.script_root }}";
+        const IS_ADMIN = {{ 'true' if is_admin else 'false' }};
 
         // Helper function to build API URLs
         function apiUrl(path) {
@@ -2451,6 +2570,69 @@
             if (name === 'users' && typeof loadUsers === 'function') {
                 loadUsers();
             }
+        }
+
+        // ── Tools sub-tab switcher ────────────────────────────────────
+        // ── Tools sub-tab auto-refresh state ─────────────────────────
+        let _toolsAutoRefreshTimer = null;
+        const _toolsAutoRefreshIntervals = { health: 30, containers: 60 };
+
+        function _startToolsAutoRefresh(subTab) {
+            _stopToolsAutoRefresh();
+            const secs = _toolsAutoRefreshIntervals[subTab];
+            if (!secs) return;
+            let remaining = secs;
+            _setToolsCountdown(subTab, remaining);
+            _toolsAutoRefreshTimer = setInterval(() => {
+                remaining--;
+                _setToolsCountdown(subTab, remaining);
+                if (remaining <= 0) {
+                    remaining = secs;
+                    if (subTab === 'health') loadSystemHealth(false);
+                    else if (subTab === 'containers') loadContainers(false);
+                }
+            }, 1000);
+        }
+
+        function _stopToolsAutoRefresh() {
+            if (_toolsAutoRefreshTimer) { clearInterval(_toolsAutoRefreshTimer); _toolsAutoRefreshTimer = null; }
+            document.querySelectorAll('[id^="tools-countdown-"]').forEach(el => el.textContent = '');
+        }
+
+        function _setToolsCountdown(subTab, secs) {
+            const el = document.getElementById('tools-countdown-' + subTab);
+            if (el) el.textContent = secs > 0 ? `Next refresh in ${secs}s` : 'Refreshing…';
+        }
+
+        function _resetToolsCountdown(subTab) {
+            // Reset the visible countdown when user manually refreshes;
+            // the interval keeps running from its current tick position but
+            // the countdown display resets to the full interval.
+            const secs = _toolsAutoRefreshIntervals[subTab];
+            if (!secs) return;
+            // Restart the whole interval so timing aligns with the fresh data
+            _startToolsAutoRefresh(subTab);
+        }
+
+        function switchToolsTab(name) {
+            document.querySelectorAll('.tools-sub-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.tools-sub-content').forEach(c => c.classList.remove('active'));
+            const btn = document.getElementById('tools-btn-' + name);
+            const pane = document.getElementById('tools-' + name);
+            if (btn) btn.classList.add('active');
+            if (pane) { pane.classList.add('active'); pane.scrollTop = 0; }
+            // Lazy-load on each visit
+            if (name === 'health') { loadSystemHealth(false); }
+            if (name === 'containers') { loadContainers(false); }
+            if (name === 'logs') { refreshLogs(); }
+            // Start auto-refresh for tabs that support it; stop for others
+            if (_toolsAutoRefreshIntervals[name]) {
+                _startToolsAutoRefresh(name);
+            } else {
+                _stopToolsAutoRefresh();
+            }
+            // Update help panel for this sub-tab
+            _refreshHelpPanel();
         }
 
         // ── AI Usage / Cost ───────────────────────────────────────────
@@ -2789,6 +2971,10 @@
             // Config tab: reset to AI Settings sub-tab on each visit
             if (tabName === 'config') {
                 switchConfigTab('ai');
+            }
+            // Tools tab: show Health sub-tab on each visit
+            if (tabName === 'tools') {
+                switchToolsTab('health');
             }
             // Check API key when AI chat tab is opened
             if (tabName === 'ai-chat') {
@@ -5557,6 +5743,209 @@
         // Auto-refresh logs every 15 seconds
         setInterval(refreshLogs, 15000);
 
+        // Header health widget — initial poll + 30 s auto-poll
+        pollHeaderHealth();
+        setInterval(pollHeaderHealth, 30000);
+
+        // ── System Health & Container Manager (v2.5.0) ───────────────────────
+
+        // Silent background poll that updates only the header dots
+        async function pollHeaderHealth() {
+            try {
+                const res = await apiFetch(apiUrl('/api/system-health'));
+                if (!res.ok) return;
+                const data = await res.json();
+                _updateHeaderDots(data.components || {}, data.overall || 'warning');
+            } catch (e) {
+                // Silent — don't alert on background poll failures
+            }
+        }
+
+        // Full health load for the Health sub-tab
+        // manualRefresh=true → user clicked Refresh; reset the countdown timer
+        async function loadSystemHealth(manualRefresh = false) {
+            if (manualRefresh) _resetToolsCountdown('health');
+            const container = document.getElementById('health-cards');
+            if (!container) return;
+            container.innerHTML = '<div class="loading">Checking components…</div>';
+            try {
+                const res = await apiFetch(apiUrl('/api/system-health'));
+                const data = await res.json();
+                _updateHeaderDots(data.components || {}, data.overall || 'warning');
+                const labels = {
+                    paperless_api: 'Paperless API',
+                    chromadb: 'ChromaDB',
+                    llm: 'LLM',
+                    analyzer_loop: 'Analyzer Loop',
+                    postgres: 'PostgreSQL',
+                    redis: 'Redis',
+                };
+                container.innerHTML = '';
+                for (const [id, label] of Object.entries(labels)) {
+                    const result = (data.components || {})[id] || {status: 'warning', latency_ms: 0, detail: 'No data'};
+                    container.appendChild(_renderHealthCard(id, label, result));
+                }
+                // Overall status line
+                const checkedAt = data.checked_at ? new Date(data.checked_at).toLocaleTimeString() : '';
+                const overallDiv = document.createElement('div');
+                overallDiv.style.cssText = 'grid-column:1/-1;font-size:12px;color:#888;margin-top:4px;';
+                overallDiv.textContent = `Overall: ${data.overall || '?'} — checked at ${checkedAt}`;
+                container.appendChild(overallDiv);
+            } catch (e) {
+                container.innerHTML = `<div style="color:#e74c3c;padding:12px;">Failed to load health data: ${e.message}</div>`;
+            }
+        }
+
+        function _renderHealthCard(id, label, result) {
+            const colors = {ok: '#27ae60', warning: '#f39c12', error: '#e74c3c'};
+            const badgeBg = {ok: 'rgba(39,174,96,0.15)', warning: 'rgba(243,156,18,0.15)', error: 'rgba(231,76,60,0.15)'};
+            const color = colors[result.status] || '#888';
+            const card = document.createElement('div');
+            card.style.cssText = `background:#fff;border-radius:8px;padding:14px 16px;border-left:4px solid ${color};box-shadow:0 1px 4px rgba(0,0,0,0.08);`;
+            const latencyStr = result.latency_ms > 0 ? ` <span style="color:#999;font-size:11px;">${result.latency_ms}ms</span>` : '';
+            card.innerHTML = `
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+                    <span style="font-weight:600;font-size:14px;color:#333;">${label}</span>
+                    <span style="background:${badgeBg[result.status]};color:${color};border:1px solid ${color};padding:2px 10px;border-radius:12px;font-size:12px;font-weight:600;">${result.status}${latencyStr}</span>
+                </div>
+                <div style="font-size:13px;color:#555;">${result.detail || ''}</div>`;
+            return card;
+        }
+
+        function _updateHeaderDots(components, overall) {
+            for (const [comp, result] of Object.entries(components)) {
+                const dot = document.querySelector(`[data-comp="${comp}"]`);
+                if (!dot) continue;
+                dot.className = 'hh-dot hh-' + (result.status || 'loading');
+                const labels = {
+                    paperless_api: 'Paperless API', chromadb: 'ChromaDB', llm: 'LLM',
+                    analyzer_loop: 'Analyzer Loop', postgres: 'PostgreSQL', redis: 'Redis',
+                };
+                dot.title = `${labels[comp] || comp}: ${result.status} — ${result.detail || ''}`;
+            }
+            const overallEl = document.getElementById('hh-overall');
+            if (overallEl) {
+                const overallColors = {ok: '#27ae60', warning: '#f39c12', error: '#e74c3c'};
+                overallEl.textContent = overall === 'ok' ? 'All systems OK' : overall === 'error' ? 'System error' : 'Warning';
+                overallEl.style.color = overallColors[overall] || '#aabbcc';
+            }
+        }
+
+        // ── Container Manager ─────────────────────────────────────────────────
+
+        // manualRefresh=true → user clicked Refresh; reset the countdown timer
+        async function loadContainers(manualRefresh = false) {
+            if (manualRefresh) _resetToolsCountdown('containers');
+            const cardsEl = document.getElementById('container-cards');
+            const unavailEl = document.getElementById('container-unavailable');
+            if (!cardsEl) return;
+            cardsEl.innerHTML = '<div class="loading">Loading containers…</div>';
+            try {
+                const res = await apiFetch(apiUrl('/api/containers'));
+                const data = await res.json();
+                if (!data.available) {
+                    unavailEl && (unavailEl.style.display = 'block');
+                    cardsEl.innerHTML = '';
+                    return;
+                }
+                unavailEl && (unavailEl.style.display = 'none');
+                cardsEl.innerHTML = '';
+                (data.containers || []).forEach(c => cardsEl.appendChild(_renderContainerCard(c)));
+            } catch (e) {
+                cardsEl.innerHTML = `<div style="color:#e74c3c;padding:12px;">Failed to load containers: ${e.message}</div>`;
+            }
+        }
+
+        function _renderContainerCard(c) {
+            const statusColors = {running: '#27ae60', exited: '#e74c3c', not_found: '#888', error: '#e74c3c'};
+            const dotColor = statusColors[c.status] || '#f39c12';
+            const uptimeStr = c.uptime_seconds != null ? _fmtUptime(c.uptime_seconds) : '—';
+            const row = document.createElement('div');
+            row.id = `container-row-${c.name}`;
+            row.style.cssText = 'background:#fff;border-radius:6px;padding:12px 16px;display:flex;align-items:center;gap:12px;box-shadow:0 1px 3px rgba(0,0,0,0.08);flex-wrap:wrap;';
+            const dot = `<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${dotColor};flex-shrink:0;"></span>`;
+            const imgStr = c.image ? `<span style="color:#888;font-size:12px;font-family:monospace;">${c.image}</span>` : '';
+            const uptimePart = `<span style="color:#888;font-size:12px;">Up: ${uptimeStr}</span>`;
+            let adminBtns = '';
+            if (IS_ADMIN && c.status !== 'not_found') {
+                adminBtns = `
+                    <button class="btn btn-small" onclick="restartContainer('${c.name}')" style="font-size:12px;padding:4px 10px;">⟳ Restart</button>
+                    <button class="btn btn-small" onclick="viewContainerLogs('${c.name}')" style="font-size:12px;padding:4px 10px;">📋 Logs</button>`;
+            }
+            row.innerHTML = `
+                ${dot}
+                <span style="font-weight:600;font-size:14px;color:#333;min-width:240px;">${c.name}</span>
+                <span style="font-size:12px;padding:2px 8px;border-radius:10px;background:${dotColor}22;color:${dotColor};font-weight:600;">${c.status}</span>
+                ${imgStr}
+                ${uptimePart}
+                <div style="margin-left:auto;display:flex;gap:6px;align-items:center;">${adminBtns}</div>
+                <div id="container-msg-${c.name}" style="width:100%;font-size:12px;display:none;padding:4px 0;"></div>`;
+            return row;
+        }
+
+        function _fmtUptime(s) {
+            if (s < 60) return `${s}s`;
+            const m = Math.floor(s / 60) % 60;
+            const h = Math.floor(s / 3600) % 24;
+            const d = Math.floor(s / 86400);
+            if (d > 0) return `${d}d ${h}h`;
+            if (h > 0) return `${h}h ${m}m`;
+            return `${m}m`;
+        }
+
+        async function restartContainer(name) {
+            if (!confirm(`Restart container "${name}"? It will be briefly unavailable.`)) return;
+            const msgEl = document.getElementById(`container-msg-${name}`);
+            if (msgEl) { msgEl.style.display = 'block'; msgEl.style.color = '#888'; msgEl.textContent = 'Restarting…'; }
+            try {
+                const res = await apiFetch(apiUrl(`/api/containers/${name}/restart`), {method: 'POST'});
+                const data = await res.json();
+                if (res.ok) {
+                    if (msgEl) { msgEl.style.color = '#27ae60'; msgEl.textContent = `✓ ${data.message || 'Restarted'}`; }
+                    setTimeout(loadContainers, 3000);
+                } else {
+                    if (msgEl) { msgEl.style.color = '#e74c3c'; msgEl.textContent = `✗ ${data.error || 'Failed'}`; }
+                }
+            } catch (e) {
+                if (msgEl) { msgEl.style.color = '#e74c3c'; msgEl.textContent = `✗ ${e.message}`; }
+            }
+        }
+
+        async function viewContainerLogs(name) {
+            // Remove any existing log drawer for this container
+            const existingDrawer = document.getElementById(`log-drawer-${name}`);
+            if (existingDrawer) { existingDrawer.remove(); return; }
+
+            const cardsEl = document.getElementById('container-cards');
+            const drawer = document.createElement('div');
+            drawer.id = `log-drawer-${name}`;
+            drawer.className = 'logs-viewer';
+            drawer.style.cssText = 'margin-top:8px;margin-bottom:8px;';
+            drawer.innerHTML = `
+                <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid #e0e0e0;">
+                    <strong style="font-size:13px;">Logs: ${name}</strong>
+                    <button class="btn btn-small" onclick="document.getElementById('log-drawer-${name}').remove()" style="font-size:11px;">✕ Close</button>
+                </div>
+                <div id="log-drawer-lines-${name}" style="padding:10px 12px;font-size:12px;color:#aabbcc;"><em>Loading…</em></div>`;
+            if (cardsEl) cardsEl.appendChild(drawer);
+
+            try {
+                const res = await apiFetch(apiUrl(`/api/containers/${name}/logs?lines=100`));
+                const data = await res.json();
+                const linesEl = document.getElementById(`log-drawer-lines-${name}`);
+                if (!linesEl) return;
+                if (!res.ok) { linesEl.innerHTML = `<span style="color:#e74c3c;">${data.error || 'Error fetching logs'}</span>`; return; }
+                if (!data.lines || data.lines.length === 0) { linesEl.innerHTML = '<em style="color:#888;">No log lines returned.</em>'; return; }
+                linesEl.innerHTML = data.lines.map(l =>
+                    `<div style="white-space:pre-wrap;word-break:break-all;padding:1px 0;">${l.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div>`
+                ).join('');
+                linesEl.scrollTop = linesEl.scrollHeight;
+            } catch (e) {
+                const linesEl = document.getElementById(`log-drawer-lines-${name}`);
+                if (linesEl) linesEl.innerHTML = `<span style="color:#e74c3c;">${e.message}</span>`;
+            }
+        }
+
         // Tag Evidence Modal Functions
         async function showTagEvidence(docId, docTitle) {
             const modal = document.getElementById('tag-evidence-modal');
@@ -5761,7 +6150,7 @@
             'ai-chat':  'help-ai-chat',
             'search':   'help-search',
             'config':   'help-config',
-            'tools':    'help-tools',
+            // tools sub-tabs are handled dynamically in _refreshHelpPanel
         };
         var _smtpLoaded = false;
 
@@ -5803,34 +6192,49 @@
             _refreshHelpPanel();
         }
         function _refreshHelpPanel() {
-            Object.keys(_helpPanelMap).forEach(function(k) {
-                var el = document.getElementById(_helpPanelMap[k]);
-                if (el) el.style.display = 'none';
+            // Hide all help panels (both mapped and tools sub-tab panels)
+            document.querySelectorAll('.tab-help-panel').forEach(function(el) {
+                el.style.display = 'none';
             });
             if (!_helpVisible) return;
             var activeTab = document.querySelector('.tab-button.active');
             if (!activeTab) return;
             var m = activeTab.getAttribute('onclick').match(/'([^']+)'/);
             var tabName = m ? m[1] : null;
-            var panelId = tabName ? _helpPanelMap[tabName] : null;
-            if (panelId) {
-                var el = document.getElementById(panelId);
-                if (el) el.style.display = 'block';
+            if (tabName === 'tools') {
+                // Show help for the active tools sub-tab
+                var activeSubBtn = document.querySelector('.tools-sub-btn.active');
+                if (activeSubBtn) {
+                    var sm = activeSubBtn.getAttribute('onclick').match(/'([^']+)'/);
+                    var subName = sm ? sm[1] : null;
+                    if (subName) {
+                        var subEl = document.getElementById('help-tools-' + subName);
+                        if (subEl) subEl.style.display = 'block';
+                    }
+                }
+            } else {
+                var panelId = tabName ? _helpPanelMap[tabName] : null;
+                if (panelId) {
+                    var el = document.getElementById(panelId);
+                    if (el) el.style.display = 'block';
+                }
             }
         }
-        // Wrap switchTab so the help panel updates and config sub-tabs are
-        // fully reset whenever we leave the config tab.
+        // Wrap switchTab so the help panel updates, config sub-tabs are reset,
+        // and the tools auto-refresh stops when leaving the tools tab.
         (function() {
             var _orig = switchTab;
             switchTab = function(name) {
                 _orig(name);
                 // Explicitly clear config sub-tab active state when leaving config.
-                // This prevents sub-tab content from bleeding into other main tabs
-                // during the CSS fadeIn animation window.
                 if (name !== 'config') {
                     document.querySelectorAll('.config-sub-content').forEach(function(c) {
                         c.classList.remove('active');
                     });
+                }
+                // Stop tools auto-refresh when navigating away from the tools tab
+                if (name !== 'tools') {
+                    _stopToolsAutoRefresh();
                 }
                 _refreshHelpPanel();
             };
