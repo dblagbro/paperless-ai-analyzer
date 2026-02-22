@@ -299,19 +299,21 @@
         .config-sub-nav {
             display: flex;
             gap: 2px;
-            margin-bottom: 20px;
+            margin-bottom: 0;
             border-bottom: 2px solid #dee2e6;
-            padding-bottom: 0;
+            padding: 8px 16px 0;
             flex-wrap: wrap;
+            flex-shrink: 0;
+            background: white;
         }
         .config-sub-btn {
             background: none;
             border: 1px solid transparent;
             border-bottom: 3px solid transparent;
             margin-bottom: -2px;
-            padding: 8px 20px;
+            padding: 6px 16px;
             cursor: pointer;
-            font-size: 14px;
+            font-size: 13px;
             color: #555;
             border-radius: 6px 6px 0 0;
             transition: all 0.15s;
@@ -1310,6 +1312,11 @@
         .tab-button { padding: 11px 16px; font-size: 13px; }
         /* Non-chat tabs scroll within the tab panel */
         .tab-content.active { flex: 1; overflow-y: auto; min-height: 0; }
+        /* Config tab: flex column — sub-nav is a fixed header, active pane scrolls in remaining space */
+        #tab-config.tab-content.active { display: flex !important; flex-direction: column !important; overflow: hidden !important; padding: 0 !important; }
+        .config-sub-content.active { flex: 1 !important; overflow-y: auto !important; min-height: 0 !important; padding: 16px !important; }
+        /* Debug & Tools: tighten top gap */
+        #tab-tools.tab-content { padding-top: 10px; }
 
         /* ── AI Chat tab: two-column full-height layout ── */
         #tab-ai-chat.active {
@@ -1895,9 +1902,10 @@
                     <div style="margin-top:8px; font-size:12px;"><a href="{{ request.script_root }}/docs/configuration" target="_blank" style="color:#5dade2;">📖 Full manual for this section →</a></div>
                 </div>
 
-                <!-- Sub-tab navigation -->
+                <!-- Sub-tab navigation (fixed header — not inside scroll body) -->
                 <div class="config-sub-nav">
                     <button class="config-sub-btn active" onclick="switchConfigTab('ai')" id="cfg-btn-ai">🤖 AI Settings</button>
+                    <button class="config-sub-btn" onclick="switchConfigTab('usage')" id="cfg-btn-usage">💰 AI Usage</button>
                     <button class="config-sub-btn" onclick="switchConfigTab('profiles')" id="cfg-btn-profiles">📄 Profiles</button>
                     <button class="config-sub-btn" onclick="switchConfigTab('vectorstore')" id="cfg-btn-vectorstore">🗄️ Vector Store</button>
                     {% if is_admin %}
@@ -1905,7 +1913,6 @@
                     <button class="config-sub-btn" onclick="switchConfigTab('users')" id="cfg-btn-users">👥 Users</button>
                     {% endif %}
                 </div>
-
                 <!-- ── AI Settings sub-section ── -->
                 <div id="cfg-ai" class="config-sub-content active">
                 <h2 style="margin-bottom: 15px;">🤖 AI Configuration</h2>
@@ -1991,6 +1998,59 @@
                 </div>
                 </div><!-- /cfg-ai -->
 
+                <!-- ── AI Usage sub-section ── -->
+                <div id="cfg-usage" class="config-sub-content">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+                    <h2 style="margin:0;">💰 AI Usage &amp; Cost</h2>
+                    <div style="display:flex; gap:8px; align-items:center;">
+                        <select id="usage-days-select" onchange="loadLlmUsage()" style="padding:5px 10px; border:1px solid #ddd; border-radius:4px; font-size:13px;">
+                            <option value="7">Last 7 days</option>
+                            <option value="30" selected>Last 30 days</option>
+                            <option value="90">Last 90 days</option>
+                        </select>
+                        <button class="btn btn-small" onclick="loadLlmUsage()">↻ Refresh</button>
+                    </div>
+                </div>
+
+                <!-- Summary cards -->
+                <div id="usage-summary" style="display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; margin-bottom:20px;">
+                    <div class="loading">Loading usage data…</div>
+                </div>
+
+                <!-- Per-model breakdown -->
+                <div class="card" style="margin-bottom:16px;">
+                    <h3 style="font-size:14px; font-weight:600; margin-bottom:12px; color:#374151;">By Model</h3>
+                    <div id="usage-by-model" style="overflow-x:auto;">
+                        <div style="color:#888; font-size:13px;">—</div>
+                    </div>
+                </div>
+
+                <!-- Per-operation breakdown -->
+                <div class="card" style="margin-bottom:16px;">
+                    <h3 style="font-size:14px; font-weight:600; margin-bottom:12px; color:#374151;">By Operation</h3>
+                    <div id="usage-by-op" style="overflow-x:auto;">
+                        <div style="color:#888; font-size:13px;">—</div>
+                    </div>
+                </div>
+
+                <!-- Daily usage chart + table -->
+                <div class="card" style="margin-bottom:16px;">
+                    <h3 style="font-size:14px; font-weight:600; margin-bottom:12px; color:#374151;">Daily Usage</h3>
+                    <canvas id="usage-chart" style="width:100%; height:200px; display:block; margin-bottom:16px;"></canvas>
+                    <div id="usage-daily" style="overflow-x:auto;">
+                        <div style="color:#888; font-size:13px;">—</div>
+                    </div>
+                </div>
+
+                <!-- Pricing reference -->
+                <div class="card">
+                    <h3 style="font-size:14px; font-weight:600; margin-bottom:12px; color:#374151;">Pricing Reference <span style="font-size:11px; font-weight:400; color:#888;">(per 1M tokens)</span></h3>
+                    <div id="usage-pricing" style="overflow-x:auto;">
+                        <div style="color:#888; font-size:13px;">—</div>
+                    </div>
+                </div>
+                </div><!-- /cfg-usage -->
+
                 <!-- ── Profiles sub-section ── -->
                 <div id="cfg-profiles" class="config-sub-content">
                 <h2 style="margin-bottom: 15px;">📄 Profile Management</h2>
@@ -2013,7 +2073,6 @@
                     </div>
                 </div>
 
-                </div><!-- /content-grid -->
                 </div><!-- /cfg-profiles -->
 
                 <!-- ── Vector Store sub-section ── -->
@@ -2279,6 +2338,19 @@
             return BASE_PATH + path;
         }
 
+        // Simple toast notification (fixed banner, auto-dismisses)
+        function showToast(message, type, duration) {
+            const existing = document.getElementById('app-toast');
+            if (existing) existing.remove();
+            const bg = type === 'success' ? '#16a34a' : type === 'error' ? '#dc2626' : '#2563eb';
+            const toast = document.createElement('div');
+            toast.id = 'app-toast';
+            toast.style.cssText = `position:fixed;top:20px;left:50%;transform:translateX(-50%);background:${bg};color:#fff;padding:12px 24px;border-radius:8px;font-size:14px;font-weight:500;z-index:99999;box-shadow:0 4px 16px rgba(0,0,0,0.3);max-width:600px;text-align:center;opacity:1;transition:opacity 0.4s;`;
+            toast.textContent = message;
+            document.body.appendChild(toast);
+            setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 400); }, duration || 4000);
+        }
+
         // Wrapper around fetch that detects session expiry and redirects to login
         async function apiFetch(url, options = {}) {
             const response = await fetch(url, options);
@@ -2307,6 +2379,10 @@
             const pane = document.getElementById('cfg-' + name);
             if (btn) btn.classList.add('active');
             if (pane) pane.classList.add('active');
+            // Reset scroll — each active config pane is its own scroll container
+            if (pane) pane.scrollTop = 0;
+            // Lazy-load usage stats on each visit
+            if (name === 'usage') { loadLlmUsage(); }
             // Lazy-load vector store on first visit
             if (name === 'vectorstore' && !vsLoaded) {
                 loadVectorStoreDocuments();
@@ -2315,6 +2391,212 @@
             if (name === 'users' && typeof loadUsers === 'function') {
                 loadUsers();
             }
+        }
+
+        // ── AI Usage / Cost ───────────────────────────────────────────
+        async function loadLlmUsage() {
+            const days = parseInt(document.getElementById('usage-days-select')?.value || '30');
+            document.getElementById('usage-summary').innerHTML = '<div class="loading">Loading…</div>';
+
+            try {
+                const res = await apiFetch(apiUrl('/api/llm-usage/stats?days=' + days));
+                const data = await res.json();
+                if (data.error) { document.getElementById('usage-summary').innerHTML = '<div style="color:#e74c3c;">Error: ' + data.error + '</div>'; return; }
+
+                const o = data.overall || {};
+                const fmt$ = v => v != null ? '$' + (parseFloat(v)||0).toFixed(4) : '—';
+                const fmtN = v => v != null ? (parseInt(v)||0).toLocaleString() : '—';
+
+                // Summary cards
+                document.getElementById('usage-summary').innerHTML = `
+                    <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:14px 16px;">
+                        <div style="font-size:11px;color:#166534;font-weight:600;text-transform:uppercase;margin-bottom:4px;">Total Cost</div>
+                        <div style="font-size:22px;font-weight:700;color:#15803d;">${fmt$(o.total_cost)}</div>
+                        <div style="font-size:11px;color:#6b7280;margin-top:2px;">Last ${days} days</div>
+                    </div>
+                    <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:14px 16px;">
+                        <div style="font-size:11px;color:#1e40af;font-weight:600;text-transform:uppercase;margin-bottom:4px;">API Calls</div>
+                        <div style="font-size:22px;font-weight:700;color:#1d4ed8;">${fmtN(o.total_calls)}</div>
+                        <div style="font-size:11px;color:#6b7280;margin-top:2px;">${fmtN(o.successful_calls)} ok / ${fmtN(o.failed_calls)} failed</div>
+                    </div>
+                    <div style="background:#fefce8;border:1px solid #fde68a;border-radius:8px;padding:14px 16px;">
+                        <div style="font-size:11px;color:#92400e;font-weight:600;text-transform:uppercase;margin-bottom:4px;">Total Tokens</div>
+                        <div style="font-size:22px;font-weight:700;color:#b45309;">${fmtN(o.total_tokens)}</div>
+                        <div style="font-size:11px;color:#6b7280;margin-top:2px;">in: ${fmtN(o.total_input_tokens)} / out: ${fmtN(o.total_output_tokens)}</div>
+                    </div>`;
+
+                // By model table
+                const tblStyle = 'width:100%;border-collapse:collapse;font-size:13px;';
+                const thStyle = 'text-align:left;padding:6px 10px;border-bottom:2px solid #e5e7eb;font-size:12px;color:#6b7280;font-weight:600;';
+                const tdStyle = 'padding:6px 10px;border-bottom:1px solid #f3f4f6;';
+                const byModel = data.per_model || [];
+                if (byModel.length) {
+                    document.getElementById('usage-by-model').innerHTML = `<table style="${tblStyle}">
+                        <thead><tr><th style="${thStyle}">Model</th><th style="${thStyle}">Calls</th><th style="${thStyle}">Tokens</th><th style="${thStyle}">Cost</th></tr></thead>
+                        <tbody>${byModel.map(m => `<tr>
+                            <td style="${tdStyle}">${m.model||'—'}</td>
+                            <td style="${tdStyle}">${fmtN(m.calls)}</td>
+                            <td style="${tdStyle}">${fmtN(m.total_tokens)}</td>
+                            <td style="${tdStyle};font-weight:600;">${fmt$(m.cost)}</td>
+                        </tr>`).join('')}</tbody></table>`;
+                } else {
+                    document.getElementById('usage-by-model').innerHTML = '<div style="color:#888;font-size:13px;">No data for this period.</div>';
+                }
+
+                // By operation table
+                const byOp = data.per_operation || [];
+                if (byOp.length) {
+                    document.getElementById('usage-by-op').innerHTML = `<table style="${tblStyle}">
+                        <thead><tr><th style="${thStyle}">Operation</th><th style="${thStyle}">Calls</th><th style="${thStyle}">Tokens</th><th style="${thStyle}">Cost</th></tr></thead>
+                        <tbody>${byOp.map(op => `<tr>
+                            <td style="${tdStyle}">${op.operation||'—'}</td>
+                            <td style="${tdStyle}">${fmtN(op.calls)}</td>
+                            <td style="${tdStyle}">${fmtN(op.total_tokens)}</td>
+                            <td style="${tdStyle};font-weight:600;">${fmt$(op.cost)}</td>
+                        </tr>`).join('')}</tbody></table>`;
+                } else {
+                    document.getElementById('usage-by-op').innerHTML = '<div style="color:#888;font-size:13px;">No data for this period.</div>';
+                }
+
+                // Daily usage chart + table
+                const daily = data.daily_usage || [];
+                renderUsageChart(daily);
+                if (daily.length) {
+                    document.getElementById('usage-daily').innerHTML = `<table style="${tblStyle}">
+                        <thead><tr><th style="${thStyle}">Date</th><th style="${thStyle}">Calls</th><th style="${thStyle}">Tokens</th><th style="${thStyle}">Cost</th></tr></thead>
+                        <tbody>${daily.map(d => `<tr>
+                            <td style="${tdStyle}">${d.date||'—'}</td>
+                            <td style="${tdStyle}">${fmtN(d.calls)}</td>
+                            <td style="${tdStyle}">${fmtN(d.tokens)}</td>
+                            <td style="${tdStyle};font-weight:600;">${fmt$(d.cost)}</td>
+                        </tr>`).join('')}</tbody></table>`;
+                } else {
+                    document.getElementById('usage-daily').innerHTML = '<div style="color:#888;font-size:13px;">No data for this period.</div>';
+                }
+
+                // Pricing reference
+                const pricingRes = await apiFetch(apiUrl('/api/llm-usage/pricing'));
+                const pricingData = await pricingRes.json();
+                const pricing = pricingData.pricing || {};
+                const pricingModels = Object.keys(pricing);
+                if (pricingModels.length) {
+                    document.getElementById('usage-pricing').innerHTML = `<table style="${tblStyle}">
+                        <thead><tr><th style="${thStyle}">Model</th><th style="${thStyle}">Input / 1M tokens</th><th style="${thStyle}">Output / 1M tokens</th></tr></thead>
+                        <tbody>${pricingModels.map(m => `<tr>
+                            <td style="${tdStyle}">${m}</td>
+                            <td style="${tdStyle}">$${(pricing[m].input||0).toFixed(2)}</td>
+                            <td style="${tdStyle}">$${(pricing[m].output||0).toFixed(2)}</td>
+                        </tr>`).join('')}</tbody></table>`;
+                } else {
+                    document.getElementById('usage-pricing').innerHTML = '<div style="color:#888;font-size:13px;">No pricing data available.</div>';
+                }
+
+            } catch(e) {
+                document.getElementById('usage-summary').innerHTML = '<div style="color:#e74c3c;">Failed to load usage data: ' + e.message + '</div>';
+            }
+        }
+
+        // ── Daily usage bar chart (Canvas) ────────────────────────────────
+        function renderUsageChart(dailyData) {
+            const canvas = document.getElementById('usage-chart');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            const dpr = window.devicePixelRatio || 1;
+            const rect = canvas.getBoundingClientRect();
+            if (!rect.width) return;
+            canvas.width  = rect.width  * dpr;
+            canvas.height = rect.height * dpr;
+            ctx.scale(dpr, dpr);
+            const W = rect.width, H = rect.height;
+
+            ctx.fillStyle = '#fff';
+            ctx.fillRect(0, 0, W, H);
+
+            if (!dailyData || dailyData.length === 0) {
+                ctx.fillStyle = '#9ca3af';
+                ctx.font = '13px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText('No data for this period', W / 2, H / 2);
+                return;
+            }
+
+            const sorted = [...dailyData].sort((a, b) => a.date.localeCompare(b.date));
+            const maxCost  = Math.max(...sorted.map(d => parseFloat(d.cost)  || 0), 0.00001);
+            const maxCalls = Math.max(...sorted.map(d => parseInt(d.calls)   || 0), 1);
+
+            const PAD_L = 58, PAD_R = 16, PAD_T = 22, PAD_B = 38;
+            const cW = W - PAD_L - PAD_R, cH = H - PAD_T - PAD_B;
+            const n  = sorted.length;
+
+            // Grid + Y-axis (cost)
+            const ySteps = 4;
+            for (let i = 0; i <= ySteps; i++) {
+                const y   = PAD_T + cH - (i / ySteps) * cH;
+                const val = maxCost * i / ySteps;
+                ctx.strokeStyle = '#e5e7eb'; ctx.lineWidth = 1;
+                ctx.beginPath(); ctx.moveTo(PAD_L, y); ctx.lineTo(PAD_L + cW, y); ctx.stroke();
+                ctx.fillStyle = '#6b7280'; ctx.font = '10px sans-serif'; ctx.textAlign = 'right';
+                ctx.fillText('$' + (val < 0.01 ? val.toFixed(4) : val < 0.1 ? val.toFixed(3) : val.toFixed(2)), PAD_L - 4, y + 4);
+            }
+
+            // X axis line
+            ctx.strokeStyle = '#d1d5db'; ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.moveTo(PAD_L, PAD_T + cH); ctx.lineTo(PAD_L + cW, PAD_T + cH); ctx.stroke();
+
+            // Bars + labels
+            const slotW = cW / n;
+            const barW  = Math.max(slotW * 0.65, 3);
+            const barOff = (slotW - barW) / 2;
+
+            sorted.forEach((d, i) => {
+                const cost  = parseFloat(d.cost)  || 0;
+                const barH  = (cost / maxCost) * cH;
+                const x     = PAD_L + i * slotW + barOff;
+                const y     = PAD_T + cH - barH;
+
+                // Bar gradient feel
+                ctx.fillStyle = '#3b82f6';
+                ctx.fillRect(x, y, barW, barH);
+                if (barH > 4) { ctx.fillStyle = 'rgba(255,255,255,0.18)'; ctx.fillRect(x, y, barW, 4); }
+
+                // Cost label above tall bars
+                if (barH > 18 && cost > 0) {
+                    ctx.fillStyle = '#1e40af'; ctx.font = '9px sans-serif'; ctx.textAlign = 'center';
+                    ctx.fillText('$' + cost.toFixed(3), x + barW / 2, y - 2);
+                }
+
+                // X-axis date label
+                const label = d.date ? d.date.substring(5) : '';  // "MM-DD"
+                ctx.fillStyle = '#6b7280'; ctx.textAlign = 'center';
+                if (n > 20) {
+                    ctx.font = '9px sans-serif';
+                    ctx.save(); ctx.translate(x + barW/2, PAD_T + cH + 4); ctx.rotate(Math.PI/4);
+                    ctx.fillText(label, 0, 0); ctx.restore();
+                } else {
+                    ctx.font = '10px sans-serif';
+                    ctx.fillText(label, x + barW / 2, PAD_T + cH + 13);
+                }
+            });
+
+            // Calls overlay line (secondary axis, dashed amber)
+            ctx.strokeStyle = '#f59e0b'; ctx.lineWidth = 1.5; ctx.setLineDash([3, 2]);
+            ctx.beginPath();
+            sorted.forEach((d, i) => {
+                const calls = parseInt(d.calls) || 0;
+                const cx = PAD_L + i * slotW + barOff + barW / 2;
+                const cy = PAD_T + cH - (calls / maxCalls) * cH;
+                i === 0 ? ctx.moveTo(cx, cy) : ctx.lineTo(cx, cy);
+            });
+            ctx.stroke(); ctx.setLineDash([]);
+
+            // Legend
+            ctx.fillStyle = '#3b82f6'; ctx.fillRect(PAD_L, 4, 10, 8);
+            ctx.fillStyle = '#374151'; ctx.font = '10px sans-serif'; ctx.textAlign = 'left';
+            ctx.fillText('Daily Cost', PAD_L + 13, 12);
+            ctx.strokeStyle = '#f59e0b'; ctx.lineWidth = 1.5; ctx.setLineDash([3, 2]);
+            ctx.beginPath(); ctx.moveTo(PAD_L + 72, 8); ctx.lineTo(PAD_L + 84, 8); ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.fillStyle = '#374151'; ctx.fillText('API Calls', PAD_L + 87, 12);
         }
 
         function filterVsDocs() {
@@ -2403,7 +2685,9 @@
             const totalPages = Math.ceil(vsFiltered.length / VS_PAGE_SIZE) || 1;
             vsPage = Math.max(0, Math.min(p, totalPages - 1));
             renderVsPage();
-            document.getElementById('cfg-vectorstore')?.scrollIntoView({behavior:'smooth', block:'start'});
+            // Scroll to top of the vector store pane when changing pages
+            const vsPane = document.getElementById('cfg-vectorstore');
+            if (vsPane) vsPane.scrollTop = 0;
         }
 
         // ── Tab switching function ────────────────────────────────────
@@ -2418,10 +2702,11 @@
                 btn.classList.remove('active');
             });
 
-            // Show selected tab
+            // Show selected tab and reset its scroll position
             const selectedTab = document.getElementById('tab-' + tabName);
             if (selectedTab) {
                 selectedTab.classList.add('active');
+                selectedTab.scrollTop = 0;
             }
 
             // Activate selected tab button (match by onclick attribute, not text content)
@@ -3011,11 +3296,15 @@
                 });
                 const data = await res.json();
                 if (!res.ok) throw new Error(data.error || 'Request failed');
-                statusDiv.innerHTML = `<span style="color:#16a34a;">✅ ${data.message || 'Migration started.'}</span><br><span style="font-size:12px; color:#6b7280;">${data.note || ''}</span>`;
-                statusDiv.style.display = '';
-                btn.textContent = 'Close';
-                btn.onclick = () => { closeMoveModal(); loadProjectsList(); loadProjectSelector(); btn.textContent = 'Move Documents'; btn.onclick = confirmMove; btn.disabled = false; };
+                // Close dialog immediately and show a toast so the user gets clear feedback
+                closeMoveModal();
+                btn.textContent = 'Move Documents';
+                btn.onclick = confirmMove;
                 btn.disabled = false;
+                loadProjectsList();
+                loadProjectSelector();
+                const msg = (data.message || 'Migration started.') + (data.note ? ' — ' + data.note : '');
+                showToast('✅ ' + msg, 'success', 5000);
             } catch (e) {
                 errDiv.textContent = e.message;
                 errDiv.style.display = '';
