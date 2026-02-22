@@ -2968,16 +2968,12 @@
                     `;
                 }).join('');
 
-                // Always update overview; skip search list while user is reading it
+                // Always update overview recent-analyses panel
                 if (overviewContainer) overviewContainer.innerHTML = analysesHtml;
-                if (searchContainer && !searchTabActive) searchContainer.innerHTML = analysesHtml;
             } catch (error) {
                 console.error('Failed to fetch recent analyses:', error);
-                const errorHtml = '<div class="empty-state">Failed to load</div>';
                 const overviewContainer = document.getElementById('recent-analyses');
-                const searchContainer = document.getElementById('recent-analyses-list');
-                if (overviewContainer) overviewContainer.innerHTML = errorHtml;
-                if (searchContainer) searchContainer.innerHTML = errorHtml;
+                if (overviewContainer) overviewContainer.innerHTML = '<div class="empty-state">Failed to load</div>';
             }
         }
 
@@ -4475,15 +4471,19 @@
                     document.getElementById('llm-setup-link').href = data.setup_url;
                 }
 
-                // Update provider dropdown change handler
-                document.getElementById('llm-provider').value = data.provider;
-                document.getElementById('llm-provider').addEventListener('change', function(e) {
-                    const links = {
-                        'anthropic': 'https://console.anthropic.com/settings/keys',
-                        'openai': 'https://platform.openai.com/api-keys'
-                    };
-                    document.getElementById('llm-setup-link').href = links[e.target.value];
-                });
+                // Update provider dropdown change handler (element only exists on Config tab)
+                const llmProviderEl = document.getElementById('llm-provider');
+                if (llmProviderEl) {
+                    llmProviderEl.value = data.provider;
+                    llmProviderEl.addEventListener('change', function(e) {
+                        const links = {
+                            'anthropic': 'https://console.anthropic.com/settings/keys',
+                            'openai': 'https://platform.openai.com/api-keys'
+                        };
+                        const setupLink = document.getElementById('llm-setup-link');
+                        if (setupLink) setupLink.href = links[e.target.value];
+                    });
+                }
             } catch (error) {
                 console.error('Failed to check LLM status:', error);
             }
