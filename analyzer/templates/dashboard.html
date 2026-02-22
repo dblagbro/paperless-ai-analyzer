@@ -1860,32 +1860,92 @@
             <!-- Search & Analysis Tab -->
             <div id="tab-search" class="tab-content">
                 <div class="tab-help-panel" id="help-search">
-                    <strong>🔍 Search &amp; Analysis</strong> — Search and filter all analyzed documents and their AI findings.
+                    <strong>🔍 Search &amp; Analysis</strong> — Browse, sort, and filter all documents in the current project.
                     <ul style="margin:8px 0 0 0; padding-left:18px;">
-                        <li>Search by <strong>title</strong>, <strong>document ID</strong>, or <strong>anomaly type</strong> (e.g., "balance_mismatch").</li>
-                        <li>Filter by <strong>risk percentage</strong> range to focus on high-risk documents.</li>
-                        <li>Check <strong>Anomalies Only</strong> to hide clean documents from results.</li>
-                        <li>Click a result row to expand and see the full AI analysis, tags, and evidence.</li>
-                        <li>Click <strong>View Tags</strong> to see how individual anomaly tags were determined.</li>
+                        <li>Type in the <strong>global search box</strong> or any <strong>column filter</strong> to narrow results instantly — no button needed.</li>
+                        <li>Click any <strong>column header</strong> to sort ascending/descending.</li>
+                        <li>Use the <strong>Risk min/max</strong> inputs to filter by risk score range.</li>
+                        <li>Multiple column filters combine with AND logic.</li>
+                        <li>Click <strong>more</strong> on any summary to expand the full text.</li>
                     </ul>
                     <div style="margin-top:8px; font-size:12px;"><a href="{{ request.script_root }}/docs/search" target="_blank" style="color:#5dade2;">📖 Full manual for this section →</a></div>
                 </div>
-                <h2>🔍 Search Analyses</h2>
-                <div class="search-bar">
-                    <input type="text" id="search-query" placeholder="Search by title, doc ID, or anomaly..." />
-                    <input type="number" id="search-risk-min" placeholder="Min risk %" />
-                    <input type="number" id="search-risk-max" placeholder="Max risk %" />
-                    <label style="display: flex; align-items: center; gap: 5px;">
-                        <input type="checkbox" id="search-anomalies" />
-                        Has anomalies
-                    </label>
-                    <button class="btn" onclick="performSearch()">Search</button>
-                    <button class="btn" onclick="clearSearch()">Clear</button>
-                </div>
-                <div id="search-results" style="margin-bottom: 20px;"></div>
 
-                <h2 style="margin-top: 30px; padding-top: 20px; border-top: 2px solid #ecf0f1;">All Recent Analyses</h2>
-                <div id="recent-analyses-list" class="loading">Loading...</div>
+                <!-- Toolbar -->
+                <div style="display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-bottom:12px;">
+                    <input type="text" id="sa-global"
+                        placeholder="🔍 Search title, doc #, anomaly, summary…"
+                        oninput="saApplyFilters()"
+                        onkeydown="if(event.key==='Enter') saApplyFilters()"
+                        style="flex:1; min-width:220px; padding:7px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:13px;" />
+                    <select id="sa-sort-select" onchange="saApplyFilters()"
+                        style="padding:7px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:13px; background:#fff; cursor:pointer;">
+                        <option value="doc_id">Sort: Doc #</option>
+                        <option value="title">Sort: Title</option>
+                        <option value="timestamp">Sort: Date</option>
+                        <option value="risk_score">Sort: Risk %</option>
+                    </select>
+                    <button onclick="saToggleSortDir()"
+                        id="sa-sort-dir-btn"
+                        style="padding:7px 10px; border:1px solid #d1d5db; border-radius:6px; background:#fff; cursor:pointer; font-size:13px;">▲ Asc</button>
+                    <label style="display:flex; align-items:center; gap:5px; font-size:13px; cursor:pointer;">
+                        <input type="checkbox" id="sa-anomalies-only" onchange="saApplyFilters()" />
+                        Anomalies only
+                    </label>
+                    <button onclick="saClearAll()"
+                        style="padding:7px 12px; border:1px solid #d1d5db; border-radius:6px; background:#fff; cursor:pointer; font-size:13px;">Clear</button>
+                    <span id="sa-count" style="font-size:12px; color:#6b7280; margin-left:4px;"></span>
+                </div>
+
+                <!-- Document table -->
+                <div style="overflow-x:auto; border:1px solid #e5e7eb; border-radius:8px;">
+                    <table style="width:100%; border-collapse:collapse; font-size:13px;">
+                        <thead style="background:#f9fafb; position:sticky; top:0; z-index:1;">
+                            <!-- Sortable column headers -->
+                            <tr>
+                                <th onclick="saSortBy('doc_id')" style="padding:8px 10px; text-align:left; cursor:pointer; white-space:nowrap; border-bottom:1px solid #e5e7eb; user-select:none;">
+                                    Doc # <span id="sa-sort-ind-doc_id"></span></th>
+                                <th onclick="saSortBy('title')" style="padding:8px 10px; text-align:left; cursor:pointer; border-bottom:1px solid #e5e7eb; user-select:none;">
+                                    Title <span id="sa-sort-ind-title"></span></th>
+                                <th onclick="saSortBy('timestamp')" style="padding:8px 10px; text-align:left; cursor:pointer; white-space:nowrap; border-bottom:1px solid #e5e7eb; user-select:none;">
+                                    Date <span id="sa-sort-ind-timestamp"></span></th>
+                                <th onclick="saSortBy('risk_score')" style="padding:8px 10px; text-align:left; cursor:pointer; white-space:nowrap; border-bottom:1px solid #e5e7eb; user-select:none;">
+                                    Risk % <span id="sa-sort-ind-risk_score"></span></th>
+                                <th onclick="saSortBy('anomalies')" style="padding:8px 10px; text-align:left; cursor:pointer; border-bottom:1px solid #e5e7eb; user-select:none;">
+                                    Anomalies <span id="sa-sort-ind-anomalies"></span></th>
+                                <th style="padding:8px 10px; text-align:left; border-bottom:1px solid #e5e7eb;">Summary</th>
+                            </tr>
+                            <!-- Per-column filter row -->
+                            <tr style="background:#f3f4f6;">
+                                <td style="padding:4px 6px; border-bottom:2px solid #e5e7eb;">
+                                    <input id="sa-filter-doc_id" type="text" placeholder="filter…" oninput="saApplyFilters()"
+                                        style="width:100%; padding:4px 6px; border:1px solid #d1d5db; border-radius:4px; font-size:12px;" /></td>
+                                <td style="padding:4px 6px; border-bottom:2px solid #e5e7eb;">
+                                    <input id="sa-filter-title" type="text" placeholder="filter…" oninput="saApplyFilters()"
+                                        style="width:100%; padding:4px 6px; border:1px solid #d1d5db; border-radius:4px; font-size:12px;" /></td>
+                                <td style="padding:4px 6px; border-bottom:2px solid #e5e7eb;">
+                                    <input id="sa-filter-date" type="text" placeholder="filter…" oninput="saApplyFilters()"
+                                        style="width:100%; padding:4px 6px; border:1px solid #d1d5db; border-radius:4px; font-size:12px;" /></td>
+                                <td style="padding:4px 6px; border-bottom:2px solid #e5e7eb;">
+                                    <div style="display:flex; gap:3px;">
+                                        <input id="sa-filter-risk-min" type="number" placeholder="min" oninput="saApplyFilters()"
+                                            style="width:46%; padding:4px 5px; border:1px solid #d1d5db; border-radius:4px; font-size:12px;" />
+                                        <input id="sa-filter-risk-max" type="number" placeholder="max" oninput="saApplyFilters()"
+                                            style="width:46%; padding:4px 5px; border:1px solid #d1d5db; border-radius:4px; font-size:12px;" />
+                                    </div></td>
+                                <td style="padding:4px 6px; border-bottom:2px solid #e5e7eb;">
+                                    <input id="sa-filter-anomalies" type="text" placeholder="filter…" oninput="saApplyFilters()"
+                                        style="width:100%; padding:4px 6px; border:1px solid #d1d5db; border-radius:4px; font-size:12px;" /></td>
+                                <td style="padding:4px 6px; border-bottom:2px solid #e5e7eb;">
+                                    <input id="sa-filter-summary" type="text" placeholder="filter…" oninput="saApplyFilters()"
+                                        style="width:100%; padding:4px 6px; border:1px solid #d1d5db; border-radius:4px; font-size:12px;" /></td>
+                            </tr>
+                        </thead>
+                        <tbody id="sa-tbody">
+                            <tr><td colspan="6" style="text-align:center; padding:30px; color:#9ca3af;">Loading…</td></tr>
+                        </tbody>
+                    </table>
+                </div>
             </div>
 
             <!-- Configuration Tab -->
@@ -2739,6 +2799,10 @@
                 loadImportHistory();
                 loadUploadProjects();
             }
+            // Load document table when search tab is opened
+            if (tabName === 'search') {
+                loadSearchTab();
+            }
         }
 
         async function checkAiKeyStatus() {
@@ -2848,15 +2912,9 @@
                 const data = await response.json();
 
                 const overviewContainer = document.getElementById('recent-analyses');
-                const searchContainer = document.getElementById('recent-analyses-list');
-
-                // Skip re-rendering the search-tab list while the user is reading it
-                const searchTabActive = document.getElementById('tab-search')?.classList.contains('active');
 
                 if (data.analyses.length === 0) {
-                    const emptyHtml = '<div class="empty-state">No analyses yet</div>';
-                    if (overviewContainer) overviewContainer.innerHTML = emptyHtml;
-                    if (searchContainer) searchContainer.innerHTML = emptyHtml;
+                    if (overviewContainer) overviewContainer.innerHTML = '<div class="empty-state">No analyses yet</div>';
                     return;
                 }
 
@@ -4211,95 +4269,192 @@
             }
         }
 
-        // Search analyses
-        async function performSearch() {
-            const query = document.getElementById('search-query').value;
-            const riskMin = document.getElementById('search-risk-min').value;
-            const riskMax = document.getElementById('search-risk-max').value;
-            const hasAnomalies = document.getElementById('search-anomalies').checked;
+        // ── Search & Analysis tab — state ────────────────────────────────────────
+        var _saDocs = [];
+        var _saSortField = 'doc_id';
+        var _saSortDir = 'asc';
+        var _saLoaded = false;
 
-            const params = new URLSearchParams();
-            if (query) params.append('q', query);
-            if (riskMin) params.append('risk_min', riskMin);
-            if (riskMax) params.append('risk_max', riskMax);
-            if (hasAnomalies) params.append('has_anomalies', 'true');
-
+        // Load (or reload) all docs for current project into the table
+        async function loadSearchTab() {
+            if (_saLoaded) return;
+            const tbody = document.getElementById('sa-tbody');
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:30px;color:#9ca3af;">Loading…</td></tr>';
             try {
-                const response = await apiFetch(apiUrl(`/api/search?${params}`));
-                const data = await response.json();
-
-                const resultsContainer = document.getElementById('search-results');
-
-                if (data.results.length === 0) {
-                    resultsContainer.innerHTML = '<div class="empty-state">No results found</div>';
-                    return;
-                }
-
-                resultsContainer.innerHTML = `
-                    <div style="margin-bottom: 10px; font-weight: 600;">Found ${data.count} result(s)</div>
-                    ${data.results.map(analysis => {
-                        const hasAnomalies = analysis.anomalies_found && analysis.anomalies_found.length > 0;
-                        const isHighRisk = analysis.risk_score >= 70;
-                        const classes = ['recent-item'];
-                        if (hasAnomalies) classes.push('has-anomalies');
-                        if (isHighRisk) classes.push('high-risk');
-
-                        let tags = '';
-                        if (analysis.anomalies_found) {
-                            // Check if this document has enhanced tags (issue count > 0 indicates detailed evidence)
-                            const hasEvidence = analysis.issue_count > 0 || analysis.enhanced_tags;
-
-                            tags = analysis.anomalies_found.map(a => {
-                                // All anomaly tags are now clickable to show explanations
-                                return `<span class="tag anomaly clickable" onclick="event.stopPropagation(); showTagEvidence(${analysis.document_id || analysis.doc_id}, '${(analysis.document_title || analysis.title).replace(/'/g, "\\'")}')" title="Click to see why this was flagged">🔍 ${a}</span>`;
-                            }).join('');
-
-                            // Add "View Evidence" button only when there are actual anomalies to explain
-                            if (hasEvidence && tags) {
-                                tags += ` <span class="tag clickable" style="background: #3498db; color: white;" onclick="event.stopPropagation(); showTagEvidence(${analysis.document_id || analysis.doc_id}, '${(analysis.document_title || analysis.title).replace(/'/g, "\\'")}');" title="Click to view all evidence">📋 View Evidence</span>`;
-                            }
-                        }
-
-                        // Format summaries — always fully visible, no collapse
-                        const briefSummary = analysis.brief_summary || '';
-                        const fullSummary = analysis.full_summary || '';
-                        const summaryHtml = briefSummary ? `
-                            <div style="margin-top: 8px; padding: 8px 10px; background: rgba(52, 152, 219, 0.08); border-left: 3px solid #3498db; border-radius: 4px; font-size: 0.9em;">
-                                <div style="color: #444; line-height: 1.5;"><strong>Brief Summary:</strong> ${briefSummary}</div>
-                                ${fullSummary ? `
-                                    <div style="margin-top: 6px; color: #555; line-height: 1.5; border-top: 1px solid rgba(52,152,219,0.2); padding-top: 6px;"><strong>Full Summary:</strong> ${fullSummary}</div>
-                                ` : ''}
-                            </div>
-                        ` : '';
-
-                        return `
-                            <div class="${classes.join(' ')}">
-                                <div class="title">${analysis.document_title || analysis.title}</div>
-                                <div class="meta">
-                                    <span>📄 <a href="https://www.voipguru.org/paperless/documents/${analysis.document_id || analysis.doc_id}" target="_blank" style="color: #3498db; text-decoration: none;">Doc #${analysis.document_id || analysis.doc_id}</a></span>
-                                    <span>⚠️ Risk: ${analysis.risk_score}%</span>
-                                    ${analysis.profile_matched ? `<span>📋 ${analysis.profile_matched}</span>` : '<span>❓ No profile</span>'}
-                                    <span>⏱️ ${new Date(analysis.timestamp).toLocaleString()}</span>
-                                </div>
-                                ${summaryHtml}
-                                ${tags ? `<div style="margin-top: 8px;">${tags}</div>` : ''}
-                            </div>
-                        `;
-                    }).join('')}
-                `;
-            } catch (error) {
-                console.error('Search failed:', error);
-                document.getElementById('search-results').innerHTML = '<div class="empty-state">Search failed</div>';
+                const slug = document.getElementById('project-selector').value || 'default';
+                const resp = await apiFetch(apiUrl(`/api/projects/${encodeURIComponent(slug)}/documents`));
+                const data = await resp.json();
+                _saDocs = data.documents || [];
+                _saLoaded = true;
+                saApplyFilters();
+            } catch (err) {
+                console.error('loadSearchTab error:', err);
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:30px;color:#e74c3c;">Failed to load documents</td></tr>';
             }
         }
 
-        // Clear search
-        function clearSearch() {
-            document.getElementById('search-query').value = '';
-            document.getElementById('search-risk-min').value = '';
-            document.getElementById('search-risk-max').value = '';
-            document.getElementById('search-anomalies').checked = false;
-            document.getElementById('search-results').innerHTML = '';
+        // Apply all active filters + sort, then render
+        function saApplyFilters() {
+            const global  = (document.getElementById('sa-global')?.value || '').toLowerCase();
+            const fDocId  = (document.getElementById('sa-filter-doc_id')?.value || '').toLowerCase();
+            const fTitle  = (document.getElementById('sa-filter-title')?.value || '').toLowerCase();
+            const fDate   = (document.getElementById('sa-filter-date')?.value || '').toLowerCase();
+            const rMin    = parseFloat(document.getElementById('sa-filter-risk-min')?.value) || null;
+            const rMax    = parseFloat(document.getElementById('sa-filter-risk-max')?.value) || null;
+            const fAnom   = (document.getElementById('sa-filter-anomalies')?.value || '').toLowerCase();
+            const fSum    = (document.getElementById('sa-filter-summary')?.value || '').toLowerCase();
+            const anomOnly= document.getElementById('sa-anomalies-only')?.checked || false;
+
+            // Read sort from dropdown (may differ from _saSortField if changed via dropdown)
+            const sortSel = document.getElementById('sa-sort-select');
+            if (sortSel) _saSortField = sortSel.value;
+
+            let docs = _saDocs.filter(d => {
+                const title    = (d.title || '').toLowerCase();
+                const docId    = String(d.doc_id || '');
+                const dateStr  = d.timestamp ? new Date(d.timestamp).toLocaleString().toLowerCase() : '';
+                const risk     = d.risk_score || 0;
+                const anomStr  = (d.anomalies || []).join(' ').toLowerCase();
+                const brief    = (d.brief_summary || '').toLowerCase();
+                const full     = (d.full_summary || '').toLowerCase();
+                const summaryAll = brief + ' ' + full;
+
+                if (anomOnly && (!d.anomalies || d.anomalies.length === 0)) return false;
+                if (rMin !== null && risk < rMin) return false;
+                if (rMax !== null && risk > rMax) return false;
+                if (fDocId  && !docId.includes(fDocId))     return false;
+                if (fTitle  && !title.includes(fTitle))     return false;
+                if (fDate   && !dateStr.includes(fDate))    return false;
+                if (fAnom   && !anomStr.includes(fAnom))    return false;
+                if (fSum    && !summaryAll.includes(fSum))  return false;
+                if (global  && !(title + ' ' + docId + ' ' + anomStr + ' ' + summaryAll).includes(global)) return false;
+                return true;
+            });
+
+            // Sort
+            docs.sort((a, b) => {
+                let av, bv;
+                if (_saSortField === 'doc_id')    { av = a.doc_id || 0;           bv = b.doc_id || 0; }
+                else if (_saSortField === 'title') { av = (a.title||'').toLowerCase(); bv = (b.title||'').toLowerCase(); }
+                else if (_saSortField === 'timestamp') { av = a.timestamp || ''; bv = b.timestamp || ''; }
+                else if (_saSortField === 'risk_score') { av = a.risk_score || 0; bv = b.risk_score || 0; }
+                else if (_saSortField === 'anomalies')  { av = (a.anomalies||[]).length; bv = (b.anomalies||[]).length; }
+                else { av = 0; bv = 0; }
+                if (av < bv) return _saSortDir === 'asc' ? -1 : 1;
+                if (av > bv) return _saSortDir === 'asc' ?  1 : -1;
+                return 0;
+            });
+
+            updateSaSortIndicators();
+            renderSearchTable(docs);
+
+            const cnt = document.getElementById('sa-count');
+            if (cnt) cnt.textContent = `${docs.length} of ${_saDocs.length} doc${_saDocs.length !== 1 ? 's' : ''}`;
+        }
+
+        // Change sort field; toggle direction if same field clicked again
+        function saSortBy(field) {
+            if (_saSortField === field) {
+                _saSortDir = _saSortDir === 'asc' ? 'desc' : 'asc';
+            } else {
+                _saSortField = field;
+                _saSortDir = 'asc';
+            }
+            // Sync dropdown
+            const sel = document.getElementById('sa-sort-select');
+            if (sel && ['doc_id','title','timestamp','risk_score'].includes(field)) sel.value = field;
+            saApplyFilters();
+        }
+
+        // Toggle asc/desc via the direction button
+        function saToggleSortDir() {
+            _saSortDir = _saSortDir === 'asc' ? 'desc' : 'asc';
+            saApplyFilters();
+        }
+
+        // Update ▲/▼ indicators on column headers
+        function updateSaSortIndicators() {
+            const fields = ['doc_id','title','timestamp','risk_score','anomalies'];
+            fields.forEach(f => {
+                const el = document.getElementById('sa-sort-ind-' + f);
+                if (!el) return;
+                if (f === _saSortField) {
+                    el.textContent = _saSortDir === 'asc' ? ' ▲' : ' ▼';
+                } else {
+                    el.textContent = '';
+                }
+            });
+            // Sync dir button label
+            const btn = document.getElementById('sa-sort-dir-btn');
+            if (btn) btn.textContent = _saSortDir === 'asc' ? '▲ Asc' : '▼ Desc';
+        }
+
+        // Render filtered+sorted docs into the table body
+        function renderSearchTable(docs) {
+            const tbody = document.getElementById('sa-tbody');
+            if (!docs.length) {
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:30px;color:#9ca3af;">' +
+                    (_saLoaded ? 'No documents match the current filters.' : 'Loading…') + '</td></tr>';
+                return;
+            }
+            tbody.innerHTML = docs.map((d, idx) => {
+                const risk = d.risk_score || 0;
+                const riskColor = risk >= 70 ? '#dc2626' : risk >= 40 ? '#d97706' : '#16a34a';
+                const anomList = (d.anomalies || []);
+                const anomHtml = anomList.length
+                    ? anomList.map(a => `<span style="display:inline-block;background:#fef2f2;color:#991b1b;border:1px solid #fecaca;border-radius:3px;padding:1px 5px;margin:1px;font-size:11px;">${_escHtml(a)}</span>`).join('')
+                    : '<span style="color:#9ca3af;font-size:12px;">—</span>';
+
+                const brief = d.brief_summary || '';
+                const full  = d.full_summary  || '';
+                const fullId = 'sa-full-' + idx;
+                let summaryHtml;
+                if (!brief) {
+                    summaryHtml = '<span style="color:#9ca3af;font-size:12px;">—</span>';
+                } else if (!full) {
+                    summaryHtml = `<span style="font-size:12px;">${_escHtml(brief)}</span>`;
+                } else {
+                    const briefTrunc = brief.length > 80 ? brief.slice(0, 80) + '…' : brief;
+                    summaryHtml = `<span style="font-size:12px;">${_escHtml(briefTrunc)}</span>` +
+                        ` <span id="${fullId}" style="display:none;font-size:12px;color:#374151;">${_escHtml(full)}</span>` +
+                        ` <button onclick="toggleSaFull('${fullId}')" style="font-size:11px;padding:1px 5px;border:1px solid #d1d5db;border-radius:3px;background:#f9fafb;cursor:pointer;margin-left:3px;" id="${fullId}-btn">more</button>`;
+                }
+
+                const dateStr = d.timestamp ? new Date(d.timestamp).toLocaleDateString() : '—';
+                const rowBg = anomList.length ? '#fff8f8' : (idx % 2 === 0 ? '#fff' : '#f9fafb');
+                return `<tr style="background:${rowBg}; border-bottom:1px solid #e5e7eb;">
+                    <td style="padding:7px 10px; white-space:nowrap; font-size:12px;">
+                        <a href="https://www.voipguru.org/paperless/documents/${d.doc_id}" target="_blank" style="color:#3b82f6;text-decoration:none;">#${d.doc_id}</a>
+                    </td>
+                    <td style="padding:7px 10px; font-size:13px; max-width:280px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${_escHtml(d.title || '')}">${_escHtml(d.title || '—')}</td>
+                    <td style="padding:7px 10px; white-space:nowrap; font-size:12px; color:#6b7280;">${dateStr}</td>
+                    <td style="padding:7px 10px; white-space:nowrap; font-weight:600; color:${riskColor}; font-size:13px;">${risk}%</td>
+                    <td style="padding:7px 10px;">${anomHtml}</td>
+                    <td style="padding:7px 10px; max-width:300px;">${summaryHtml}</td>
+                </tr>`;
+            }).join('');
+        }
+
+        // Toggle full summary visibility
+        function toggleSaFull(fullId) {
+            const el  = document.getElementById(fullId);
+            const btn = document.getElementById(fullId + '-btn');
+            if (!el) return;
+            const hidden = el.style.display === 'none';
+            el.style.display  = hidden ? 'inline' : 'none';
+            if (btn) btn.textContent = hidden ? 'less' : 'more';
+        }
+
+        // Clear all filters and reload
+        function saClearAll() {
+            ['sa-global','sa-filter-doc_id','sa-filter-title','sa-filter-date',
+             'sa-filter-risk-min','sa-filter-risk-max','sa-filter-anomalies','sa-filter-summary'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.value = '';
+            });
+            const anom = document.getElementById('sa-anomalies-only');
+            if (anom) anom.checked = false;
+            saApplyFilters();
         }
 
         // HTML escape utility

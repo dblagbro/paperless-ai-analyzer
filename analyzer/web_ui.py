@@ -3006,6 +3006,8 @@ def api_list_project_documents(slug):
                 'timestamp':     m.get('timestamp', ''),
                 'brief_summary': m.get('brief_summary', ''),
                 'full_summary':  m.get('full_summary', ''),
+                'anomalies':     m.get('anomalies', ''),
+                'risk_score':    m.get('risk_score', 0),
             })
         docs.sort(key=lambda x: x['doc_id'])
         return jsonify({'documents': docs, 'count': len(docs)})
