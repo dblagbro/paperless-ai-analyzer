@@ -215,7 +215,7 @@
             <tr><td><strong>Smart Upload</strong></td><td>Upload files, URLs, or cloud share links; assign to a project.</td></tr>
             <tr><td><strong>AI Chat</strong></td><td>Natural-language conversation grounded in project documents.</td></tr>
             <tr><td><strong>Search &amp; Analysis</strong></td><td>Semantic search with risk scoring and anomaly filters.</td></tr>
-            <tr><td><strong>Configuration</strong></td><td>AI keys, profiles, vector store controls, SMTP, users (admin only).</td></tr>
+            <tr><td><strong>Configuration</strong></td><td>AI keys, profiles, vector store controls, AI usage chart, SMTP, users (admin only).</td></tr>
             <tr><td><strong>Debug &amp; Tools</strong></td><td>Live logs, reprocess controls, diagnostic tools.</td></tr>
         </table>
 
@@ -531,8 +531,16 @@
         <h1 class="page-title">Search &amp; Analysis</h1>
         <p class="subtitle">Semantic full-text search with AI-generated summaries, risk scoring, and anomaly filtering — scoped to the current project.</p>
 
-        <h2 id="how-search-works">How semantic search works</h2>
-        <p>Unlike keyword search, semantic search finds documents based on <em>meaning</em>. Your query is converted to an embedding vector (Cohere) and compared against all document embeddings in the current project's vector store. Results are ranked by semantic similarity — a search for "payment discrepancy" will find documents about "balance mismatch" or "missing transaction" even if those exact words don't appear in your query.</p>
+        <div class="callout callout-tip">
+            <strong>Works immediately after restart.</strong> Search queries the Chroma vector store directly — all embedded documents are searchable the moment the container starts. There is no warm-up period and results do not depend on which documents happened to be processed in the current session.
+        </div>
+
+        <h2 id="how-search-works">How search works</h2>
+        <p>Every search goes directly to the Chroma vector store, which holds all embedded documents with their full AI-generated metadata. Two complementary approaches are used together:</p>
+        <ul>
+            <li><strong>Semantic search</strong> — your query is embedded (Cohere) and compared against document vectors. Finds documents by meaning — a search for "payment discrepancy" will surface documents about "balance mismatch" or "missing transaction" even if those exact words don't appear in your query.</li>
+            <li><strong>Exact substring match</strong> — a secondary pass searches document title, brief summary, full summary, and anomaly fields for exact matches. This ensures a search for a document ID like <em>1398</em> or a specific title keyword always returns the correct result.</li>
+        </ul>
 
         <h2 id="performing-search">Performing a search</h2>
         <ol>
@@ -755,6 +763,14 @@
             <tr><td><strong>Clear All</strong></td><td>Delete the entire vector index for the current project. Destructive — use only when rebuilding from scratch.</td></tr>
         </table>
 
+        <h2 id="ai-usage">AI Usage &amp; Cost</h2>
+        <p>The <strong>AI Usage</strong> sub-tab shows a daily bar chart of LLM token consumption and estimated API cost, drawn from the persistent usage tracker database.</p>
+        <ul>
+            <li><strong>Blue bars</strong> — daily estimated cost in USD.</li>
+            <li><strong>Amber dashed line</strong> — daily API call volume (right axis).</li>
+        </ul>
+        <p>The chart renders in-browser using the Canvas 2D API. Hover over a bar to see the exact values for that day. For detailed per-call history and provider breakdowns, see the <a href="{{ url_prefix }}/docs/llm-usage">LLM Usage &amp; Cost</a> documentation page.</p>
+
         <h2 id="smtp-settings">SMTP / Notifications</h2>
         <p>Configure outgoing email for user welcome messages and bug report submissions.</p>
         <table>
@@ -843,7 +859,12 @@
         <p class="subtitle">Track every AI API call, monitor token consumption, and estimate costs by provider and model.</p>
 
         <h2 id="where-to-find">Where to find it</h2>
-        <p>LLM Usage statistics are shown in a panel within the <strong>Configuration</strong> tab (or as a dedicated sub-section). Admin users see usage across all users; basic users see only their own.</p>
+        <p>LLM usage data is available in two places:</p>
+        <ul>
+            <li><strong>Configuration → AI Usage</strong> — a daily bar chart of cost and call volume, visible at a glance every time you open Configuration.</li>
+            <li><strong>This page (LLM Usage &amp; Cost)</strong> — detailed per-call history, provider breakdown, and pricing reference.</li>
+        </ul>
+        <p>Admin users see usage across all activity; basic users see only their own session's usage.</p>
 
         <h2 id="usage-metrics">Usage metrics</h2>
         <table>
@@ -918,7 +939,7 @@
         <h2 id="api-search">Search</h2>
         <table>
             <tr><th>Method</th><th>Path</th><th>Description</th></tr>
-            <tr><td><span class="badge badge-green">POST</span></td><td><code>/api/search</code></td><td>Semantic search. Body: <code>{"query":"...","limit":10,"min_risk":0,"max_risk":100}</code></td></tr>
+            <tr><td><span class="badge badge-blue">GET</span></td><td><code>/api/search</code></td><td>Search across all embedded documents. Params: <code>q</code> (text), <code>has_anomalies</code> (bool), <code>risk_min</code> (int), <code>risk_max</code> (int). Queries Chroma directly — results available immediately after startup.</td></tr>
         </table>
 
         <h2 id="api-chat">AI Chat</h2>
