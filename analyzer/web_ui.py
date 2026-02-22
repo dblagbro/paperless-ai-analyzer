@@ -416,11 +416,49 @@ def api_status():
 @app.route('/api/recent')
 @login_required
 def api_recent():
-    """Get recent analysis results."""
+    """Get recent analysis results for the current project."""
+    project_slug = session.get('current_project', 'default')
+
+    # Query Chroma for the most recent docs in this project's collection.
+    # This is always project-scoped and survives container restarts, unlike
+    # the global in-memory ui_state['recent_analyses'].
+    try:
+        from analyzer.vector_store import VectorStore
+        vs = VectorStore(project_slug=project_slug)
+        if vs.enabled:
+            raw = vs.collection.get(include=['metadatas'])
+            metas = raw.get('metadatas') or []
+            # Sort by timestamp descending and take the 50 most recent
+            metas_sorted = sorted(
+                metas,
+                key=lambda m: m.get('timestamp', ''),
+                reverse=True
+            )[:50]
+            analyses = []
+            for m in metas_sorted:
+                anomalies_str = m.get('anomalies', '')
+                anomalies_list = [a.strip() for a in anomalies_str.split(',') if a.strip()] if anomalies_str else []
+                analyses.append({
+                    'document_id': m.get('document_id'),
+                    'document_title': m.get('title', ''),
+                    'anomalies_found': anomalies_list,
+                    'risk_score': m.get('risk_score', 0),
+                    'timestamp': m.get('timestamp', ''),
+                    'brief_summary': m.get('brief_summary', ''),
+                    'full_summary': m.get('full_summary', ''),
+                    'ai_analysis': m.get('ai_analysis', ''),
+                })
+            return jsonify({'analyses': analyses})
+    except Exception as e:
+        logger.warning(f"Chroma recent query failed for {project_slug}, falling back: {e}")
+
+    # Fallback: filter in-memory list by project_slug field
     with ui_state['lock']:
-        return jsonify({
-            'analyses': ui_state['recent_analyses'][-50:]  # Last 50
-        })
+        filtered = [
+            a for a in ui_state['recent_analyses']
+            if a.get('project_slug', 'default') == project_slug
+        ]
+        return jsonify({'analyses': filtered[-50:]})
 
 
 @app.route('/api/profiles')
@@ -2366,11 +2404,11 @@ def api_search():
         }
 
     # When any search criteria is provided, query Chroma directly — it has all
-    # 744 docs with full metadata (unlike recent_analyses which is only the last 100
-    # analyzed in the current session and resets on container restart).
+    # docs with full metadata and is scoped to the current project's collection.
     if query or has_anomalies or risk_min is not None or risk_max is not None:
         try:
-            vs = app.document_analyzer.vector_store
+            from analyzer.vector_store import VectorStore
+            vs = VectorStore(project_slug=session.get('current_project', 'default'))
             if vs and vs.enabled:
                 results = []
                 seen_ids = set()
