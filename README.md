@@ -31,11 +31,24 @@ Advanced AI-powered anomaly detection and risk analysis microservice for [Paperl
 - Removes orphaned Chroma embeddings for the same deleted docs
 - Reports how many documents are not yet analyzed or embedded
 
+### AI Usage & Cost Sub-Tab *(v2.1.5)*
+- **AI Usage** sub-tab under ⚙️ Configuration shows a daily bar chart of API token usage and cost
+- Rendered in-browser with Canvas 2D (no external library) — blue bars for cost, amber overlay for call volume
+- Data sourced from the persistent LLM usage tracker database
+
+### Search Now Queries All Documents *(v2.1.6)*
+- **Search & Analysis** previously only searched the last 100 documents analyzed in the current container session — results were empty after every restart
+- Now queries the **Chroma vector store directly** (all embedded docs, full metadata) whenever a filter or text query is active
+- Searches work immediately after startup — by document ID, keyword, title, anomaly type, or risk level
+- Semantic similarity search (Cohere embeddings) is used for free-text queries with substring matching as a secondary pass
+
 ### Bug Fixes
 - Fixed `session` not imported in Flask app — caused `NameError` on vector store API calls
 - Fixed all `VectorStore()` calls in the web layer to pass `project_slug` from session
 - Fixed docs sidebar links using bare paths instead of sub-path prefix
 - Fixed welcome and manual emails sending links to the host root instead of the app sub-path
+- Fixed Config sub-tabs (Vector Store, Notifications, Users) showing 130–420 px whitespace gap when switching — caused by a mismatched `</div>` that displaced the panes outside the config container
+- Fixed Smart Upload silently dropping the project tag when uploading documents
 
 ---
 
@@ -454,7 +467,7 @@ Real-time statistics: documents analyzed, anomalies detected, high-risk count. V
 
 ### Search & Analysis Tab
 
-Search and filter all analyzed documents. Filter by risk level, document type, or anomaly keyword. Click any row to expand the full AI summary and evidence.
+Search and filter all analyzed documents across the entire vector store — by document ID, title keyword, anomaly type, risk level, or free-text semantic query. Results are drawn directly from Chroma and are available immediately after startup. Click any row to expand the full AI summary and evidence.
 
 ### AI Chat Tab
 
@@ -470,10 +483,11 @@ Upload documents via file drag-and-drop, direct URL, or cloud share link (Google
 
 ### Configuration Tab
 
-- **AI Settings** — Configure OpenAI or Anthropic API keys and test connectivity
-- **Vector Store** — View, search, and manage Chroma embeddings for the current project
+- **AI Settings** — Configure OpenAI or Anthropic API keys, model selection, and test connectivity
+- **Vector Store** — View, search, and manage Chroma embeddings for the current project; manually trigger stale re-embedding
+- **AI Usage** — Daily bar chart of LLM API token usage and cost sourced from the persistent usage tracker
 - **Profiles** — Browse and activate document profiles
-- **Notifications** — SMTP settings for email alerts
+- **Notifications** — SMTP settings for email alerts and bug reports
 - **User Management** *(admin only)* — Add, edit, deactivate users; send the user manual by email
 
 ### Debug & Tools Tab
