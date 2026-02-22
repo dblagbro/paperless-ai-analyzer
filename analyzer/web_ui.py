@@ -4229,6 +4229,280 @@ def health():
 
 
 # ---------------------------------------------------------------------------
+# System Health & Container Manager (v2.5.0)
+# ---------------------------------------------------------------------------
+
+PAPERLESS_CONTAINERS = [
+    'paperless-web', 'paperless-consumer', 'paperless-redis', 'paperless-postgres',
+]
+HEALTH_TIMEOUT = 1.8  # seconds per component
+
+_own_container_name_cache = None
+
+
+def _get_own_container_name() -> str:
+    """Return this container's Docker name. Cached after first successful lookup.
+
+    Strategy:
+    1. Docker sets the container hostname to the short container ID. Look it up
+       via the Docker socket (requires the socket mount to be present).
+    2. Fall back to URL_PREFIX env var (e.g. /paperless-ai-analyzer-dev →
+       paperless-ai-analyzer-dev) — reliable because every instance has a
+       unique prefix configured in docker-compose.yml.
+    3. Last resort: hard-coded default name.
+    """
+    global _own_container_name_cache
+    if _own_container_name_cache is not None:
+        return _own_container_name_cache
+    import socket as _socket
+    hostname = _socket.gethostname()
+    dc = _get_docker_client()
+    if dc:
+        try:
+            container = dc.containers.get(hostname)
+            _own_container_name_cache = container.name
+            return _own_container_name_cache
+        except Exception:
+            pass
+    # Fallback: derive from URL_PREFIX (strip leading slash)
+    prefix = os.environ.get('URL_PREFIX', '').strip('/')
+    _own_container_name_cache = prefix or 'paperless-ai-analyzer'
+    return _own_container_name_cache
+
+
+def _get_managed_containers() -> list:
+    """Return the 4 core Paperless containers plus only this analyzer instance."""
+    return PAPERLESS_CONTAINERS + [_get_own_container_name()]
+
+
+def _get_docker_client():
+    """Return docker.DockerClient or None — never raises."""
+    try:
+        import docker
+        return docker.from_env(timeout=3)
+    except Exception:
+        return None
+
+
+def _check_paperless_api():
+    """Check Paperless API health with timing."""
+    import time
+    start = time.monotonic()
+    try:
+        healthy = app.paperless_client.health_check()
+        latency_ms = int((time.monotonic() - start) * 1000)
+        if healthy:
+            return {'status': 'ok', 'latency_ms': latency_ms, 'detail': f'Responded in {latency_ms}ms'}
+        return {'status': 'error', 'latency_ms': latency_ms, 'detail': 'Health check returned false'}
+    except Exception as e:
+        latency_ms = int((time.monotonic() - start) * 1000)
+        return {'status': 'error', 'latency_ms': latency_ms, 'detail': str(e)[:120]}
+
+
+def _check_chromadb():
+    """Check ChromaDB by counting documents in the default vector store."""
+    import time
+    start = time.monotonic()
+    try:
+        da = getattr(app, 'document_analyzer', None)
+        if not da or not getattr(da, 'vector_store', None) or not da.vector_store.enabled:
+            return {'status': 'warning', 'latency_ms': 0, 'detail': 'Vector store not enabled'}
+        count = da.vector_store.collection.count()
+        latency_ms = int((time.monotonic() - start) * 1000)
+        return {'status': 'ok', 'latency_ms': latency_ms, 'detail': f'{count} documents'}
+    except Exception as e:
+        latency_ms = int((time.monotonic() - start) * 1000)
+        return {'status': 'error', 'latency_ms': latency_ms, 'detail': str(e)[:120]}
+
+
+def _check_llm():
+    """Check LLM configuration (env vars only — no live API call)."""
+    enabled = os.environ.get('LLM_ENABLED', 'false').lower() == 'true'
+    provider = os.environ.get('LLM_PROVIDER', 'anthropic')
+    has_key = bool(os.environ.get('LLM_API_KEY'))
+    if not enabled:
+        return {'status': 'warning', 'latency_ms': 0, 'detail': 'LLM not enabled'}
+    if not has_key:
+        return {'status': 'error', 'latency_ms': 0, 'detail': f'{provider}: no API key configured'}
+    return {'status': 'ok', 'latency_ms': 0, 'detail': f'{provider} configured'}
+
+
+def _check_analyzer_loop():
+    """Check whether the analyzer loop has run recently."""
+    try:
+        stats = app.state_manager.get_stats()
+        last_run = stats.get('last_run')
+        if not last_run:
+            return {'status': 'warning', 'latency_ms': 0, 'detail': 'No runs recorded yet'}
+        from datetime import datetime, timezone
+        if isinstance(last_run, str):
+            last_run = datetime.fromisoformat(last_run.replace('Z', '+00:00'))
+        if last_run.tzinfo is None:
+            last_run = last_run.replace(tzinfo=timezone.utc)
+        now = datetime.now(timezone.utc)
+        age_s = int((now - last_run).total_seconds())
+        poll_interval = int(os.environ.get('POLL_INTERVAL_SECONDS', '30'))
+        threshold = poll_interval * 3
+        if age_s > threshold:
+            return {'status': 'warning', 'latency_ms': 0, 'detail': f'Last run {age_s}s ago (threshold {threshold}s)'}
+        return {'status': 'ok', 'latency_ms': 0, 'detail': f'Last run {age_s}s ago'}
+    except Exception as e:
+        return {'status': 'warning', 'latency_ms': 0, 'detail': f'Could not check: {str(e)[:80]}'}
+
+
+def _check_docker_container(name, dc):
+    """Check a Docker container's running status."""
+    try:
+        container = dc.containers.get(name)
+        status = container.status
+        if status == 'running':
+            return {'status': 'ok', 'latency_ms': 0, 'detail': 'running'}
+        return {'status': 'error', 'latency_ms': 0, 'detail': f'status: {status}'}
+    except Exception as e:
+        err = str(e)
+        if 'Not Found' in err or '404' in err:
+            return {'status': 'warning', 'latency_ms': 0, 'detail': 'not found'}
+        return {'status': 'error', 'latency_ms': 0, 'detail': err[:80]}
+
+
+@app.route('/api/system-health')
+@login_required
+def api_system_health():
+    """Parallel health check for all system components."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from datetime import datetime, timezone
+    dc = _get_docker_client()
+    docker_available = dc is not None
+
+    checks = {
+        'paperless_api': _check_paperless_api,
+        'chromadb': _check_chromadb,
+        'llm': _check_llm,
+        'analyzer_loop': _check_analyzer_loop,
+        'postgres': (lambda: _check_docker_container('paperless-postgres', dc))
+                    if docker_available else
+                    (lambda: {'status': 'warning', 'latency_ms': 0, 'detail': 'Docker unavailable'}),
+        'redis': (lambda: _check_docker_container('paperless-redis', dc))
+                 if docker_available else
+                 (lambda: {'status': 'warning', 'latency_ms': 0, 'detail': 'Docker unavailable'}),
+    }
+
+    results = {}
+    with ThreadPoolExecutor(max_workers=6) as executor:
+        futures = {executor.submit(fn): name for name, fn in checks.items()}
+        for future in as_completed(futures):
+            name = futures[future]
+            try:
+                results[name] = future.result(timeout=HEALTH_TIMEOUT)
+            except Exception as e:
+                results[name] = {'status': 'error', 'latency_ms': 0, 'detail': f'Check failed: {str(e)[:60]}'}
+
+    statuses = [r['status'] for r in results.values()]
+    if 'error' in statuses:
+        overall = 'error'
+    elif 'warning' in statuses:
+        overall = 'warning'
+    else:
+        overall = 'ok'
+
+    return jsonify({
+        'overall': overall,
+        'checked_at': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
+        'components': results,
+    })
+
+
+@app.route('/api/containers')
+@login_required
+def api_containers_list():
+    """List managed containers with status info."""
+    dc = _get_docker_client()
+    if not dc:
+        return jsonify({'available': False, 'containers': []})
+
+    from datetime import datetime, timezone
+    containers = []
+    for name in _get_managed_containers():
+        try:
+            c = dc.containers.get(name)
+            attrs = c.attrs
+            started_at = attrs.get('State', {}).get('StartedAt', '')
+            uptime_seconds = None
+            if started_at and started_at != '0001-01-01T00:00:00Z':
+                try:
+                    started = datetime.fromisoformat(started_at.replace('Z', '+00:00'))
+                    uptime_seconds = int((datetime.now(timezone.utc) - started).total_seconds())
+                except Exception:
+                    pass
+            health_status = None
+            health = attrs.get('State', {}).get('Health')
+            if health:
+                health_status = health.get('Status')
+            image_tag = ''
+            image_tags = c.image.tags
+            if image_tags:
+                image_tag = image_tags[0]
+            containers.append({
+                'name': name,
+                'status': c.status,
+                'image': image_tag,
+                'uptime_seconds': uptime_seconds,
+                'health_status': health_status,
+            })
+        except Exception as e:
+            err = str(e)
+            if 'Not Found' in err or '404' in err:
+                containers.append({'name': name, 'status': 'not_found', 'image': '',
+                                   'uptime_seconds': None, 'health_status': None})
+            else:
+                containers.append({'name': name, 'status': 'error', 'image': '',
+                                   'uptime_seconds': None, 'health_status': None})
+
+    return jsonify({'available': True, 'containers': containers})
+
+
+@app.route('/api/containers/<name>/restart', methods=['POST'])
+@login_required
+@admin_required
+def api_container_restart(name):
+    """Restart a managed container (admin only)."""
+    if name not in _get_managed_containers():
+        return jsonify({'error': 'Container not in managed list'}), 403
+    dc = _get_docker_client()
+    if not dc:
+        return jsonify({'error': 'Docker unavailable'}), 503
+    try:
+        container = dc.containers.get(name)
+        container.restart(timeout=15)
+        logger.warning(f'Admin {current_user.username} restarted container {name}')
+        return jsonify({'ok': True, 'message': f'Container {name} restarted'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/containers/<name>/logs')
+@login_required
+@admin_required
+def api_container_logs(name):
+    """Get recent logs from a managed container (admin only)."""
+    if name not in _get_managed_containers():
+        return jsonify({'error': 'Container not in managed list'}), 403
+    dc = _get_docker_client()
+    if not dc:
+        return jsonify({'error': 'Docker unavailable'}), 503
+    lines = min(int(request.args.get('lines', 100)), 500)
+    try:
+        container = dc.containers.get(name)
+        raw = container.logs(tail=lines, timestamps=True)
+        if isinstance(raw, bytes):
+            raw = raw.decode('utf-8', errors='replace')
+        log_lines = [ln for ln in raw.splitlines() if ln]
+        return jsonify({'name': name, 'lines': log_lines})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ---------------------------------------------------------------------------
 # Chat Session Routes
 # ---------------------------------------------------------------------------
 
