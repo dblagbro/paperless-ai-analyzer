@@ -133,6 +133,7 @@
             <a href="{{ url_prefix }}/docs/chat"            {% if page=='chat' %}class="active"{% endif %}>AI Chat</a>
             <a href="{{ url_prefix }}/docs/search"          {% if page=='search' %}class="active"{% endif %}>Search &amp; Analysis</a>
             <a href="{{ url_prefix }}/docs/anomaly-detection" {% if page=='anomaly-detection' %}class="active"{% endif %}>Anomaly Detection</a>
+            <a href="{{ url_prefix }}/docs/case-intelligence" {% if page=='case-intelligence' %}class="active"{% endif %}>Case Intelligence AI</a>
             <a href="{{ url_prefix }}/docs/tools"           {% if page=='tools' %}class="active"{% endif %}>Debug &amp; Tools</a>
 
             <div class="nav-section">Administration</div>
@@ -710,24 +711,32 @@
         </div>
 
         <h2 id="ai-settings">AI Settings</h2>
-        <p>The <strong>AI Settings</strong> sub-tab manages API keys and model selection for document analysis and AI Chat.</p>
+        <p>The <strong>AI Settings</strong> sub-tab has two sections: Global API Keys (admin only) and per-project AI configuration.</p>
 
-        <h3>API Keys</h3>
+        <h3>Global API Keys <span class="badge badge-blue">Admin</span></h3>
+        <p>API keys are stored in <code>/app/data/ai_config.json</code> and apply across all projects as the fallback provider.</p>
         <ul>
             <li><strong>OpenAI API Key</strong> — used for GPT-4o document analysis, metadata extraction, Vision OCR, and AI Chat.</li>
             <li><strong>Anthropic API Key</strong> — used for Claude document analysis, Vision OCR, and AI Chat (alternative to OpenAI).</li>
             <li><strong>Cohere API Key</strong> — <em>required</em> for the vector store (document embedding and semantic search). Without this, AI Chat and Search are disabled.</li>
         </ul>
-        <p>At least one of OpenAI or Anthropic is required for document analysis and AI Chat. Both can be configured for redundancy — the system falls back to the secondary if the primary fails.</p>
+        <p>Click <strong>Test</strong> next to each key to verify the connection before saving.</p>
 
-        <h3>Provider priority</h3>
+        <h3>Per-project AI Configuration</h3>
+        <p>Each project can independently override the provider and model for three use-cases:</p>
+        <table>
+            <tr><th>Use-case</th><th>What it controls</th></tr>
+            <tr><td><strong>Document Analysis</strong></td><td>LLM used for anomaly detection, metadata extraction, and profile matching.</td></tr>
+            <tr><td><strong>AI Chat</strong></td><td>LLM used for AI Chat responses in the current project's context.</td></tr>
+            <tr><td><strong>Case Intelligence</strong></td><td>LLM used by the Director, Managers, and Workers in CI runs.</td></tr>
+        </table>
+        <p>Each use-case row has a <strong>Primary</strong> provider+model and a <strong>Fallback</strong> provider+model. The fallback is used automatically if the primary call fails or is rate-limited.</p>
         <ul>
-            <li><strong>Analysis provider</strong> — primary LLM for document analysis, metadata extraction, and integrity checks.</li>
-            <li><strong>Chat provider</strong> — LLM for AI Chat responses. Can differ from the analysis provider.</li>
+            <li><strong>⇉ All</strong> — copies a row's settings to all three use-cases in this project.</li>
+            <li><strong>📋 Copy</strong> (admin only) — copies one project's full AI config to another project.</li>
+            <li>Admin users see a project dropdown; Advanced users see only their current project.</li>
         </ul>
-
-        <h3>Test Connection</h3>
-        <p>Click <strong>Test AI</strong> to send a minimal test request to the configured provider. The result shows whether the key is valid and the model is accessible.</p>
+        <p><strong>Fallback chain:</strong> per-project override → global key → system default model.</p>
 
         <h2 id="profiles">Profiles</h2>
         <p>Profiles are YAML files that define document-type-specific analysis rules. Each profile specifies:</p>
@@ -783,6 +792,14 @@
         </table>
         <p>Click <strong>Send Test Email</strong> to verify the connection before saving. A test message is sent to your own email address (configured on your user account).</p>
 
+        <h3>CI email notifications</h3>
+        <p>When SMTP is configured, Case Intelligence runs can send two types of email notification:</p>
+        <ul>
+            <li><strong>Budget alerts</strong> — fire at every 10% completion checkpoint with a projected-vs-budget comparison (under_budget / on_track / over_budget status).</li>
+            <li><strong>Run completion</strong> — fires when the CI run finishes (success or failure).</li>
+        </ul>
+        <p>The recipient address and notification preferences are set per-run in the CI Setup tab → <strong>Notifications</strong> section. The recipient field is pre-filled from the user's profile email. Notifications require SMTP to be configured and <strong>Send Test Email</strong> to pass.</p>
+
         <h2 id="users-config">Users</h2>
         <p>See the full <a href="{{ url_prefix }}/docs/users">User Management documentation</a>.</p>
 
@@ -801,8 +818,10 @@
         <table>
             <tr><th>Role</th><th>Permissions</th></tr>
             <tr><td><span class="badge badge-blue">Admin</span></td><td>Full access: manage users, view all chat sessions, change system settings, manage projects, access all configuration sub-tabs.</td></tr>
+            <tr><td><span class="badge badge-orange">Advanced</span></td><td>CI runs, Report Builder, all Smart Upload and AI Chat features. Cannot access Configuration or manage other users.</td></tr>
             <tr><td><span class="badge badge-gray">Basic</span></td><td>Can analyze documents, upload, search, use AI Chat (own sessions + shared), manage own profile and password. Cannot access Configuration or other users' data.</td></tr>
         </table>
+        <p>Role is set by an Admin via <strong>Configuration → Users → Edit</strong> (pencil icon).</p>
 
         <h2 id="create-user">Creating a user</h2>
         <ol>
@@ -821,7 +840,7 @@
             <tr><td>Display Name</td><td>Yes</td><td>Full name shown in the UI and email notifications.</td></tr>
             <tr><td>Email</td><td>Yes</td><td>Used for SMTP notifications and welcome emails.</td></tr>
             <tr><td>Password</td><td>Yes</td><td>Set on creation. Can be reset by an admin at any time via Edit.</td></tr>
-            <tr><td>Role</td><td>Yes</td><td><em>Admin</em> or <em>Basic</em>.</td></tr>
+            <tr><td>Role</td><td>Yes</td><td><em>Admin</em>, <em>Advanced</em>, or <em>Basic</em>.</td></tr>
             <tr><td>Job Title</td><td>No</td><td>Included in welcome emails and user profile.</td></tr>
             <tr><td>Phone</td><td>No</td><td>Contact number — stored in user profile.</td></tr>
             <tr><td>Address</td><td>No</td><td>Mailing address — stored in user profile.</td></tr>
@@ -897,6 +916,89 @@
             <li>Avoid <strong>Reprocess All</strong> unless necessary — it re-analyzes every document with LLM calls.</li>
             <li>Use <strong>Process Unanalyzed Only</strong> instead of Reprocess All when you only need to catch missed documents.</li>
             <li>Vision AI (PDF image extraction) uses more tokens than standard text analysis — it is only triggered when OCR quality is very poor.</li>
+        </ul>
+
+{# ═══════════════════════════════════════════════════════════════════ #}
+{# CASE INTELLIGENCE                                                   #}
+{# ═══════════════════════════════════════════════════════════════════ #}
+{% elif page == 'case-intelligence' %}
+        <h1 class="page-title">Case Intelligence AI</h1>
+        <p class="subtitle">Proactive, evidence-grounded legal analysis across all documents in a project — Director → Manager → Worker orchestration with scientific-paper output.</p>
+
+        <div class="callout callout-warn">
+            <strong>Dev feature:</strong> Case Intelligence is only available when <code>CASE_INTELLIGENCE_ENABLED=true</code> is set in the container environment.
+        </div>
+
+        <h2 id="ci-what">What is Case Intelligence?</h2>
+        <p>Case Intelligence (CI) runs a fully automated multi-tier analysis across every document in a project. Rather than reading one document at a time, a Director LLM breaks work into domain-specific assignments, spawns parallel Managers, and each Manager spawns parallel Workers to extract structured findings. Results are synthesized into a scientific-paper-format report.</p>
+
+        <h2 id="ci-requirements">Requirements</h2>
+        <ul>
+            <li>User role: <span class="badge badge-orange">Advanced</span> or <span class="badge badge-blue">Admin</span>.</li>
+            <li>Container environment variable: <code>CASE_INTELLIGENCE_ENABLED=true</code>.</li>
+            <li>At least one AI provider key configured in <a href="{{ url_prefix }}/docs/configuration#ai-settings">AI Settings</a>.</li>
+            <li>Documents embedded in the vector store for the current project.</li>
+        </ul>
+
+        <h2 id="ci-architecture">Architecture</h2>
+        <p>Three tiers run sequentially at the Director level and in parallel within each tier:</p>
+        <table>
+            <tr><th>Tier</th><th>Count</th><th>Role</th></tr>
+            <tr><td><strong>Director</strong></td><td>1 (fixed)</td><td>Reads run config + clarifying answers → assigns domain work to Managers via LLM planning. Synthesizes all Manager reports into the final scientific-paper report.</td></tr>
+            <tr><td><strong>Managers</strong></td><td>Auto or 1–10</td><td>Each Manager owns one analysis domain: Entities, Timeline, Financial, Contradictions, Theories, or Authorities. Splits its document list into worker-sized batches.</td></tr>
+            <tr><td><strong>Workers</strong></td><td>Auto or 1–20 per Manager</td><td>Each Worker receives 1–3 document IDs, fetches content from Paperless, runs targeted LLM extraction, and returns structured JSON with provenance citations.</td></tr>
+        </table>
+        <p>Auto manager count = min(6, ceil(doc_count / 20)). Auto worker count = budget-scaled at each 10% checkpoint.</p>
+
+        <h2 id="ci-setup">Setup tab walkthrough</h2>
+        <ol>
+            <li><strong>Case Name</strong> — identifies this run in the run list.</li>
+            <li><strong>Budget (USD)</strong> — per-run spending cap. The run pauses if exceeded; an override button is shown. Set to 0 for unlimited.</li>
+            <li><strong>Orchestration Tiers</strong> — Director is always 1. Managers and Workers/Manager default to Auto (budget-scaled). Override by selecting a specific number from the dropdown.</li>
+            <li><strong>Notifications</strong> — check "Email when run completes" and/or "Email budget updates (every 10%)". The recipient field is pre-filled from your profile email. Requires SMTP to be configured.</li>
+            <li>Click <strong>▶ Start Analysis</strong>.</li>
+        </ol>
+
+        <h2 id="ci-questions">Clarifying questions</h2>
+        <p>After you start a run, the Director generates 3–5 clarifying questions to sharpen its analysis plan. Each question is marked required or optional. You can answer them individually or check <strong>Proceed with assumptions</strong> to skip and let the Director infer context from the documents.</p>
+
+        <h2 id="ci-findings">Findings tab</h2>
+        <p>Select a completed (or running) run from the dropdown. While a run is active, a live status indicator and cancel button are shown. Findings are organized into six domain tabs:</p>
+        <table>
+            <tr><th>Domain</th><th>What it contains</th></tr>
+            <tr><td>Entities</td><td>People, organizations, and assets mentioned across documents, with relationship mapping.</td></tr>
+            <tr><td>Timeline</td><td>Chronological events extracted from document content and metadata.</td></tr>
+            <tr><td>Financial</td><td>Monetary amounts, transfers, accounts, and financial patterns.</td></tr>
+            <tr><td>Contradictions</td><td>Conflicting statements or facts across two or more documents.</td></tr>
+            <tr><td>Theories</td><td>Factual and legal theories supported by the evidence, with strength ratings.</td></tr>
+            <tr><td>Authorities</td><td>Cited statutes, regulations, and case law with binding vs. persuasive classification.</td></tr>
+        </table>
+        <p>Every finding cites the source document and page number (Bates reference). Click a citation to open the document in Paperless.</p>
+
+        <h2 id="ci-report">Report Builder</h2>
+        <p>Click <strong>Build Report</strong> in the Findings tab. The Director synthesizes a scientific-paper report with the following sections:</p>
+        <ol>
+            <li>Executive Summary</li>
+            <li>Key Findings (N findings, M critical)</li>
+            <li>Cast of Characters</li>
+            <li>Chronology</li>
+            <li>Financial Analysis</li>
+            <li>Contested Facts Matrix</li>
+            <li>Factual &amp; Legal Theories</li>
+            <li>Legal Framework &amp; Authorities</li>
+            <li>Discovery Gaps &amp; Next Steps</li>
+            <li>Appendix A: Document Index &amp; Bates References</li>
+            <li>Appendix B: Contradictions Catalog</li>
+            <li>Appendix C: Full Authority Citations</li>
+        </ol>
+        <p>The report is exported as a PDF via the existing report generator. Click <strong>Download PDF</strong> to save it locally.</p>
+
+        <h2 id="ci-cost">Cost management</h2>
+        <ul>
+            <li>Set a per-run budget cap in the Setup tab. The run pauses at 100% of budget with an override option.</li>
+            <li>Budget checkpoint emails fire at every 10% completion interval with one of three statuses: <strong>under_budget</strong> (projected &lt;90% of cap), <strong>on_track</strong> (90–110%), or <strong>over_budget</strong> (&gt;110%).</li>
+            <li>Worker count is automatically reduced at each checkpoint if the run is trending over budget.</li>
+            <li>Use per-project AI config to assign a cheaper model (e.g., gpt-4o-mini) to Case Intelligence while keeping a better model for AI Chat. See <a href="{{ url_prefix }}/docs/configuration#ai-settings">AI Settings</a>.</li>
         </ul>
 
 {# ═══════════════════════════════════════════════════════════════════ #}

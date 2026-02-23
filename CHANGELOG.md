@@ -4,6 +4,37 @@ All notable changes to Paperless AI Analyzer are documented here.
 
 ---
 
+## v3.0.0 — 2026-02-23
+
+### Added
+- **Per-project AI configuration** — each project independently configures provider/model
+  for Document Analysis, AI Chat, and Case Intelligence. Global API keys remain as fallback.
+  Admin: copy config between projects. Fallback chain: per-project → global → system default.
+- **Hierarchical CI Orchestrator** — Director → Managers → Workers replaces the linear
+  5-phase runner. Director LLM plans domain assignments; N managers run in parallel
+  (auto = min(6, docs÷20)); K workers per manager (auto = budget-scaled). Deterministic
+  fallback plan used if Director LLM call fails.
+- **CI budget checkpoints** — notifications fire every 10% completion (under/on/over_budget
+  status); completion notification fires on run finish. Requires SMTP configuration.
+- **Scientific paper CI report** — Director D2 synthesizes a 12-section report (Sections
+  I–IX + Appendices A–C). PDF export via weasyprint.
+- **Advanced user role** — between Basic and Admin. Enables CI and power-user features.
+  Set via Configuration → Users.
+- **ci_manager_reports table** — tracks per-domain manager status, findings, cost, timing.
+- **7 new ci_runs columns** — director_count, manager_count, workers_per_manager,
+  notification_email, notify_on_complete, notify_on_budget, last_budget_checkpoint_pct.
+
+### Changed
+- AI Settings (Configuration tab) redesigned: collapsible Global API Keys (admin-only) +
+  per-project config table with 3 use-cases × primary/fallback provider+model.
+- CI Setup tab: ORCHESTRATION TIERS and NOTIFICATIONS sections added.
+- In-pane help panels: 8 new sub-tab panels for all config sub-tabs and both CI sub-tabs;
+  `_refreshHelpPanel()` now context-aware for config and CI sub-tabs.
+- Built-in manual (/docs/): Configuration page updated; User Management gains Advanced role;
+  new Case Intelligence page added.
+
+---
+
 ## [2.1.6] — 2026-02-22
 
 ### Bug Fixes

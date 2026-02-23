@@ -168,10 +168,49 @@ def admin_required(f):
     return decorated
 
 
+def advanced_required(f):
+    """Decorator: requires 'advanced' or 'admin' role."""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not current_user.is_authenticated:
+            return jsonify({'error': 'Authentication required'}), 401
+        if current_user.role not in ('advanced', 'admin'):
+            return jsonify({'error': 'Advanced user access required'}), 403
+        return f(*args, **kwargs)
+    return decorated
+
+
+def _ci_gate():
+    """
+    Check Case Intelligence safety gate. Returns (True, None) if allowed,
+    or (False, response) if the request should be rejected.
+    """
+    try:
+        from analyzer.case_intelligence import _ci_safety_check
+        if not _ci_safety_check():
+            return False, (jsonify({'error': 'Case Intelligence AI is not enabled'}), 404)
+    except RuntimeError as e:
+        return False, (jsonify({'error': str(e)}), 403)
+    except ImportError:
+        return False, (jsonify({'error': 'Case Intelligence AI module not available'}), 404)
+    return True, None
+
+
 @app.context_processor
 def inject_user():
     is_admin = current_user.is_authenticated and current_user.is_admin
-    return {'current_user': current_user, 'is_admin': is_admin}
+    is_advanced = current_user.is_authenticated and current_user.role in ('advanced', 'admin')
+    # CI_ENABLED: feature flag for the template
+    import os
+    ci_enabled = os.environ.get('CASE_INTELLIGENCE_ENABLED', 'false').lower() == 'true'
+    url_prefix = os.environ.get('URL_PREFIX', '').strip('/')
+    ci_safe = ci_enabled and url_prefix in ('paperless-ai-analyzer-dev', '')
+    return {
+        'current_user': current_user,
+        'is_admin': is_admin,
+        'is_advanced': is_advanced,
+        'CI_ENABLED': ci_safe,
+    }
 
 
 def initialize_ui_state():
@@ -321,6 +360,13 @@ def create_app(state_manager, profile_loader, paperless_client,
 
     # Initialize auth database (idempotent)
     init_db()
+
+    # Initialize Case Intelligence AI (DEV only, idempotent)
+    try:
+        from analyzer.case_intelligence import init_case_intelligence
+        init_case_intelligence()
+    except Exception as _ci_err:
+        logger.debug(f"Case Intelligence AI not initialized: {_ci_err}")
 
     # Initialize UI state from existing documents
     initialize_ui_state()
@@ -1810,58 +1856,107 @@ def api_settings_poll_interval():
 # AI Configuration System
 AI_CONFIG_PATH = Path('/app/data/ai_config.json')
 
+_AI_PROVIDER_MODELS = {
+    'openai':    ['gpt-4o', 'gpt-4-turbo', 'gpt-4', 'gpt-3.5-turbo'],
+    'anthropic': ['claude-sonnet-4-6', 'claude-opus-4-6', 'claude-haiku-4-5-20251001',
+                  'claude-3-5-sonnet-20241022', 'claude-3-opus-20240229'],
+}
+
+_AI_DEFAULTS = {
+    'document_analysis': {
+        'provider': 'openai', 'model': 'gpt-4o',
+        'fallback_provider': 'anthropic', 'fallback_model': 'claude-sonnet-4-6',
+    },
+    'chat': {
+        'provider': 'anthropic', 'model': 'claude-sonnet-4-6',
+        'fallback_provider': 'openai', 'fallback_model': 'gpt-4o',
+    },
+    'case_intelligence': {
+        'provider': 'openai', 'model': 'gpt-4o',
+        'fallback_provider': 'anthropic', 'fallback_model': 'claude-sonnet-4-6',
+    },
+}
+
+
 def get_default_ai_config():
-    """Get default AI configuration with proper model priorities."""
+    """Return empty v2 config (backward-compat; prefer load_ai_config())."""
+    return _empty_new_ai_config()
+
+
+def _empty_new_ai_config():
     return {
-        'document_analysis': {
-            'providers': [
-                {
-                    'name': 'openai',
-                    'api_key': os.environ.get('OPENAI_API_KEY', ''),
-                    'models': ['gpt-4o', 'gpt-4-turbo', 'gpt-4', 'gpt-3.5-turbo'],
-                    'enabled': bool(os.environ.get('OPENAI_API_KEY'))
-                },
-                {
-                    'name': 'anthropic',
-                    'api_key': os.environ.get('LLM_API_KEY', ''),
-                    'models': ['claude-3-opus-20240229', 'claude-3-5-sonnet-20241022', 'claude-3-sonnet-20240229', 'claude-3-haiku-20240307'],
-                    'enabled': bool(os.environ.get('LLM_API_KEY'))
-                }
-            ]
+        'global': {
+            'openai':    {'api_key': os.environ.get('OPENAI_API_KEY', ''), 'enabled': bool(os.environ.get('OPENAI_API_KEY'))},
+            'anthropic': {'api_key': os.environ.get('LLM_API_KEY', ''),    'enabled': bool(os.environ.get('LLM_API_KEY'))},
         },
-        'chat': {
-            'providers': [
-                {
-                    'name': 'openai',
-                    'api_key': os.environ.get('OPENAI_API_KEY', ''),
-                    'models': ['gpt-4o', 'gpt-4-turbo', 'gpt-4', 'gpt-3.5-turbo'],
-                    'enabled': bool(os.environ.get('OPENAI_API_KEY'))
-                },
-                {
-                    'name': 'anthropic',
-                    'api_key': os.environ.get('LLM_API_KEY', ''),
-                    'models': ['claude-3-opus-20240229', 'claude-3-5-sonnet-20241022', 'claude-3-sonnet-20240229', 'claude-3-haiku-20240307'],
-                    'enabled': bool(os.environ.get('LLM_API_KEY'))
-                }
-            ]
-        }
+        'projects': {},
     }
 
-def load_ai_config():
-    """Load AI configuration from file, or return defaults."""
+
+def _migrate_old_ai_config(old_cfg: dict) -> dict:
+    """Convert v1 flat format → v2 per-project format."""
+    import sqlite3 as _sqlite3
+
+    def _key(section, provider_name):
+        for p in old_cfg.get(section, {}).get('providers', []):
+            if p.get('name') == provider_name:
+                return p.get('api_key', ''), bool(p.get('enabled', False))
+        return '', False
+
+    oai_key, oai_en = _key('document_analysis', 'openai')
+    ant_key, ant_en = _key('document_analysis', 'anthropic')
+
+    new_cfg = {
+        'global': {
+            'openai':    {'api_key': oai_key or os.environ.get('OPENAI_API_KEY', ''), 'enabled': oai_en or bool(os.environ.get('OPENAI_API_KEY'))},
+            'anthropic': {'api_key': ant_key or os.environ.get('LLM_API_KEY', ''),    'enabled': ant_en or bool(os.environ.get('LLM_API_KEY'))},
+        },
+        'projects': {},
+    }
+
+    da_prim   = 'openai' if oai_key else ('anthropic' if ant_key else 'openai')
+    da_fallbk = 'anthropic' if da_prim == 'openai' else 'openai'
+    project_cfg = {
+        'document_analysis': {
+            'provider': da_prim, 'model': _AI_DEFAULTS['document_analysis']['model'],
+            'fallback_provider': da_fallbk, 'fallback_model': _AI_DEFAULTS['document_analysis']['fallback_model'],
+        },
+        'chat': dict(_AI_DEFAULTS['chat']),
+        'case_intelligence': dict(_AI_DEFAULTS['case_intelligence']),
+    }
+
+    projects_db = Path('/app/data/projects.db')
+    if projects_db.exists():
+        try:
+            with _sqlite3.connect(str(projects_db)) as conn:
+                rows = conn.execute("SELECT slug FROM projects WHERE is_archived = 0").fetchall()
+                for (slug,) in rows:
+                    import copy
+                    new_cfg['projects'][slug] = copy.deepcopy(project_cfg)
+        except Exception as _e:
+            logger.warning(f"AI config migration: could not read projects.db — {_e}")
+
+    logger.info(f"Migrated AI config v1→v2 ({len(new_cfg['projects'])} projects copied)")
+    return new_cfg
+
+
+def load_ai_config() -> dict:
+    """Load AI config from file. Auto-migrates v1 format → v2 on first access."""
     try:
         if AI_CONFIG_PATH.exists():
             with open(AI_CONFIG_PATH, 'r') as f:
-                config = json.load(f)
-                logger.info("Loaded AI configuration from file")
-                return config
+                cfg = json.load(f)
+            if 'document_analysis' in cfg and 'global' not in cfg:
+                cfg = _migrate_old_ai_config(cfg)
+                save_ai_config(cfg)
+            return cfg
     except Exception as e:
         logger.warning(f"Failed to load AI config: {e}")
+    return _empty_new_ai_config()
 
-    return get_default_ai_config()
 
-def save_ai_config(config):
-    """Save AI configuration to file."""
+def save_ai_config(config: dict) -> bool:
+    """Persist AI config to file."""
     try:
         AI_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
         with open(AI_CONFIG_PATH, 'w') as f:
@@ -1873,16 +1968,24 @@ def save_ai_config(config):
         return False
 
 
+def get_project_ai_config(project_slug: str, use_case: str) -> dict:
+    """Return {provider, model, fallback_provider, fallback_model} for a project/use-case.
+    Falls back to system defaults if the project or use_case is not configured.
+    use_case: 'document_analysis' | 'chat' | 'case_intelligence'
+    """
+    cfg = load_ai_config()
+    use_case_cfg = cfg.get('projects', {}).get(project_slug, {}).get(use_case)
+    if use_case_cfg and use_case_cfg.get('provider'):
+        return dict(use_case_cfg)
+    return dict(_AI_DEFAULTS.get(use_case, _AI_DEFAULTS['document_analysis']))
+
+
 @app.route('/api/ai-config', methods=['GET'])
 @login_required
 def api_ai_config_get():
-    """Get current AI configuration."""
+    """Get current AI configuration (full v2 structure)."""
     try:
-        config = load_ai_config()
-        return jsonify({
-            'success': True,
-            'config': config
-        })
+        return jsonify({'success': True, 'config': load_ai_config()})
     except Exception as e:
         logger.error(f"Failed to get AI config: {e}")
         return jsonify({'error': str(e)}), 500
@@ -1891,27 +1994,17 @@ def api_ai_config_get():
 @app.route('/api/ai-config', methods=['POST'])
 @login_required
 def api_ai_config_save():
-    """Save AI configuration."""
+    """Save AI configuration (accepts v1 or v2 format)."""
     try:
         data = request.json
         config = data.get('config')
-
         if not config:
             return jsonify({'error': 'Configuration is required'}), 400
-
-        # Validate structure
-        if 'document_analysis' not in config or 'chat' not in config:
+        if 'global' not in config and 'document_analysis' not in config:
             return jsonify({'error': 'Invalid configuration structure'}), 400
-
-        # Save configuration
         if save_ai_config(config):
-            return jsonify({
-                'success': True,
-                'message': 'AI configuration saved. Changes will apply to new analysis tasks.'
-            })
-        else:
-            return jsonify({'error': 'Failed to save configuration'}), 500
-
+            return jsonify({'success': True, 'message': 'AI configuration saved.'})
+        return jsonify({'error': 'Failed to save configuration'}), 500
     except Exception as e:
         logger.error(f"Failed to save AI config: {e}")
         return jsonify({'error': str(e)}), 500
@@ -2004,6 +2097,219 @@ def api_ai_config_test():
             'success': False,
             'error': f'✗ Error: {error_msg}'
         }), 500
+
+
+# ---------------------------------------------------------------------------
+# Per-project AI Config routes (v2)
+# ---------------------------------------------------------------------------
+
+def _can_access_project_config(slug: str) -> bool:
+    """Non-admin users may only access their own current project's config."""
+    if current_user.is_admin:
+        return True
+    return session.get('current_project', 'default') == slug
+
+
+@app.route('/api/ai-config/global', methods=['GET'])
+@admin_required
+def api_ai_config_global_get():
+    """Return global provider API keys (admin only)."""
+    try:
+        cfg = load_ai_config()
+        return jsonify({'success': True, 'global': cfg.get('global', {})})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/ai-config/global', methods=['POST'])
+@admin_required
+def api_ai_config_global_save():
+    """Update global API keys (admin only)."""
+    try:
+        data = request.json or {}
+        new_global = data.get('global', {})
+        if not isinstance(new_global, dict):
+            return jsonify({'error': 'global must be a dict'}), 400
+        cfg = load_ai_config()
+        cfg.setdefault('global', {})
+        for provider, vals in new_global.items():
+            cfg['global'].setdefault(provider, {}).update(vals)
+        save_ai_config(cfg)
+        return jsonify({'success': True, 'message': 'Global API keys saved.'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/ai-config/projects/<slug>', methods=['GET'])
+@login_required
+def api_ai_config_project_get(slug):
+    """Get per-project AI config (owner or admin)."""
+    if not _can_access_project_config(slug):
+        return jsonify({'error': 'Access denied'}), 403
+    cfg = load_ai_config()
+    project_cfg = cfg.get('projects', {}).get(slug, {})
+    return jsonify({'success': True, 'slug': slug, 'config': project_cfg,
+                    'defaults': _AI_DEFAULTS, 'models': _AI_PROVIDER_MODELS})
+
+
+@app.route('/api/ai-config/projects/<slug>', methods=['POST'])
+@login_required
+def api_ai_config_project_save(slug):
+    """Save per-project AI config (owner or admin)."""
+    if not _can_access_project_config(slug):
+        return jsonify({'error': 'Access denied'}), 403
+    try:
+        data = request.json or {}
+        new_proj_cfg = data.get('config', {})
+        cfg = load_ai_config()
+        cfg.setdefault('projects', {})[slug] = new_proj_cfg
+        save_ai_config(cfg)
+        return jsonify({'success': True, 'message': f'AI config saved for project "{slug}".'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/ai-config/projects/<slug>/copy-use-case', methods=['POST'])
+@login_required
+def api_ai_config_copy_use_case(slug):
+    """Copy one use-case config to all three use-cases within the same project."""
+    if not _can_access_project_config(slug):
+        return jsonify({'error': 'Access denied'}), 403
+    try:
+        data = request.json or {}
+        source_use_case = data.get('use_case')
+        if source_use_case not in ('document_analysis', 'chat', 'case_intelligence'):
+            return jsonify({'error': 'Invalid use_case'}), 400
+        cfg = load_ai_config()
+        proj = cfg.setdefault('projects', {}).setdefault(slug, {})
+        source_cfg = proj.get(source_use_case, _AI_DEFAULTS[source_use_case])
+        import copy
+        for uc in ('document_analysis', 'chat', 'case_intelligence'):
+            proj[uc] = copy.deepcopy(source_cfg)
+        save_ai_config(cfg)
+        return jsonify({'success': True, 'message': f'Copied {source_use_case} config to all use-cases in "{slug}".'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/ai-config/projects/copy', methods=['POST'])
+@admin_required
+def api_ai_config_copy_project():
+    """Copy one project's full AI config to another project (admin only)."""
+    try:
+        data = request.json or {}
+        src = data.get('source_slug', '').strip()
+        dst = data.get('dest_slug', '').strip()
+        if not src or not dst:
+            return jsonify({'error': 'source_slug and dest_slug are required'}), 400
+        cfg = load_ai_config()
+        projects = cfg.setdefault('projects', {})
+        if src not in projects:
+            return jsonify({'error': f'Source project "{src}" has no AI config'}), 404
+        import copy
+        projects[dst] = copy.deepcopy(projects[src])
+        save_ai_config(cfg)
+        return jsonify({'success': True, 'message': f'Copied AI config from "{src}" to "{dst}".'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ---------------------------------------------------------------------------
+# CI Budget & Completion notification helpers
+# ---------------------------------------------------------------------------
+
+def _send_ci_budget_notification(run_id: str, pct_complete: float,
+                                  cost_so_far: float, projected_total: float,
+                                  budget: float, status: str):
+    """Send a budget checkpoint email for a CI run."""
+    try:
+        from analyzer.case_intelligence.db import get_ci_run
+        run = get_ci_run(run_id)
+        if not run:
+            return
+        email = run['notification_email'] if 'notification_email' in run.keys() else ''
+        if not email:
+            return
+        notify_on_budget = run['notify_on_budget'] if 'notify_on_budget' in run.keys() else 1
+        if not notify_on_budget:
+            return
+
+        smtp_cfg = _load_smtp_settings()
+        if not smtp_cfg.get('host'):
+            logger.info("SMTP not configured — skipping CI budget notification")
+            return
+
+        goal_text = run['goal_text'] if 'goal_text' in run.keys() else 'Unknown Case'
+        status_label = {'under_budget': 'Under Budget', 'on_track': 'On Track',
+                        'over_budget': 'OVER BUDGET'}.get(status, status)
+        pct_int = int(round(pct_complete * 100))
+
+        from_addr = smtp_cfg.get('from') or smtp_cfg.get('user') or 'noreply@localhost'
+        subject = f"CI Budget Update — {goal_text[:40]} — {pct_int}% complete — {status_label}"
+        body = (
+            f"Case Intelligence Budget Update\n"
+            f"{'=' * 50}\n\n"
+            f"Case:        {goal_text}\n"
+            f"Run ID:      {run_id}\n"
+            f"Progress:    {pct_int}% complete\n"
+            f"Status:      {status_label}\n\n"
+            f"Cost So Far: ${cost_so_far:.4f}\n"
+            f"Projected:   ${projected_total:.4f}\n"
+            f"Budget:      ${budget:.4f}\n"
+        )
+        if status == 'over_budget':
+            body += "\n⚠️  WARNING: Projected cost exceeds budget. Worker count has been reduced.\n"
+
+        msg = EmailMessage()
+        msg['Subject'] = subject
+        msg['From'] = from_addr
+        msg['To'] = email
+        msg.set_content(body)
+        _smtp_send(smtp_cfg, msg)
+        logger.info(f"CI budget notification sent to {email} ({pct_int}%, {status})")
+    except Exception as e:
+        logger.warning(f"Failed to send CI budget notification: {e}")
+
+
+def _send_ci_complete_notification(run_id: str):
+    """Send run-complete email for a CI run."""
+    try:
+        from analyzer.case_intelligence.db import get_ci_run
+        run = get_ci_run(run_id)
+        if not run:
+            return
+        email = run['notification_email'] if 'notification_email' in run.keys() else ''
+        if not email:
+            return
+        notify_on_complete = run['notify_on_complete'] if 'notify_on_complete' in run.keys() else 1
+        if not notify_on_complete:
+            return
+
+        smtp_cfg = _load_smtp_settings()
+        if not smtp_cfg.get('host'):
+            logger.info("SMTP not configured — skipping CI complete notification")
+            return
+
+        goal_text = run['goal_text'] if 'goal_text' in run.keys() else 'Unknown Case'
+        cost = run['cost_so_far_usd'] or 0
+        from_addr = smtp_cfg.get('from') or smtp_cfg.get('user') or 'noreply@localhost'
+        body = (
+            f"Case Intelligence Run Complete\n"
+            f"{'=' * 50}\n\n"
+            f"Case:       {goal_text}\n"
+            f"Run ID:     {run_id}\n"
+            f"Total Cost: ${cost:.4f}\n\n"
+            f"The analysis report is ready. Log in to view or download it.\n"
+        )
+        msg = EmailMessage()
+        msg['Subject'] = f"CI Complete — {goal_text[:50]}"
+        msg['From'] = from_addr
+        msg['To'] = email
+        msg.set_content(body)
+        _smtp_send(smtp_cfg, msg)
+        logger.info(f"CI complete notification sent to {email} for run {run_id}")
+    except Exception as e:
+        logger.warning(f"Failed to send CI complete notification: {e}")
 
 
 @app.route('/api/trigger', methods=['POST'])
@@ -3006,8 +3312,6 @@ def api_list_project_documents(slug):
                 'timestamp':     m.get('timestamp', ''),
                 'brief_summary': m.get('brief_summary', ''),
                 'full_summary':  m.get('full_summary', ''),
-                'anomalies':     m.get('anomalies', ''),
-                'risk_score':    m.get('risk_score', 0),
             })
         docs.sort(key=lambda x: x['doc_id'])
         return jsonify({'documents': docs, 'count': len(docs)})
@@ -4047,6 +4351,7 @@ _DOCS_PAGES = {
     'users': 'users',
     'llm-usage': 'llm-usage',
     'api': 'api',
+    'case-intelligence': 'case-intelligence',
 }
 
 @app.route('/docs')
@@ -4898,6 +5203,708 @@ def _get_uptime() -> int:
             return int(uptime_seconds)
     except:
         return 0
+
+
+# =============================================================================
+# CASE INTELLIGENCE AI ROUTES — v3.0.0
+# All routes check _ci_gate() before executing.
+# =============================================================================
+
+@app.route('/api/ci/status')
+@login_required
+def ci_status():
+    """Feature status + authority corpus stats."""
+    ok, err = _ci_gate()
+    if not ok:
+        return err
+    try:
+        from analyzer.case_intelligence.db import get_authority_corpus_stats
+        from analyzer.case_intelligence.job_manager import get_job_manager
+        corpus_stats = get_authority_corpus_stats()
+        active_runs = get_job_manager().list_active_runs()
+        return jsonify({
+            'enabled': True,
+            'authority_corpus': corpus_stats,
+            'active_runs': len(active_runs),
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/ci/jurisdictions')
+@login_required
+def ci_jurisdictions():
+    """List pre-built jurisdiction profiles."""
+    ok, err = _ci_gate()
+    if not ok:
+        return err
+    try:
+        from analyzer.case_intelligence.jurisdiction import list_jurisdiction_profiles
+        return jsonify({'jurisdictions': list_jurisdiction_profiles()})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+def _match_jurisdiction_profile(extracted: dict) -> str:
+    """Map LLM-extracted jurisdiction details to a JURISDICTION_PROFILES key."""
+    court = (extracted.get('court_name') or '').lower()
+    is_bk = extracted.get('is_bankruptcy', False) or 'bankruptcy' in court
+    bk_ch = extracted.get('bankruptcy_chapter')
+    is_fam = extracted.get('is_family_court', False) or 'family' in court
+    is_sur = extracted.get('is_surrogate', False) or 'surrogate' in court
+    is_fed = extracted.get('is_federal', False)
+    is_commercial = 'commercial' in court
+
+    if is_bk:
+        if 'eastern' in court or 'edny' in court or 'e.d.n.y' in court:
+            return 'edny-bankruptcy'
+        ch = int(bk_ch) if bk_ch and str(bk_ch).isdigit() else 7
+        return f'sdny-bankruptcy-ch{ch}' if ch in (7, 11) else 'sdny-bankruptcy-ch7'
+    if is_fam:
+        return 'nys-family-court'
+    if is_sur:
+        return 'nys-surrogate'
+    if 'appellate' in court:
+        return 'nys-appellate-div-1' if ('first' in court or '1st' in court) else 'nys-appellate-div-2'
+    if is_fed or 'district' in court or 'sdny' in court or 's.d.n.y' in court:
+        if 'eastern' in court or 'edny' in court or 'e.d.n.y' in court:
+            return 'edny-civil'
+        return 'sdny-civil'
+    if is_commercial:
+        return 'nys-commercial-division'
+    # Default: NYS Supreme Court (most common for NY cases)
+    state = (extracted.get('state') or 'NY').upper()
+    if state == 'NY' or 'supreme' in court:
+        return 'nys-supreme-civil'
+    return 'custom'
+
+
+@app.route('/api/ci/detect-jurisdiction', methods=['POST'])
+@login_required
+def ci_detect_jurisdiction():
+    """Detect court jurisdiction from project documents using LLM."""
+    ok, err = _ci_gate()
+    if not ok:
+        return err
+    import json as _json
+    try:
+        project_slug = session.get('current_project', 'default')
+        from analyzer.vector_store import VectorStore
+        from analyzer.case_intelligence.jurisdiction import JURISDICTION_PROFILES
+
+        vs = VectorStore(project_slug=project_slug)
+        if not vs.enabled:
+            return jsonify({'detected': False, 'reason': 'Vector store not enabled for this project'})
+
+        # Search for jurisdiction-relevant document excerpts
+        results = vs.search(
+            "court supreme district county filed plaintiff defendant address jurisdiction caption index number",
+            n_results=8
+        )
+        if not results:
+            return jsonify({'detected': False, 'reason': 'No documents found in project'})
+
+        # Build document excerpts (first 500 chars each)
+        excerpts = []
+        for r in results[:6]:
+            title = r.get('title', 'Untitled')
+            content = (r.get('content') or r.get('document') or '')[:500].strip()
+            if content:
+                excerpts.append(f"[{title}]\n{content}")
+        if not excerpts:
+            return jsonify({'detected': False, 'reason': 'Documents found but content unavailable'})
+        excerpts_text = "\n\n---\n\n".join(excerpts)
+
+        # Use the app's existing LLM client
+        llm = getattr(app, 'llm_client', None)
+        if not llm or not llm.client:
+            return jsonify({'detected': False, 'reason': 'LLM client not available'})
+
+        prompt = (
+            "You are analyzing legal documents to identify their court jurisdiction.\n\n"
+            "Examine these document excerpts and identify:\n"
+            "- The specific court (e.g. 'NYS Supreme Court', 'S.D.N.Y.', 'E.D.N.Y. Bankruptcy Court')\n"
+            "- The county (for NY state cases, e.g. 'Kings', 'New York', 'Queens')\n"
+            "- The state (two-letter code, e.g. 'NY')\n"
+            "- Whether it is a federal case (SDNY, EDNY, etc.)\n"
+            "- Whether it is a bankruptcy case, and if so, chapter number (7 or 11)\n"
+            "- Whether it is a Family Court or Surrogate's Court case\n"
+            "- Addresses of parties (to confirm location)\n\n"
+            "Document excerpts:\n"
+            f"{excerpts_text[:3500]}\n\n"
+            "Respond with ONLY valid JSON, no other text:\n"
+            '{"court_name": "string or null", "county": "string or null", '
+            '"state": "NY", "is_federal": false, "is_bankruptcy": false, '
+            '"bankruptcy_chapter": null, "is_family_court": false, '
+            '"is_surrogate": false, "confidence": 0.85, '
+            '"reasoning": "one sentence explanation"}'
+        )
+
+        if llm.provider == 'openai':
+            resp = llm.client.chat.completions.create(
+                model='gpt-4o-mini',
+                messages=[{'role': 'user', 'content': prompt}],
+                temperature=0,
+                max_tokens=350,
+                response_format={'type': 'json_object'},
+            )
+            raw = resp.choices[0].message.content
+        else:
+            resp = llm.client.messages.create(
+                model='claude-haiku-4-5-20251001',
+                max_tokens=350,
+                messages=[{'role': 'user', 'content': prompt}],
+            )
+            raw = resp.content[0].text
+
+        if not raw or not raw.strip():
+            return jsonify({'detected': False, 'reason': 'LLM returned an empty response'})
+
+        # Strip markdown code fences if the model wrapped the JSON
+        raw_stripped = raw.strip()
+        if raw_stripped.startswith('```'):
+            raw_stripped = raw_stripped.split('\n', 1)[-1]
+            raw_stripped = raw_stripped.rsplit('```', 1)[0].strip()
+
+        extracted = _json.loads(raw_stripped)
+        profile_id = _match_jurisdiction_profile(extracted)
+        profile = JURISDICTION_PROFILES.get(profile_id)
+
+        return jsonify({
+            'detected': True,
+            'jurisdiction_id': profile_id,
+            'display_name': profile.display_name if profile else 'Custom',
+            'court': profile.court if profile else (extracted.get('court_name') or ''),
+            'county': extracted.get('county'),
+            'confidence': extracted.get('confidence', 0.5),
+            'reason': extracted.get('reasoning', ''),
+        })
+
+    except Exception as e:
+        logger.error(f"CI detect-jurisdiction error: {e}", exc_info=True)
+        return jsonify({'detected': False, 'reason': f'Detection failed: {str(e)}'})
+
+
+@app.route('/api/ci/runs', methods=['GET'])
+@login_required
+def ci_list_runs():
+    """List CI runs for current project."""
+    ok, err = _ci_gate()
+    if not ok:
+        return err
+    try:
+        from analyzer.case_intelligence.db import list_ci_runs
+        project_slug = session.get('current_project', 'default')
+        runs = list_ci_runs(project_slug, user_id=current_user.id)
+        return jsonify({'runs': [dict(r) for r in runs]})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/ci/runs', methods=['POST'])
+@login_required
+@advanced_required
+def ci_create_run():
+    """Create a new CI run (draft status)."""
+    ok, err = _ci_gate()
+    if not ok:
+        return err
+    try:
+        import json as _json
+        from analyzer.case_intelligence.db import create_ci_run
+        data = request.json or {}
+        project_slug = session.get('current_project', 'default')
+
+        jurisdiction_json = '{}'
+        if 'jurisdiction' in data:
+            jurisdiction_json = _json.dumps(data['jurisdiction'])
+
+        run_id = create_ci_run(
+            project_slug=project_slug,
+            user_id=current_user.id,
+            role=data.get('role', 'neutral'),
+            goal_text=data.get('goal_text', ''),
+            budget_per_run_usd=float(data.get('budget_per_run_usd', 10.0)),
+            jurisdiction_json=jurisdiction_json,
+            objectives=_json.dumps(data.get('objectives', [])),
+            max_tier=int(data.get('max_tier', 3)),
+        )
+        return jsonify({'run_id': run_id}), 201
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/ci/runs/<run_id>', methods=['GET'])
+@login_required
+def ci_get_run(run_id):
+    """Get run config + status."""
+    ok, err = _ci_gate()
+    if not ok:
+        return err
+    try:
+        from analyzer.case_intelligence.db import get_ci_run
+        run = get_ci_run(run_id)
+        if not run:
+            return jsonify({'error': 'Run not found'}), 404
+        if run['user_id'] != current_user.id and not current_user.is_admin:
+            return jsonify({'error': 'Not authorized'}), 403
+        return jsonify(dict(run))
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/ci/runs/<run_id>', methods=['PUT'])
+@login_required
+@advanced_required
+def ci_update_run(run_id):
+    """Update run config (draft only)."""
+    ok, err = _ci_gate()
+    if not ok:
+        return err
+    try:
+        import json as _json
+        from analyzer.case_intelligence.db import get_ci_run, update_ci_run
+        run = get_ci_run(run_id)
+        if not run:
+            return jsonify({'error': 'Run not found'}), 404
+        if run['status'] not in ('draft',):
+            return jsonify({'error': 'Can only edit draft runs'}), 400
+        if run['user_id'] != current_user.id and not current_user.is_admin:
+            return jsonify({'error': 'Not authorized'}), 403
+
+        data = request.json or {}
+        allowed_fields = {
+            'role', 'goal_text', 'budget_per_run_usd', 'max_tier', 'auto_routing',
+        }
+        kwargs = {k: v for k, v in data.items() if k in allowed_fields}
+        if 'jurisdiction' in data:
+            kwargs['jurisdiction_json'] = _json.dumps(data['jurisdiction'])
+        if 'objectives' in data:
+            kwargs['objectives'] = _json.dumps(data['objectives'])
+        update_ci_run(run_id, **kwargs)
+        return jsonify({'status': 'updated'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/ci/runs/<run_id>/start', methods=['POST'])
+@login_required
+@advanced_required
+def ci_start_run(run_id):
+    """Launch a CI run as a background job."""
+    ok, err = _ci_gate()
+    if not ok:
+        return err
+    try:
+        import os as _os
+        from analyzer.case_intelligence.db import get_ci_run, update_ci_run
+        from analyzer.case_intelligence.orchestrator import CIOrchestrator
+        from analyzer.case_intelligence.job_manager import get_job_manager
+        from analyzer.case_intelligence.db import init_ci_db
+
+        # Ensure DB is initialized
+        init_ci_db()
+
+        run = get_ci_run(run_id)
+        if not run:
+            return jsonify({'error': 'Run not found'}), 404
+        if run['user_id'] != current_user.id and not current_user.is_admin:
+            return jsonify({'error': 'Not authorized'}), 403
+        if run['status'] not in ('draft', 'failed', 'cancelled'):
+            return jsonify({'error': f"Cannot start run in status '{run['status']}'"}), 400
+
+        # Reset run for fresh start
+        update_ci_run(run_id, status='queued', progress_pct=0,
+                      cost_so_far_usd=0, budget_blocked=0,
+                      budget_blocked_note=None, error_message=None,
+                      started_at=datetime.utcnow().isoformat())
+
+        # Build LLM clients from app config
+        llm_clients = _build_ci_llm_clients()
+
+        orchestrator = CIOrchestrator(
+            llm_clients=llm_clients,
+            paperless_client=getattr(app, 'paperless_client', None),
+            usage_tracker=getattr(app, 'usage_tracker', None),
+            cohere_api_key=_os.environ.get('COHERE_API_KEY'),
+            budget_notification_cb=_send_ci_budget_notification,
+            completion_notification_cb=_send_ci_complete_notification,
+        )
+
+        job_manager = get_job_manager()
+        started = job_manager.start_run(run_id, orchestrator.execute_run, run_id)
+
+        if not started:
+            return jsonify({'error': 'Run is already active'}), 409
+
+        return jsonify({'status': 'started', 'run_id': run_id})
+    except Exception as e:
+        logger.error(f"CI start_run failed: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/ci/runs/<run_id>/cancel', methods=['POST'])
+@login_required
+@advanced_required
+def ci_cancel_run(run_id):
+    """Send cancellation signal to a running CI job."""
+    ok, err = _ci_gate()
+    if not ok:
+        return err
+    try:
+        from analyzer.case_intelligence.db import get_ci_run
+        from analyzer.case_intelligence.job_manager import get_job_manager
+
+        run = get_ci_run(run_id)
+        if not run:
+            return jsonify({'error': 'Run not found'}), 404
+        if run['user_id'] != current_user.id and not current_user.is_admin:
+            return jsonify({'error': 'Not authorized'}), 403
+
+        sent = get_job_manager().cancel_run(run_id)
+        return jsonify({'cancelled': sent, 'run_id': run_id})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/ci/runs/<run_id>/status')
+@login_required
+def ci_run_status(run_id):
+    """Live progress polling endpoint (every 3s from UI)."""
+    ok, err = _ci_gate()
+    if not ok:
+        return err
+    try:
+        from analyzer.case_intelligence.db import get_ci_run
+        run = get_ci_run(run_id)
+        if not run:
+            return jsonify({'error': 'Run not found'}), 404
+        return jsonify({
+            'run_id': run_id,
+            'status': run['status'],
+            'current_stage': run['current_stage'],
+            'progress_pct': run['progress_pct'],
+            'cost_so_far_usd': run['cost_so_far_usd'],
+            'budget_per_run_usd': run['budget_per_run_usd'],
+            'docs_processed': run['docs_processed'],
+            'docs_total': run['docs_total'],
+            'error_message': run['error_message'],
+            'budget_blocked': bool(run['budget_blocked']),
+            'budget_blocked_note': run['budget_blocked_note'],
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/ci/runs/<run_id>/findings')
+@login_required
+def ci_run_findings(run_id):
+    """Full findings: entities, timeline, contradictions, theories, authorities."""
+    ok, err = _ci_gate()
+    if not ok:
+        return err
+    try:
+        from analyzer.case_intelligence.db import (
+            get_ci_run, get_ci_entities, get_ci_timeline, get_ci_contradictions,
+            get_ci_theories, get_ci_authorities, get_ci_disputed_facts,
+        )
+        import json as _json
+        run = get_ci_run(run_id)
+        if not run:
+            return jsonify({'error': 'Run not found'}), 404
+
+        findings_summary = None
+        if run['findings_summary']:
+            try:
+                findings_summary = _json.loads(run['findings_summary'])
+            except Exception:
+                findings_summary = {'raw': run['findings_summary']}
+
+        return jsonify({
+            'run_id': run_id,
+            'status': run['status'],
+            'findings_summary': findings_summary,
+            'entities': [dict(e) for e in get_ci_entities(run_id)],
+            'timeline': [dict(ev) for ev in get_ci_timeline(run_id)],
+            'contradictions': [dict(c) for c in get_ci_contradictions(run_id)],
+            'disputed_facts': [dict(f) for f in get_ci_disputed_facts(run_id)],
+            'theories': [dict(t) for t in get_ci_theories(run_id)],
+            'authorities': [dict(a) for a in get_ci_authorities(run_id)],
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/ci/runs/<run_id>/questions', methods=['GET'])
+@login_required
+def ci_get_questions(run_id):
+    """Get clarifying questions for a run."""
+    ok, err = _ci_gate()
+    if not ok:
+        return err
+    try:
+        from analyzer.case_intelligence.db import get_ci_questions
+        questions = get_ci_questions(run_id)
+        return jsonify({'questions': [dict(q) for q in questions]})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/ci/runs/<run_id>/answers', methods=['POST'])
+@login_required
+@advanced_required
+def ci_submit_answers(run_id):
+    """Submit answers to clarifying questions."""
+    ok, err = _ci_gate()
+    if not ok:
+        return err
+    try:
+        from analyzer.case_intelligence.db import get_ci_run, answer_ci_question, update_ci_run
+        run = get_ci_run(run_id)
+        if not run:
+            return jsonify({'error': 'Run not found'}), 404
+        if run['user_id'] != current_user.id and not current_user.is_admin:
+            return jsonify({'error': 'Not authorized'}), 403
+
+        data = request.json or {}
+        answers = data.get('answers', {})  # {question_id: answer_text}
+        proceed_with_assumptions = data.get('proceed_with_assumptions', False)
+
+        for qid_str, answer_text in answers.items():
+            try:
+                answer_ci_question(int(qid_str), answer_text)
+            except Exception as e:
+                logger.warning(f"CI answer question {qid_str} failed: {e}")
+
+        if proceed_with_assumptions:
+            update_ci_run(run_id, proceed_with_assumptions=1)
+
+        return jsonify({'status': 'answers_saved'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/ci/runs/<run_id>/reports', methods=['POST'])
+@login_required
+@advanced_required
+def ci_create_report(run_id):
+    """Generate a report for a CI run."""
+    ok, err = _ci_gate()
+    if not ok:
+        return err
+    try:
+        from analyzer.case_intelligence.db import get_ci_run, create_ci_report
+        from analyzer.case_intelligence.report_generator import ReportGenerator
+        import threading as _threading
+
+        run = get_ci_run(run_id)
+        if not run:
+            return jsonify({'error': 'Run not found'}), 404
+        if run['status'] != 'completed':
+            return jsonify({'error': 'Run must be completed before generating reports'}), 400
+
+        data = request.json or {}
+        instructions = data.get('instructions', 'Generate a comprehensive case summary.')
+        template = data.get('template', 'custom')
+
+        report_id = create_ci_report(
+            run_id=run_id,
+            user_id=current_user.id,
+            instructions=instructions,
+            template=template,
+        )
+
+        # Generate in background thread
+        llm_clients = _build_ci_llm_clients()
+        generator = ReportGenerator(
+            llm_clients=llm_clients,
+            usage_tracker=getattr(app, 'usage_tracker', None),
+        )
+
+        def _generate():
+            from analyzer.case_intelligence.db import update_ci_report
+            update_ci_report(report_id, content='', status='generating')
+            generator.generate(run_id, report_id, instructions, template)
+
+        _threading.Thread(target=_generate, daemon=True,
+                           name=f'ci-report-{report_id[:8]}').start()
+
+        return jsonify({'report_id': report_id, 'status': 'generating'}), 202
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/ci/runs/<run_id>/reports/<report_id>', methods=['GET'])
+@login_required
+def ci_get_report(run_id, report_id):
+    """Get report content."""
+    ok, err = _ci_gate()
+    if not ok:
+        return err
+    try:
+        from analyzer.case_intelligence.db import get_ci_report
+        report = get_ci_report(report_id)
+        if not report or report['run_id'] != run_id:
+            return jsonify({'error': 'Report not found'}), 404
+        return jsonify(dict(report))
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/ci/runs/<run_id>/reports/<report_id>/pdf', methods=['GET'])
+@login_required
+def ci_download_report_pdf(run_id, report_id):
+    """Download report as PDF."""
+    ok, err = _ci_gate()
+    if not ok:
+        return err
+    try:
+        from analyzer.case_intelligence.db import get_ci_report
+        from analyzer.case_intelligence.report_generator import ReportGenerator
+
+        report = get_ci_report(report_id)
+        if not report or report['run_id'] != run_id:
+            return jsonify({'error': 'Report not found'}), 404
+        if report['status'] != 'complete' or not report['content']:
+            return jsonify({'error': 'Report not yet complete'}), 400
+
+        generator = ReportGenerator(llm_clients={}, usage_tracker=None)
+        pdf_bytes = generator.generate_pdf(report['content'], title=f'CI Report {run_id[:8]}')
+
+        if not pdf_bytes:
+            # Fallback: return markdown as text file
+            response = make_response(report['content'])
+            response.headers['Content-Type'] = 'text/markdown; charset=utf-8'
+            response.headers['Content-Disposition'] = f'attachment; filename="ci_report_{report_id[:8]}.md"'
+            return response
+
+        response = make_response(pdf_bytes)
+        response.headers['Content-Type'] = 'application/pdf'
+        response.headers['Content-Disposition'] = f'attachment; filename="ci_report_{report_id[:8]}.pdf"'
+        return response
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/ci/authority/ingest', methods=['POST'])
+@login_required
+@admin_required
+def ci_ingest_authorities():
+    """Trigger authority corpus ingestion (admin only)."""
+    ok, err = _ci_gate()
+    if not ok:
+        return err
+    try:
+        import os as _os
+        import threading as _threading
+        from analyzer.case_intelligence.authority_ingester import AuthorityIngester
+        from analyzer.case_intelligence.authority_retriever import AuthorityRetriever
+        from analyzer.case_intelligence.db import init_ci_db
+
+        init_ci_db()
+        data = request.json or {}
+        sources = data.get('sources', ['nysenate', 'ecfr', 'courtlistener'])
+
+        def _ingest():
+            ingester = AuthorityIngester(
+                courtlistener_token=_os.environ.get('COURTLISTENER_API_TOKEN'),
+                nysenate_token=_os.environ.get('NYSENATE_API_TOKEN'),
+            )
+            results = ingester.ingest_all(sources=sources)
+            logger.info(f"Authority ingestion complete: {results}")
+
+            # Embed newly added authorities
+            retriever = AuthorityRetriever(
+                cohere_api_key=_os.environ.get('COHERE_API_KEY'),
+            )
+            if retriever.enabled:
+                embedded = retriever.embed_pending_authorities(batch_size=200)
+                logger.info(f"Embedded {embedded} new authorities")
+
+        _threading.Thread(target=_ingest, daemon=True, name='ci-authority-ingest').start()
+        return jsonify({'status': 'ingestion_started', 'sources': sources})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/ci/authority/status')
+@login_required
+def ci_authority_status():
+    """Authority corpus statistics."""
+    ok, err = _ci_gate()
+    if not ok:
+        return err
+    try:
+        from analyzer.case_intelligence.db import get_authority_corpus_stats
+        from analyzer.case_intelligence.authority_retriever import AuthorityRetriever
+        import os as _os
+
+        db_stats = get_authority_corpus_stats()
+        retriever = AuthorityRetriever(cohere_api_key=_os.environ.get('COHERE_API_KEY'))
+        chroma_stats = retriever.get_corpus_stats()
+        return jsonify({
+            'db': db_stats,
+            'chroma': chroma_stats,
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+def _build_ci_llm_clients() -> dict:
+    """
+    Build LLM client dict for CI components.
+    Returns {'openai': client_or_None, 'anthropic': client_or_None}
+    """
+    import os as _os
+    clients = {}
+
+    # Get usage tracker from document_analyzer if available
+    _usage_tracker = None
+    if hasattr(app, 'document_analyzer') and hasattr(app.document_analyzer, 'usage_tracker'):
+        _usage_tracker = app.document_analyzer.usage_tracker
+
+    openai_key = _os.environ.get('OPENAI_API_KEY') or _os.environ.get('LLM_API_KEY')
+    anthropic_key = _os.environ.get('LLM_API_KEY') or _os.environ.get('ANTHROPIC_API_KEY')
+
+    # Check provider from env
+    lm_provider = _os.environ.get('LLM_PROVIDER', 'anthropic').lower()
+
+    # Try to reuse the existing app llm_client
+    existing_client = getattr(app, 'llm_client', None)
+    if existing_client:
+        if lm_provider == 'openai':
+            clients['openai'] = existing_client
+            # Also build an anthropic client if key exists
+            if anthropic_key and anthropic_key != openai_key:
+                try:
+                    from analyzer.llm.llm_client import LLMClient
+                    clients['anthropic'] = LLMClient(
+                        provider='anthropic',
+                        api_key=anthropic_key,
+                        usage_tracker=_usage_tracker,
+                    )
+                except Exception:
+                    pass
+        else:
+            clients['anthropic'] = existing_client
+            # Also build an openai client if key exists
+            if openai_key:
+                try:
+                    from analyzer.llm.llm_client import LLMClient
+                    clients['openai'] = LLMClient(
+                        provider='openai',
+                        api_key=openai_key,
+                        usage_tracker=_usage_tracker,
+                    )
+                except Exception:
+                    pass
+
+    return clients
+
+
+# =============================================================================
+# END CASE INTELLIGENCE AI ROUTES
+# =============================================================================
 
 
 def run_web_server(state_manager, profile_loader, paperless_client, host='0.0.0.0', port=8051,
