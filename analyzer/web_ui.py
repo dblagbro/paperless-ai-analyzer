@@ -222,7 +222,7 @@ def inject_user():
     import os
     ci_enabled = os.environ.get('CASE_INTELLIGENCE_ENABLED', 'false').lower() == 'true'
     url_prefix = os.environ.get('URL_PREFIX', '').strip('/')
-    ci_safe = ci_enabled and url_prefix in ('paperless-ai-analyzer-dev', '')
+    ci_safe = ci_enabled
     return {
         'current_user': current_user,
         'is_admin': is_admin,
