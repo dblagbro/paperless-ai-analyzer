@@ -1456,6 +1456,7 @@
                 <button class="tab-button" onclick="switchTab('projects')">📁 Manage Projects</button>
                 <button class="tab-button" onclick="switchTab('upload')">📤 Smart Upload</button>
                 <button class="tab-button" onclick="switchTab('ai-chat')">💬 AI Chat</button>
+                {% if CI_ENABLED %}<button class="tab-button" onclick="switchTab('case-intelligence')" id="ci-tab-btn">⚖️ Case Intelligence</button>{% endif %}
                 <button class="tab-button" onclick="switchTab('search')">🔍 Search & Analysis</button>
                 <button class="tab-button" onclick="switchTab('config')">⚙️ Configuration</button>
                 <button class="tab-button" onclick="switchTab('tools')">🛠️ Debug & Tools</button>
@@ -1984,15 +1985,86 @@
             <!-- Configuration Tab -->
             <div id="tab-config" class="tab-content">
                 <div class="tab-help-panel" id="help-config">
-                    <strong>⚙️ Configuration</strong> — Set up AI providers, analysis profiles, and system settings.
+                    <strong>⚙️ Configuration</strong> — Set up AI providers, analysis profiles, and system settings. Switch sub-tabs to see context-specific help.
                     <ul style="margin:8px 0 0 0; padding-left:18px;">
-                        <li><strong>AI Settings</strong> — Add OpenAI or Anthropic API keys. Without a key, no AI analysis or chat will run.</li>
+                        <li><strong>AI Settings</strong> — Global API Keys (admin) + per-project provider/model for 3 use-cases (Document Analysis, AI Chat, Case Intelligence). Fallback chain: per-project → global → system default.</li>
+                        <li><strong>AI Usage</strong> — Daily cost + call volume chart. Hover a bar for exact values.</li>
                         <li><strong>Profiles</strong> — Rules files that define how the AI tags and classifies documents. Activate staging profiles to use them.</li>
                         <li><strong>Vector Store</strong> — Manages the embedded document index used for AI Chat. Clear it if documents seem stale.</li>
-                        <li><strong>Notifications (SMTP)</strong> — Configure outgoing email for bug reports and alerts.</li>
-                        <li><strong>Users</strong> (admin) — Add, edit, or remove user accounts and set roles.</li>
+                        <li><strong>Notifications (SMTP)</strong> (admin) — Configure outgoing email for welcome messages, CI budget alerts, and CI completion emails.</li>
+                        <li><strong>Users</strong> (admin) — Add, edit, or remove user accounts. Three roles: Admin / Advanced / Basic.</li>
                     </ul>
                     <div style="margin-top:8px; font-size:12px;"><a href="{{ request.script_root }}/docs/configuration" target="_blank" style="color:#5dade2;">📖 Full manual for this section →</a></div>
+                </div>
+
+                <!-- Sub-tab help panels — hidden by default; _refreshHelpPanel() shows the active one -->
+                <div class="tab-help-panel" id="help-config-ai" style="display:none;">
+                    <strong>🤖 AI Settings</strong> — Provider and model configuration.
+                    <ul style="margin:8px 0 0 0; padding-left:18px;">
+                        <li><strong>Global API Keys</strong> (admin only) — OpenAI and Anthropic keys stored in <code>/app/data/ai_config.json</code>. Click <strong>Test</strong> next to each key to verify before saving.</li>
+                        <li><strong>Per-project AI Configuration</strong> — Three use-cases per project: Document Analysis / AI Chat / Case Intelligence. Each has a Primary and a Fallback provider+model.</li>
+                        <li><strong>⇉ All</strong> — copies that row's settings to all three use-cases in this project.</li>
+                        <li><strong>📋 Copy</strong> (admin) — copies one project's full config to another project.</li>
+                        <li><strong>Fallback chain:</strong> per-project override → global key → system default.</li>
+                        <li>Admin sees all-projects dropdown; Advanced users see only their own project.</li>
+                    </ul>
+                    <div style="margin-top:8px; font-size:12px;"><a href="{{ request.script_root }}/docs/configuration#ai-settings" target="_blank" style="color:#5dade2;">📖 AI Settings manual →</a></div>
+                </div>
+
+                <div class="tab-help-panel" id="help-config-usage" style="display:none;">
+                    <strong>💰 AI Usage</strong> — Daily token and cost history.
+                    <ul style="margin:8px 0 0 0; padding-left:18px;">
+                        <li><strong>Blue bars</strong> — daily estimated cost (USD).</li>
+                        <li><strong>Amber dashed line</strong> — daily API call volume (right axis).</li>
+                        <li>Hover a bar to see exact date, cost, and call count for that day.</li>
+                        <li>Use the days selector to widen or narrow the date range.</li>
+                    </ul>
+                    <div style="margin-top:8px; font-size:12px;"><a href="{{ request.script_root }}/docs/llm-usage" target="_blank" style="color:#5dade2;">📖 Full per-call history →</a></div>
+                </div>
+
+                <div class="tab-help-panel" id="help-config-profiles" style="display:none;">
+                    <strong>📄 Profiles</strong> — Document-type analysis rules.
+                    <ul style="margin:8px 0 0 0; padding-left:18px;">
+                        <li><strong>Active profiles</strong> are loaded from <code>/app/profiles/active/</code> and define extraction rules, risk weights, and tagging for each document type.</li>
+                        <li><strong>Staging profiles</strong> are auto-generated when a document matches no active profile. Review and activate the ones you want to keep.</li>
+                        <li><strong>Activate / Activate All</strong> — move staging profiles to active.</li>
+                        <li><strong>Delete</strong> — permanently remove a staging or active profile.</li>
+                    </ul>
+                    <div style="margin-top:8px; font-size:12px;"><a href="{{ request.script_root }}/docs/configuration#profiles" target="_blank" style="color:#5dade2;">📖 Profiles manual →</a></div>
+                </div>
+
+                <div class="tab-help-panel" id="help-config-vectorstore" style="display:none;">
+                    <strong>🗄️ Vector Store</strong> — ChromaDB document index.
+                    <ul style="margin:8px 0 0 0; padding-left:18px;">
+                        <li><strong>Process Unanalyzed</strong> — queue docs not yet embedded. No LLM cost for already-processed docs.</li>
+                        <li><strong>Re-embed Stale</strong> — re-analyze docs modified in Paperless since their last embed.</li>
+                        <li><strong>Clear All</strong> — <em>destructive</em> — wipes the entire project's vector index. Use only when rebuilding from scratch.</li>
+                        <li><strong>Reconcile</strong> — removes orphaned DB records for docs deleted from Paperless.</li>
+                    </ul>
+                    <div style="margin-top:8px; font-size:12px;"><a href="{{ request.script_root }}/docs/configuration#vector-store-config" target="_blank" style="color:#5dade2;">📖 Vector Store manual →</a></div>
+                </div>
+
+                <div class="tab-help-panel" id="help-config-smtp" style="display:none;">
+                    <strong>📧 Notifications</strong> — SMTP outgoing email configuration (admin only).
+                    <ul style="margin:8px 0 0 0; padding-left:18px;">
+                        <li>SMTP is used for: welcome emails on user creation, bug reports, CI budget alerts, and CI run completion emails.</li>
+                        <li><strong>CI budget alerts</strong> fire at every 10% completion checkpoint with a projected-vs-budget status.</li>
+                        <li><strong>CI completion emails</strong> fire when a run finishes (success or failure).</li>
+                        <li>CI notification recipient is set per-run in CI Setup → Notifications section (pre-filled from the user's profile email).</li>
+                        <li>Click <strong>Send Test Email</strong> to validate SMTP — a test message is sent to your own account address.</li>
+                    </ul>
+                    <div style="margin-top:8px; font-size:12px;"><a href="{{ request.script_root }}/docs/configuration#smtp-settings" target="_blank" style="color:#5dade2;">📖 SMTP manual →</a></div>
+                </div>
+
+                <div class="tab-help-panel" id="help-config-users" style="display:none;">
+                    <strong>👥 Users</strong> — User account management (admin only).
+                    <ul style="margin:8px 0 0 0; padding-left:18px;">
+                        <li><strong>Three roles:</strong> Admin (full access) / Advanced (CI + power features) / Basic (own sessions only). Role is set via the Edit (pencil) icon.</li>
+                        <li><strong>+ Add User</strong> — creates a new account. A welcome email is sent automatically if SMTP is configured.</li>
+                        <li><strong>Deactivate</strong> (trash icon) — soft-deletes the account; chat history is preserved. Click Reactivate to restore access.</li>
+                        <li>You cannot deactivate your own account. At least one Admin must remain active.</li>
+                    </ul>
+                    <div style="margin-top:8px; font-size:12px;"><a href="{{ request.script_root }}/docs/users" target="_blank" style="color:#5dade2;">📖 User Management manual →</a></div>
                 </div>
 
                 <!-- Sub-tab navigation (fixed header — not inside scroll body) -->
@@ -2009,69 +2081,104 @@
                 <!-- ── AI Settings sub-section ── -->
                 <div id="cfg-ai" class="config-sub-content active">
                 <h2 style="margin-bottom: 15px;">🤖 AI Configuration</h2>
-                <div class="card" style="margin-bottom: 20px;">
-                    <div style="margin-bottom: 15px; color: #555;">
-                        <strong>Configure AI providers for document analysis and chat:</strong>
-                        <ul style="margin: 10px 0; padding-left: 20px;">
-                            <li><strong>Document Analysis:</strong> OpenAI GPT (best for legal/forensic) → Anthropic Claude</li>
-                            <li><strong>Chat:</strong> Same priority - tries best models first, falls back automatically</li>
-                            <li>Automatic fallback ensures system always works with available models</li>
-                        </ul>
+
+                {% if is_admin %}
+                <!-- Section 1: Global API Keys (admin only) -->
+                <details id="global-api-keys-section" style="margin-bottom: 20px;">
+                    <summary style="cursor:pointer; font-weight:700; font-size:15px; padding:12px 16px; background:#f0f4ff; border:1px solid #c9d8f5; border-radius:6px; list-style:none; display:flex; align-items:center; gap:8px;">
+                        🔑 Global API Keys <span style="font-size:11px; font-weight:400; color:#666; margin-left:8px;">(admin only)</span>
+                        <span style="margin-left:auto; font-size:11px; color:#888;">▼ expand</span>
+                    </summary>
+                    <div class="card" style="margin-top:8px; border-top:none; border-radius:0 0 6px 6px;">
+                        <p style="font-size:13px; color:#555; margin-bottom:14px;">These API keys are shared across all projects as the default credential source. Per-project overrides can be set below.</p>
+                        <!-- OpenAI -->
+                        <div style="background:#f8f9fa; padding:14px; border-radius:6px; margin-bottom:12px;">
+                            <h3 style="margin-bottom:8px; font-size:14px;">OpenAI</h3>
+                            <div class="action-group" style="margin-bottom:6px;">
+                                <input type="password" autocomplete="off" id="openai-api-key" placeholder="sk-..."
+                                       style="flex:1; font-family:monospace; font-size:13px;" />
+                                <button class="btn" onclick="testAIProvider('openai')">🧪 Test</button>
+                            </div>
+                            <div id="openai-test-result" style="margin-top:6px; display:none;"></div>
+                        </div>
+                        <!-- Anthropic -->
+                        <div style="background:#f8f9fa; padding:14px; border-radius:6px; margin-bottom:12px;">
+                            <h3 style="margin-bottom:8px; font-size:14px;">Anthropic</h3>
+                            <div class="action-group" style="margin-bottom:6px;">
+                                <input type="password" autocomplete="off" id="anthropic-api-key" placeholder="sk-ant-api03-..."
+                                       style="flex:1; font-family:monospace; font-size:13px;" />
+                                <button class="btn" onclick="testAIProvider('anthropic')">🧪 Test</button>
+                            </div>
+                            <div id="anthropic-test-result" style="margin-top:6px; display:none;"></div>
+                        </div>
+                        <div style="text-align:center; padding-top:12px; border-top:1px solid #dee2e6;">
+                            <button class="btn btn-success" onclick="saveGlobalAIKeys()" style="padding:8px 28px;">
+                                💾 Save Global API Keys
+                            </button>
+                            <div id="global-keys-result" style="margin-top:8px; display:none;"></div>
+                        </div>
+                        <div style="font-size:12px; color:#888; margin-top:12px; text-align:center;">
+                            Keys stored in /app/data/ai_config.json — never leave your server
+                        </div>
+                    </div>
+                </details>
+                {% endif %}
+
+                <!-- Section 2: Per-project AI Configuration -->
+                <div class="card" style="margin-bottom:20px;">
+                    <div style="display:flex; align-items:center; gap:12px; margin-bottom:16px; flex-wrap:wrap;">
+                        <strong style="font-size:14px;">Project AI Configuration</strong>
+                        {% if is_admin %}
+                        <select id="ai-project-selector" onchange="loadProjectAIConfig(this.value)"
+                                style="font-size:13px; padding:4px 8px; border:1px solid #ccc; border-radius:4px; min-width:180px;">
+                            <option value="">— select project —</option>
+                        </select>
+                        {% else %}
+                        <span style="font-size:13px; color:#555; font-style:italic;" id="ai-project-label">
+                            {{ session.get('current_project', 'default') }}
+                        </span>
+                        {% endif %}
                     </div>
 
-                    <!-- OpenAI Configuration -->
-                    <div style="background: #f8f9fa; padding: 15px; border-radius: 6px; margin-bottom: 15px;">
-                        <h3 style="margin-bottom: 10px;">
-                            <input type="checkbox" id="openai-enabled" style="margin-right: 8px; cursor: pointer;" />
-                            OpenAI GPT (Recommended for Forensic Analysis)
-                        </h3>
-                        <div style="margin-bottom: 10px; font-size: 13px; color: #666;">
-                            Best for: Legal documents, forensic analysis, financial document understanding
-                        </div>
-                        <div class="action-group" style="margin-bottom: 10px;">
-                            <input type="text" autocomplete="off" id="openai-api-key" placeholder="OpenAI API key (sk-...)"
-                                   style="flex: 1; font-family: monospace; font-size: 13px;" />
-                            <button class="btn" onclick="testAIProvider('openai')">🧪 Test</button>
-                        </div>
-                        <div style="font-size: 12px;">
-                            <strong>Model Priority:</strong> gpt-4o → gpt-4-turbo → gpt-4 → gpt-3.5-turbo
-                            <a href="https://platform.openai.com/api-keys" target="_blank" style="margin-left: 10px;">🔗 Get API Key</a>
-                        </div>
-                        <div id="openai-test-result" style="margin-top: 10px; display: none;"></div>
-                    </div>
+                    <div id="project-ai-config-wrap">
+                        <!-- Populated by loadProjectAIConfig() -->
+                        <p style="color:#888; font-size:13px; font-style:italic;" id="project-ai-placeholder">
+                            {% if is_admin %}Select a project above to configure its AI settings.{% else %}Loading AI settings…{% endif %}
+                        </p>
 
-                    <!-- Anthropic Configuration -->
-                    <div style="background: #f8f9fa; padding: 15px; border-radius: 6px; margin-bottom: 15px;">
-                        <h3 style="margin-bottom: 10px;">
-                            <input type="checkbox" id="anthropic-enabled" style="margin-right: 8px; cursor: pointer;" />
-                            Anthropic Claude (Fallback)
-                        </h3>
-                        <div style="margin-bottom: 10px; font-size: 13px; color: #666;">
-                            Best for: General analysis, code understanding, logical reasoning
+                        <div id="project-ai-table" style="display:none;">
+                            <table style="width:100%; font-size:13px; border-collapse:collapse;">
+                                <thead>
+                                    <tr style="background:#f0f4ff; text-align:left;">
+                                        <th style="padding:8px 10px; border-bottom:2px solid #c9d8f5; width:160px;">Use-case</th>
+                                        <th style="padding:8px 10px; border-bottom:2px solid #c9d8f5;">Primary Provider / Model</th>
+                                        <th style="padding:8px 10px; border-bottom:2px solid #c9d8f5;">Fallback Provider / Model</th>
+                                        {% if not is_basic %}<th style="padding:8px 10px; border-bottom:2px solid #c9d8f5; width:80px;">Copy</th>{% endif %}
+                                    </tr>
+                                </thead>
+                                <tbody id="project-ai-tbody">
+                                    <!-- rows injected by JS -->
+                                </tbody>
+                            </table>
+                            {% if not is_basic %}
+                            <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:14px; padding-top:12px; border-top:1px solid #dee2e6;">
+                                <button class="btn btn-success" onclick="saveProjectAIConfig()" style="padding:8px 20px;">
+                                    💾 Save Project Config
+                                </button>
+                                {% if is_admin %}
+                                <span style="color:#888; font-size:12px;">|</span>
+                                <span style="font-size:13px;">Copy entire config to:</span>
+                                <select id="ai-copy-dest-project" style="font-size:13px; padding:4px 8px; border:1px solid #ccc; border-radius:4px; min-width:160px;">
+                                    <option value="">— other project —</option>
+                                </select>
+                                <button class="btn" onclick="copyProjectAIConfig()" style="font-size:12px; padding:6px 14px;">
+                                    📋 Copy
+                                </button>
+                                {% endif %}
+                            </div>
+                            {% endif %}
+                            <div id="project-ai-result" style="margin-top:10px; display:none;"></div>
                         </div>
-                        <div class="action-group" style="margin-bottom: 10px;">
-                            <input type="text" autocomplete="off" id="anthropic-api-key" placeholder="Anthropic API key (sk-ant-api03-...)"
-                                   style="flex: 1; font-family: monospace; font-size: 13px;" />
-                            <button class="btn" onclick="testAIProvider('anthropic')">🧪 Test</button>
-                        </div>
-                        <div style="font-size: 12px;">
-                            <strong>Model Priority:</strong> Opus → Sonnet 3.5 → Sonnet 3 → Haiku
-                            <a href="https://console.anthropic.com/settings/keys" target="_blank" style="margin-left: 10px;">🔗 Get API Key</a>
-                        </div>
-                        <div id="anthropic-test-result" style="margin-top: 10px; display: none;"></div>
-                    </div>
-
-                    <!-- Save Button -->
-                    <div style="text-align: center; padding-top: 15px; border-top: 1px solid #dee2e6;">
-                        <button class="btn btn-success" onclick="saveAIConfig()" style="font-size: 14px; padding: 10px 30px;">
-                            💾 Save AI Configuration
-                        </button>
-                        <div id="ai-config-result" style="margin-top: 10px; display: none;"></div>
-                    </div>
-
-                    <div style="font-size: 12px; color: #666; margin-top: 15px; text-align: center;">
-                        ℹ️ API keys are stored securely in /app/data/ai_config.json and never leave your server<br>
-                        Cost: ~$0.30-0.50 for initial analysis of all documents, then ~$0.01 per new document
                     </div>
                 </div>
 
@@ -2504,6 +2611,334 @@
                     </div>
                 </div>
             </div>
+            {% if CI_ENABLED %}
+    <div id="tab-case-intelligence" class="tab-content">
+        <div class="tab-help-panel" id="help-ci">
+            <strong>⚖️ Case Intelligence AI</strong> — Proactive, evidence-grounded legal case analysis. Switch sub-tabs to see context-specific help.
+            <ul style="margin:8px 0 0 0; padding-left:18px;">
+                <li><strong>Setup</strong> — Configure budget, orchestration tiers (Director/Managers/Workers), and notifications. Director LLM plans all domain assignments.</li>
+                <li><strong>Findings</strong> — 6 finding domains: Entities · Timeline · Financial · Contradictions · Theories · Authorities. Each finding cites source doc + page.</li>
+                <li>Report Builder: Director synthesizes a 12-section scientific paper (Sections I–IX + Appendices A–C) → PDF download.</li>
+            </ul>
+            <div style="margin-top:6px; font-size:11px; color:#e74c3c; font-weight:600;">⚠️ DEV ONLY — This feature is only active in the development container.</div>
+        </div>
+
+        <!-- CI sub-tab help panels — hidden by default; _refreshHelpPanel() shows the active one -->
+        <div class="tab-help-panel" id="help-ci-setup" style="display:none;">
+            <strong>🔧 CI Setup</strong> — Configure and launch an analysis run.
+            <ul style="margin:8px 0 0 0; padding-left:18px;">
+                <li><strong>Case Name</strong> — identifies this run in the run list.</li>
+                <li><strong>Budget (USD)</strong> — per-run spending cap. Set to 0 for unlimited. Run pauses if exceeded; override button shown.</li>
+                <li><strong>Orchestration Tiers</strong>: Director = 1 (fixed, plans all work via LLM); Managers = Auto (min(6, docs÷20)) or 1–10; Workers/Manager = Auto (budget-scaled) or 1–20.</li>
+                <li><strong>Notifications</strong>: Email on run complete + every 10% budget checkpoint (under/on/over track). Recipient pre-filled from your profile email.</li>
+                <li>Click <strong>▶ Start Analysis</strong> → Director generates clarifying questions → answer or check "Proceed with assumptions".</li>
+            </ul>
+            <div style="margin-top:8px; font-size:12px;"><a href="{{ request.script_root }}/docs/case-intelligence#ci-setup" target="_blank" style="color:#5dade2;">📖 CI Setup manual →</a></div>
+        </div>
+
+        <div class="tab-help-panel" id="help-ci-findings" style="display:none;">
+            <strong>📋 CI Findings</strong> — Browse run results and generate reports.
+            <ul style="margin:8px 0 0 0; padding-left:18px;">
+                <li>Select a run from the dropdown; live status shows while running (cancel button available).</li>
+                <li><strong>6 finding domains</strong>: Entities · Timeline · Financial · Contradictions · Theories · Authorities.</li>
+                <li>Every finding includes a citation to the source document and page (Bates reference).</li>
+                <li><strong>Report Builder</strong>: Director synthesizes a 12-section scientific paper including Executive Summary, Key Findings, Chronology, Financial Analysis, Contested Facts, Theories, Authorities, Discovery Gaps, and Appendices A–C.</li>
+                <li>Click <strong>Download PDF</strong> to export the report.</li>
+            </ul>
+            <div style="margin-top:8px; font-size:12px;"><a href="{{ request.script_root }}/docs/case-intelligence#ci-findings" target="_blank" style="color:#5dade2;">📖 CI Findings manual →</a></div>
+        </div>
+
+        <!-- Sub-tab navigation -->
+        <div class="ci-sub-nav">
+            <button class="ci-sub-btn active" onclick="ciSwitchSub('setup')">🔧 Setup</button>
+            <button class="ci-sub-btn" onclick="ciSwitchSub('findings')">📋 Findings</button>
+        </div>
+
+        <!-- ── Setup Sub-tab ─────────────────────────────────────────── -->
+        <div id="ci-sub-setup" class="ci-sub-content active">
+
+            <div id="ci-status-bar">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                    <span id="ci-stage-label" style="font-weight:600; font-size:13px;">Ready</span>
+                    <span id="ci-cost-label" style="font-size:12px; color:#666;">$0.00 / $10.00</span>
+                </div>
+                <div class="ci-progress-bar"><div class="ci-progress-fill" id="ci-progress-fill" style="width:0%"></div></div>
+                <div style="font-size:11px; color:#888; margin-top:3px;">
+                    <span id="ci-docs-label">0 / 0 docs</span>
+                    &nbsp;·&nbsp;
+                    <span id="ci-status-label">—</span>
+                </div>
+            </div>
+
+            <div class="ci-form-row">
+                <div class="ci-form-group" style="flex:0 0 200px;">
+                    <label>ROLE</label>
+                    <select id="ci-role">
+                        <option value="neutral">Neutral</option>
+                        <option value="defense">Defense</option>
+                        <option value="plaintiff">Plaintiff</option>
+                        <option value="prosecution">Prosecution</option>
+                    </select>
+                </div>
+                <div class="ci-form-group">
+                    <label>JURISDICTION PROFILE</label>
+                    <select id="ci-jurisdiction-select" onchange="ciLoadJurisdiction()">
+                        <option value="">— Select template —</option>
+                    </select>
+                    <div id="ci-jd-detect-status" style="margin-top:5px; font-size:12px; color:#888; min-height:16px;"></div>
+                </div>
+            </div>
+
+            <div class="ci-form-row" id="ci-jurisdiction-details" style="display:none;">
+                <div class="ci-form-group">
+                    <label>Court</label>
+                    <input type="text" id="ci-jd-court" placeholder="e.g. NYS Supreme Court">
+                </div>
+                <div class="ci-form-group" style="flex:0 0 180px;">
+                    <label>County</label>
+                    <input type="text" id="ci-jd-county" placeholder="e.g. New York">
+                </div>
+                <div class="ci-form-group" style="flex:0 0 160px;">
+                    <label>Judge/Part</label>
+                    <input type="text" id="ci-jd-part" placeholder="e.g. Part 61">
+                </div>
+            </div>
+
+            <div class="ci-form-group" style="margin-bottom:14px;">
+                <label>GOAL / CASE DESCRIPTION</label>
+                <textarea id="ci-goal" placeholder="Describe the case goal and what you want the AI to focus on...&#10;e.g. Analyze all documents for evidence of financial fraud and identify key exhibits."></textarea>
+            </div>
+
+            <div class="ci-section-card">
+                <h4>BUDGET &amp; MODEL ROUTING</h4>
+                <div class="ci-budget-row">
+                    <div class="ci-form-group" style="flex:0 0 160px;">
+                        <label>Budget per run (USD)</label>
+                        <input type="number" id="ci-budget" value="10.00" step="1.00" min="1.00" max="500.00">
+                    </div>
+                    <div class="ci-form-group" style="flex:0 0 120px;">
+                        <label>Max tier</label>
+                        <select id="ci-max-tier">
+                            <option value="1">Tier 1 only (fast)</option>
+                            <option value="2">Tier 1–2</option>
+                            <option value="3" selected>Tier 1–3 (full)</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ── ORCHESTRATION TIERS ─────────────────────────────── -->
+            <div class="ci-section-card">
+                <h4>ORCHESTRATION TIERS</h4>
+                <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:10px; font-size:13px; margin-bottom:8px;">
+                    <div class="ci-form-group">
+                        <label>Director</label>
+                        <input type="text" value="1" disabled
+                               style="background:#e9ecef; color:#666; cursor:not-allowed;">
+                        <div style="font-size:11px; color:#888; margin-top:2px;">Fixed at 1</div>
+                    </div>
+                    <div class="ci-form-group">
+                        <label>Managers</label>
+                        <select id="ci-manager-count">
+                            <option value="">Auto</option>
+                            <option value="1">1</option>
+                            <option value="2">2</option>
+                            <option value="3">3</option>
+                            <option value="4">4</option>
+                            <option value="5">5</option>
+                            <option value="6">6</option>
+                            <option value="7">7</option>
+                            <option value="8">8</option>
+                            <option value="9">9</option>
+                            <option value="10">10</option>
+                        </select>
+                    </div>
+                    <div class="ci-form-group">
+                        <label>Workers / Manager</label>
+                        <select id="ci-workers-per-mgr">
+                            <option value="">Auto</option>
+                            <option value="1">1</option>
+                            <option value="2">2</option>
+                            <option value="3">3</option>
+                            <option value="4">4</option>
+                            <option value="5">5</option>
+                            <option value="6">6</option>
+                            <option value="8">8</option>
+                            <option value="10">10</option>
+                            <option value="12">12</option>
+                            <option value="15">15</option>
+                            <option value="20">20</option>
+                        </select>
+                    </div>
+                </div>
+                <div style="font-size:11px; color:#888;">
+                    ℹ️ Auto mode scales to your budget. Managers: min(6, ceil(docs÷20)). Workers: budget-aware auto-scaling.
+                </div>
+            </div>
+
+            <!-- ── NOTIFICATIONS ──────────────────────────────────── -->
+            <div class="ci-section-card">
+                <h4>NOTIFICATIONS</h4>
+                <div style="display:flex; flex-direction:column; gap:8px; font-size:13px;">
+                    <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+                        <input type="checkbox" id="ci-notify-complete" checked>
+                        Email when run completes
+                    </label>
+                    <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+                        <input type="checkbox" id="ci-notify-budget" checked>
+                        Email budget updates (every 10%)
+                    </label>
+                    <div class="ci-form-group" style="max-width:320px; margin-top:4px;">
+                        <label>Recipient email</label>
+                        <input type="email" id="ci-notification-email"
+                               placeholder="your@email.com"
+                               value="{{ current_user.email | default('') | e }}">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Clarifying questions section -->
+            <div id="ci-questions-section" style="display:none;" class="ci-section-card">
+                <h4>📋 SYSTEM QUESTIONS <span id="ci-q-count" style="color:#e74c3c;"></span></h4>
+                <div id="ci-questions-list"></div>
+                <div style="margin-top:10px; display:flex; gap:8px;">
+                    <button class="btn btn-sm" onclick="ciSaveAnswers()" style="background:#27ae60; color:white;">Save Answers</button>
+                    <button class="btn btn-sm" onclick="ciProceedWithAssumptions()" style="background:#f39c12; color:white;">Skip / Proceed with Assumptions</button>
+                </div>
+            </div>
+
+            {% if is_advanced %}
+            <div style="margin-top:16px; display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                <button class="btn" onclick="ciStartRun()" id="ci-run-btn" style="background:#2c3e50; color:white; padding:10px 22px; font-size:14px;">
+                    🚀 Run Case Intelligence AI
+                </button>
+                <button class="btn btn-sm" onclick="ciSaveDraft()" id="ci-save-btn" style="background:#2980b9; color:white;">
+                    💾 Save Config
+                </button>
+                <button class="btn btn-sm" onclick="ciCancelRun()" id="ci-cancel-btn" style="display:none; background:#e74c3c; color:white;">
+                    ✕ Cancel Run
+                </button>
+            </div>
+            {% else %}
+            <div style="margin-top:12px; padding:10px 14px; background:#fef3e2; border-radius:6px; color:#e67e22; font-size:13px;">
+                ⚠️ Advanced or Admin role required to create and run Case Intelligence analyses.
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- ── Findings Sub-tab ───────────────────────────────────────── -->
+        <div id="ci-sub-findings" class="ci-sub-content">
+
+            <div style="display:flex; gap:10px; align-items:center; margin-bottom:14px; flex-wrap:wrap;">
+                <select id="ci-run-selector" class="ci-run-selector" onchange="ciLoadFindings()">
+                    <option value="">— Select a run —</option>
+                </select>
+                <button class="btn btn-sm" onclick="ciRefreshRuns()" style="background:#3498db; color:white;">↻ Refresh</button>
+                {% if is_advanced %}
+                <button class="btn btn-sm" onclick="ciSwitchSub('setup'); ciStartNewRun()" style="background:#27ae60; color:white;">+ New Run</button>
+                {% endif %}
+            </div>
+
+            <!-- Run progress (shown while running) -->
+            <div id="ci-findings-status" style="display:none;" class="ci-section-card">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                    <span id="ci-f-stage" style="font-weight:600;">Running...</span>
+                    <span id="ci-f-cost" style="font-size:12px; color:#666;"></span>
+                </div>
+                <div class="ci-progress-bar"><div class="ci-progress-fill" id="ci-f-progress" style="width:0%"></div></div>
+                <div style="font-size:11px; color:#888; margin-top:4px;">
+                    <span id="ci-f-docs"></span>
+                    {% if is_advanced %}
+                    &nbsp;<button class="btn btn-sm" onclick="ciCancelRunFromFindings()" style="background:#e74c3c; color:white; padding:2px 8px; font-size:11px; margin-left:8px;">✕ Cancel</button>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Key Findings -->
+            <div id="ci-key-findings-section" style="display:none;">
+                <div class="ci-accordion-header" onclick="ciToggleSection('ci-key-findings-body')">
+                    <span>📌 KEY FINDINGS</span><span id="ci-key-findings-count"></span>
+                </div>
+                <div class="ci-accordion-body" id="ci-key-findings-body">
+                    <div id="ci-key-findings-list"></div>
+                </div>
+
+                <div class="ci-accordion-header" onclick="ciToggleSection('ci-timeline-body')">
+                    <span>📅 CHRONOLOGY</span><span id="ci-timeline-count"></span>
+                </div>
+                <div class="ci-accordion-body" id="ci-timeline-body">
+                    <div id="ci-timeline-list"></div>
+                </div>
+
+                <div class="ci-accordion-header" onclick="ciToggleSection('ci-entities-body')">
+                    <span>👥 ENTITIES / CAST OF CHARACTERS</span><span id="ci-entities-count"></span>
+                </div>
+                <div class="ci-accordion-body" id="ci-entities-body">
+                    <div id="ci-entities-list"></div>
+                </div>
+
+                <div class="ci-accordion-header" onclick="ciToggleSection('ci-disputed-body')">
+                    <span>⚖️ DISPUTED FACTS MATRIX</span><span id="ci-disputed-count"></span>
+                </div>
+                <div class="ci-accordion-body" id="ci-disputed-body">
+                    <div id="ci-disputed-list"></div>
+                </div>
+
+                <div class="ci-accordion-header" onclick="ciToggleSection('ci-contradictions-body')">
+                    <span>⚡ CONTRADICTIONS</span><span id="ci-contradictions-count"></span>
+                </div>
+                <div class="ci-accordion-body" id="ci-contradictions-body">
+                    <div id="ci-contradictions-list"></div>
+                </div>
+
+                <div class="ci-accordion-header" onclick="ciToggleSection('ci-theories-body')">
+                    <span>🔬 THEORY LEDGER</span><span id="ci-theories-count"></span>
+                </div>
+                <div class="ci-accordion-body" id="ci-theories-body">
+                    <div id="ci-theories-list"></div>
+                </div>
+
+                <div class="ci-accordion-header" onclick="ciToggleSection('ci-authorities-body')">
+                    <span>📚 LEGAL AUTHORITIES</span><span id="ci-authorities-count"></span>
+                </div>
+                <div class="ci-accordion-body" id="ci-authorities-body">
+                    <div id="ci-authorities-list"></div>
+                </div>
+            </div>
+
+            <!-- No findings yet -->
+            <div id="ci-no-findings" style="color:#888; font-size:13px; padding:20px 0; text-align:center;">
+                Select a completed run above to view findings, or go to Setup to start a new run.
+            </div>
+
+            {% if is_advanced %}
+            <!-- Report Builder -->
+            <div id="ci-report-builder" style="display:none; margin-top:20px;" class="ci-section-card">
+                <h4>📝 REPORT BUILDER</h4>
+                <textarea id="ci-report-instructions" rows="4" placeholder="Instructions for the report&#10;e.g. Create a defense memo for counsel. Include top contradictions, key exhibit list, and financial discrepancy timeline. Format as headings with bullets. Exclude speculation."></textarea>
+                <div style="display:flex; gap:8px; align-items:center; margin-top:8px; flex-wrap:wrap;">
+                    <select id="ci-report-template" style="padding:6px 10px; border:1px solid #ddd; border-radius:5px; font-size:13px;">
+                        <option value="attorney_memo">Attorney Memo</option>
+                        <option value="chronology">Case Chronology</option>
+                        <option value="financial">Financial Analysis</option>
+                        <option value="deposition">Deposition Guide</option>
+                        <option value="custom">Custom</option>
+                    </select>
+                    <button class="btn btn-sm" onclick="ciGenerateReport()" style="background:#2c3e50; color:white;">Generate Report</button>
+                </div>
+                <div id="ci-report-status" style="display:none; margin-top:8px; font-size:12px; color:#888;"></div>
+                <div id="ci-report-preview-section" style="display:none; margin-top:10px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                        <span style="font-size:12px; font-weight:600;">PREVIEW</span>
+                        <a id="ci-report-pdf-link" href="#" style="display:none; font-size:12px; color:#2980b9;">📥 Download PDF</a>
+                    </div>
+                    <div class="ci-report-preview" id="ci-report-preview"></div>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+            {% endif %}
         </div>
     </div>
 
@@ -2511,6 +2946,8 @@
         // Base path injected by Flask from URL_PREFIX env var (set in docker-compose)
         const BASE_PATH = "{{ request.script_root }}";
         const IS_ADMIN = {{ 'true' if is_admin else 'false' }};
+        const CURRENT_PROJECT = "{{ session.get('current_project', 'default') | e }}";
+        const CURRENT_USER_EMAIL = "{{ current_user.email | default('') | e }}";
 
         // Helper function to build API URLs
         function apiUrl(path) {
@@ -2570,6 +3007,8 @@
             if (name === 'users' && typeof loadUsers === 'function') {
                 loadUsers();
             }
+            // Update help panel to match the newly active config sub-tab
+            _refreshHelpPanel();
         }
 
         // ── Tools sub-tab switcher ────────────────────────────────────
@@ -5018,33 +5457,242 @@
             }
         }
 
-        // AI Configuration Management
-        async function loadAIConfig() {
-            try {
-                const response = await apiFetch(apiUrl('/api/ai-config'));
-                const data = await response.json();
+        // ── AI Configuration Management (v2 per-project) ──────────────
 
-                if (data.success && data.config) {
-                    const config = data.config;
-
-                    // Load OpenAI config
-                    const openaiProvider = config.document_analysis?.providers?.find(p => p.name === 'openai');
-                    if (openaiProvider) {
-                        document.getElementById('openai-enabled').checked = openaiProvider.enabled || false;
-                        document.getElementById('openai-api-key').value = openaiProvider.api_key || '';
-                    }
-
-                    // Load Anthropic config
-                    const anthropicProvider = config.document_analysis?.providers?.find(p => p.name === 'anthropic');
-                    if (anthropicProvider) {
-                        document.getElementById('anthropic-enabled').checked = anthropicProvider.enabled || false;
-                        document.getElementById('anthropic-api-key').value = anthropicProvider.api_key || '';
-                    }
-                }
-            } catch (error) {
-                console.error('Failed to load AI config:', error);
+        function _showAIResult(divId, success, msg) {
+            const d = document.getElementById(divId);
+            if (!d) return;
+            d.style.display = 'block';
+            d.style.padding = '8px 12px';
+            d.style.borderRadius = '4px';
+            if (success) {
+                d.style.background = '#d4edda'; d.style.color = '#155724';
+                d.textContent = '✅ ' + msg;
+                setTimeout(() => { d.style.display = 'none'; }, 5000);
+            } else {
+                d.style.background = '#f8d7da'; d.style.color = '#721c24';
+                d.textContent = '✗ ' + msg;
             }
         }
+
+        async function loadAIConfig() {
+            // Load global keys (admin only)
+            if (IS_ADMIN) {
+                try {
+                    const r = await apiFetch(apiUrl('/api/ai-config/global'));
+                    const d = await r.json();
+                    if (d.success && d.global) {
+                        const g = d.global;
+                        if (document.getElementById('openai-api-key'))
+                            document.getElementById('openai-api-key').value = g.openai?.api_key || '';
+                        if (document.getElementById('anthropic-api-key'))
+                            document.getElementById('anthropic-api-key').value = g.anthropic?.api_key || '';
+                    }
+                } catch(e) { console.error('Failed to load global AI keys:', e); }
+
+                // Populate admin project selectors
+                try {
+                    const r2 = await apiFetch(apiUrl('/api/projects'));
+                    const d2 = await r2.json();
+                    const projects = Array.isArray(d2) ? d2 : (d2.projects || []);
+                    const sel = document.getElementById('ai-project-selector');
+                    const cpDst = document.getElementById('ai-copy-dest-project');
+                    projects.forEach(p => {
+                        const slug = p.slug || p.name || String(p);
+                        if (sel) {
+                            const opt = document.createElement('option');
+                            opt.value = slug; opt.textContent = slug;
+                            sel.appendChild(opt);
+                        }
+                        if (cpDst) {
+                            const opt2 = document.createElement('option');
+                            opt2.value = slug; opt2.textContent = slug;
+                            cpDst.appendChild(opt2);
+                        }
+                    });
+                } catch(e) { console.error('Failed to load project list:', e); }
+            } else {
+                // Non-admin: auto-load current project
+                loadProjectAIConfig(CURRENT_PROJECT);
+            }
+        }
+
+        async function saveGlobalAIKeys() {
+            const oKey = document.getElementById('openai-api-key')?.value.trim() || '';
+            const aKey = document.getElementById('anthropic-api-key')?.value.trim() || '';
+            try {
+                const r = await apiFetch(apiUrl('/api/ai-config/global'), {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ global: {
+                        openai:    { api_key: oKey,  enabled: !!oKey },
+                        anthropic: { api_key: aKey, enabled: !!aKey }
+                    }})
+                });
+                const d = await r.json();
+                _showAIResult('global-keys-result', d.success, d.message || d.error || 'Saved.');
+            } catch(e) {
+                _showAIResult('global-keys-result', false, e.message);
+            }
+        }
+
+        const _AI_PROVIDERS = ['openai', 'anthropic'];
+        const _AI_PROVIDER_MODELS = {
+            openai:    ['gpt-4o','gpt-4-turbo','gpt-4','gpt-3.5-turbo'],
+            anthropic: ['claude-sonnet-4-6','claude-opus-4-6','claude-haiku-4-5-20251001',
+                        'claude-3-5-sonnet-20241022','claude-3-opus-20240229']
+        };
+        let _aiCurrentSlug = null;
+
+        function _makeProviderSelect(id, selectedVal) {
+            let html = `<select id="${id}" style="font-size:12px; padding:3px 6px; border:1px solid #ccc; border-radius:4px;">`;
+            _AI_PROVIDERS.forEach(p => {
+                html += `<option value="${p}" ${p === selectedVal ? 'selected' : ''}>${p}</option>`;
+            });
+            html += '</select>';
+            return html;
+        }
+
+        function _makeModelSelect(id, provider, selectedVal) {
+            const models = _AI_PROVIDER_MODELS[provider] || _AI_PROVIDER_MODELS.openai;
+            let html = `<select id="${id}" style="font-size:12px; padding:3px 6px; border:1px solid #ccc; border-radius:4px;">`;
+            models.forEach(m => {
+                html += `<option value="${m}" ${m === selectedVal ? 'selected' : ''}>${m}</option>`;
+            });
+            html += '</select>';
+            return html;
+        }
+
+        function _renderProjectAITable(slug, config, defaults) {
+            _aiCurrentSlug = slug;
+            const tbody = document.getElementById('project-ai-tbody');
+            const useCases = [
+                ['document_analysis', 'Document Analysis'],
+                ['chat', 'AI Chat'],
+                ['case_intelligence', 'Case Intelligence']
+            ];
+            let rows = '';
+            useCases.forEach(([uc, label]) => {
+                const cfg = config[uc] || defaults[uc] || {};
+                const pProv = cfg.provider || 'openai';
+                const pMod  = cfg.model || _AI_PROVIDER_MODELS.openai[0];
+                const fProv = cfg.fallback_provider || 'anthropic';
+                const fMod  = cfg.fallback_model || _AI_PROVIDER_MODELS.anthropic[0];
+                rows += `<tr style="border-bottom:1px solid #f0f0f0;">
+                  <td style="padding:8px 10px; font-weight:500;">${label}</td>
+                  <td style="padding:8px 10px;">
+                    <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+                      ${_makeProviderSelect(`ai-${uc}-prov`, pProv)}
+                      ${_makeModelSelect(`ai-${uc}-mod`, pProv, pMod)}
+                    </div>
+                  </td>
+                  <td style="padding:8px 10px;">
+                    <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+                      ${_makeProviderSelect(`ai-${uc}-fprov`, fProv)}
+                      ${_makeModelSelect(`ai-${uc}-fmod`, fProv, fMod)}
+                    </div>
+                  </td>
+                  <td style="padding:8px 10px; text-align:center;">
+                    <button class="btn btn-sm" onclick="copyUseCaseToAll('${uc}')" style="font-size:11px; padding:3px 8px;" title="Copy this row to all use-cases">⇉ All</button>
+                  </td>
+                </tr>`;
+            });
+            tbody.innerHTML = rows;
+            // Wire up provider selects to refresh model selects
+            useCases.forEach(([uc]) => {
+                ['', 'f'].forEach(prefix => {
+                    const pSel = document.getElementById(`ai-${uc}-${prefix}prov`);
+                    const mSel = document.getElementById(`ai-${uc}-${prefix}mod`);
+                    if (pSel && mSel) {
+                        pSel.onchange = () => {
+                            const newProv = pSel.value;
+                            const models = _AI_PROVIDER_MODELS[newProv] || _AI_PROVIDER_MODELS.openai;
+                            mSel.innerHTML = models.map(m => `<option value="${m}">${m}</option>`).join('');
+                        };
+                    }
+                });
+            });
+            document.getElementById('project-ai-placeholder').style.display = 'none';
+            document.getElementById('project-ai-table').style.display = 'block';
+        }
+
+        async function loadProjectAIConfig(slug) {
+            if (!slug) return;
+            try {
+                const r = await apiFetch(apiUrl(`/api/ai-config/projects/${slug}`));
+                const d = await r.json();
+                if (d.success !== false) {
+                    _renderProjectAITable(slug, d.config || {}, d.defaults || {});
+                } else {
+                    console.error('loadProjectAIConfig error:', d.error);
+                }
+            } catch(e) { console.error('Failed to load project AI config:', e); }
+        }
+
+        async function saveProjectAIConfig() {
+            if (!_aiCurrentSlug) return;
+            const useCases = ['document_analysis', 'chat', 'case_intelligence'];
+            const config = {};
+            useCases.forEach(uc => {
+                config[uc] = {
+                    provider:          document.getElementById(`ai-${uc}-prov`)?.value || 'openai',
+                    model:             document.getElementById(`ai-${uc}-mod`)?.value || 'gpt-4o',
+                    fallback_provider: document.getElementById(`ai-${uc}-fprov`)?.value || 'anthropic',
+                    fallback_model:    document.getElementById(`ai-${uc}-fmod`)?.value || 'claude-sonnet-4-6',
+                };
+            });
+            try {
+                const r = await apiFetch(apiUrl(`/api/ai-config/projects/${_aiCurrentSlug}`), {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({config})
+                });
+                const d = await r.json();
+                _showAIResult('project-ai-result', d.success, d.message || d.error || 'Saved.');
+            } catch(e) {
+                _showAIResult('project-ai-result', false, e.message);
+            }
+        }
+
+        async function copyUseCaseToAll(useCase) {
+            if (!_aiCurrentSlug) return;
+            try {
+                const r = await apiFetch(apiUrl(`/api/ai-config/projects/${_aiCurrentSlug}/copy-use-case`), {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({use_case: useCase})
+                });
+                const d = await r.json();
+                if (d.success) {
+                    await loadProjectAIConfig(_aiCurrentSlug);
+                    _showAIResult('project-ai-result', true, d.message);
+                } else {
+                    _showAIResult('project-ai-result', false, d.error);
+                }
+            } catch(e) {
+                _showAIResult('project-ai-result', false, e.message);
+            }
+        }
+
+        async function copyProjectAIConfig() {
+            if (!_aiCurrentSlug) return;
+            const destSlug = document.getElementById('ai-copy-dest-project')?.value;
+            if (!destSlug) { alert('Select a destination project first.'); return; }
+            try {
+                const r = await apiFetch(apiUrl('/api/ai-config/projects/copy'), {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({source_slug: _aiCurrentSlug, dest_slug: destSlug})
+                });
+                const d = await r.json();
+                _showAIResult('project-ai-result', d.success, d.message || d.error || 'Done.');
+            } catch(e) {
+                _showAIResult('project-ai-result', false, e.message);
+            }
+        }
+
+        // Legacy alias kept for testAIProvider compatibility
+        async function saveAIConfig() { await saveGlobalAIKeys(); }
 
         async function testAIProvider(provider) {
             const apiKeyInput = document.getElementById(`${provider}-api-key`);
@@ -5081,9 +5729,6 @@
                     resultDiv.style.background = '#d4edda';
                     resultDiv.style.color = '#155724';
                     resultDiv.textContent = data.message;
-
-                    // Auto-enable the provider
-                    document.getElementById(`${provider}-enabled`).checked = true;
                 } else {
                     resultDiv.style.background = '#f8d7da';
                     resultDiv.style.color = '#721c24';
@@ -5093,93 +5738,6 @@
                 resultDiv.style.background = '#f8d7da';
                 resultDiv.style.color = '#721c24';
                 resultDiv.textContent = '✗ Test failed: ' + error.message;
-            }
-        }
-
-        async function saveAIConfig() {
-            const resultDiv = document.getElementById('ai-config-result');
-
-            // Build configuration object
-            const config = {
-                document_analysis: {
-                    providers: [
-                        {
-                            name: 'openai',
-                            api_key: document.getElementById('openai-api-key').value.trim(),
-                            models: ['gpt-4o', 'gpt-4-turbo', 'gpt-4', 'gpt-3.5-turbo'],
-                            enabled: document.getElementById('openai-enabled').checked
-                        },
-                        {
-                            name: 'anthropic',
-                            api_key: document.getElementById('anthropic-api-key').value.trim(),
-                            models: ['claude-3-opus-20240229', 'claude-3-5-sonnet-20241022', 'claude-3-sonnet-20240229', 'claude-3-haiku-20240307'],
-                            enabled: document.getElementById('anthropic-enabled').checked
-                        }
-                    ]
-                },
-                chat: {
-                    providers: [
-                        {
-                            name: 'openai',
-                            api_key: document.getElementById('openai-api-key').value.trim(),
-                            models: ['gpt-4o', 'gpt-4-turbo', 'gpt-4', 'gpt-3.5-turbo'],
-                            enabled: document.getElementById('openai-enabled').checked
-                        },
-                        {
-                            name: 'anthropic',
-                            api_key: document.getElementById('anthropic-api-key').value.trim(),
-                            models: ['claude-3-opus-20240229', 'claude-3-5-sonnet-20241022', 'claude-3-sonnet-20240229', 'claude-3-haiku-20240307'],
-                            enabled: document.getElementById('anthropic-enabled').checked
-                        }
-                    ]
-                }
-            };
-
-            // Validate at least one provider is enabled
-            const hasEnabled = config.document_analysis.providers.some(p => p.enabled && p.api_key);
-            if (!hasEnabled) {
-                resultDiv.style.display = 'block';
-                resultDiv.style.background = '#fff3cd';
-                resultDiv.style.padding = '10px';
-                resultDiv.style.borderRadius = '4px';
-                resultDiv.style.color = '#856404';
-                resultDiv.textContent = '⚠️ Warning: No providers enabled. Enable and configure at least one provider.';
-                return;
-            }
-
-            resultDiv.style.display = 'block';
-            resultDiv.style.background = '#e7f3ff';
-            resultDiv.style.padding = '10px';
-            resultDiv.style.borderRadius = '4px';
-            resultDiv.style.color = '#004085';
-            resultDiv.textContent = '💾 Saving AI configuration...';
-
-            try {
-                const response = await apiFetch(apiUrl('/api/ai-config'), {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({config})
-                });
-
-                const data = await response.json();
-
-                if (data.success) {
-                    resultDiv.style.background = '#d4edda';
-                    resultDiv.style.color = '#155724';
-                    resultDiv.innerHTML = '✅ ' + data.message;
-
-                    setTimeout(() => {
-                        resultDiv.style.display = 'none';
-                    }, 5000);
-                } else {
-                    resultDiv.style.background = '#f8d7da';
-                    resultDiv.style.color = '#721c24';
-                    resultDiv.textContent = '✗ ' + data.error;
-                }
-            } catch (error) {
-                resultDiv.style.background = '#f8d7da';
-                resultDiv.style.color = '#721c24';
-                resultDiv.textContent = '✗ Failed to save: ' + error.message;
             }
         }
 
@@ -5580,10 +6138,6 @@
             });
             loadUsers();
         }
-
-        // Load users when config tab is opened
-        const _origSwitchTab = window.switchTab;
-        // (We'll hook into switchTab below after it's defined)
 
         // Chat functionality
         let chatHistory = [];
@@ -6192,7 +6746,7 @@
             _refreshHelpPanel();
         }
         function _refreshHelpPanel() {
-            // Hide all help panels (both mapped and tools sub-tab panels)
+            // Hide all help panels (both mapped and sub-tab panels)
             document.querySelectorAll('.tab-help-panel').forEach(function(el) {
                 el.style.display = 'none';
             });
@@ -6212,6 +6766,30 @@
                         if (subEl) subEl.style.display = 'block';
                     }
                 }
+            } else if (tabName === 'config') {
+                // Show help for the active config sub-tab; fall back to main config panel
+                var activeSubBtn = document.querySelector('.config-sub-btn.active');
+                var subName = null;
+                if (activeSubBtn) {
+                    var sm = activeSubBtn.getAttribute('onclick').match(/'([^']+)'/);
+                    subName = sm ? sm[1] : null;
+                }
+                var subEl = subName ? document.getElementById('help-config-' + subName) : null;
+                var fallback = document.getElementById('help-config');
+                var panel = subEl || fallback;
+                if (panel) panel.style.display = 'block';
+            } else if (tabName === 'case-intelligence') {
+                // Show help for the active CI sub-tab; fall back to main CI panel
+                var activeSubBtn = document.querySelector('.ci-sub-btn.active');
+                var subName = null;
+                if (activeSubBtn) {
+                    var sm = activeSubBtn.getAttribute('onclick').match(/'([^']+)'/);
+                    subName = sm ? sm[1] : null;
+                }
+                var subEl = subName ? document.getElementById('help-ci-' + subName) : null;
+                var fallback = document.getElementById('help-ci');
+                var panel = subEl || fallback;
+                if (panel) panel.style.display = 'block';
             } else {
                 var panelId = tabName ? _helpPanelMap[tabName] : null;
                 if (panelId) {
@@ -6366,6 +6944,616 @@
             }
         }
     </script>
+
+    {% if CI_ENABLED %}
+    <!-- ════════════════════════════════════════════════════════════════════
+         CASE INTELLIGENCE AI TAB — v3.0.0
+         ════════════════════════════════════════════════════════════════════ -->
+    <style>
+        /* Case Intelligence styles */
+        .ci-sub-nav { display:flex; gap:4px; padding:0; border-bottom:1px solid #dde3ea; margin-bottom:16px; flex-wrap:wrap; }
+        .ci-sub-btn { background:none; border:1px solid transparent; border-bottom:3px solid transparent; margin-bottom:-2px; padding:6px 16px; cursor:pointer; font-size:13px; color:#555; border-radius:6px 6px 0 0; transition:all 0.15s; white-space:nowrap; }
+        .ci-sub-btn:hover { background:#f0f4f8; color:#333; }
+        .ci-sub-btn.active { color:#2980b9; border-bottom-color:#2980b9; font-weight:600; background:#f8fbff; }
+        .ci-sub-content { display:none; }
+        .ci-sub-content.active { display:block; animation:fadeIn 0.2s; }
+        .ci-form-row { display:flex; gap:12px; margin-bottom:14px; flex-wrap:wrap; }
+        .ci-form-group { flex:1; min-width:200px; }
+        .ci-form-group label { display:block; font-size:12px; color:#666; margin-bottom:4px; font-weight:600; }
+        .ci-form-group input, .ci-form-group select, .ci-form-group textarea {
+            width:100%; padding:8px 10px; border:1px solid #ddd; border-radius:5px;
+            font-size:13px; background:#fff; color:#333; box-sizing:border-box;
+        }
+        .ci-form-group textarea { resize:vertical; min-height:70px; }
+        .ci-section-card { background:#f8f9fa; border:1px solid #e0e0e0; border-radius:8px; padding:16px; margin-bottom:14px; }
+        .ci-section-card h4 { font-size:13px; font-weight:700; color:#2c3e50; margin-bottom:10px; }
+        .ci-budget-row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+        .ci-progress-bar { width:100%; height:8px; background:#e0e0e0; border-radius:4px; overflow:hidden; margin:6px 0; }
+        .ci-progress-fill { height:100%; background:#27ae60; border-radius:4px; transition:width 0.5s; }
+        .ci-progress-fill.blocked { background:#e74c3c; }
+        .ci-finding-item { background:#fff; border:1px solid #e0e0e0; border-radius:6px; padding:12px 14px; margin-bottom:8px; }
+        .ci-finding-item .severity-badge { display:inline-block; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:700; margin-right:6px; }
+        .severity-badge.critical { background:#fde8e8; color:#c0392b; }
+        .severity-badge.high { background:#fef3e2; color:#e67e22; }
+        .severity-badge.medium { background:#e8f5e9; color:#27ae60; }
+        .severity-badge.low { background:#e8f4ff; color:#2980b9; }
+        .ci-accordion-header { cursor:pointer; padding:10px 12px; background:#ecf0f1; border-radius:6px; margin-bottom:4px; font-size:13px; font-weight:600; display:flex; justify-content:space-between; align-items:center; }
+        .ci-accordion-header:hover { background:#dfe6e9; }
+        .ci-accordion-body { display:none; padding:10px 12px; border:1px solid #e0e0e0; border-radius:0 0 6px 6px; margin-bottom:8px; }
+        .ci-accordion-body.open { display:block; }
+        .ci-run-selector { padding:6px 10px; border:1px solid #ddd; border-radius:5px; font-size:13px; min-width:220px; }
+        .ci-q-item { background:#fff; border-left:3px solid #3498db; padding:10px 12px; margin-bottom:8px; border-radius:0 5px 5px 0; }
+        .ci-q-item.required { border-left-color:#e74c3c; }
+        .ci-q-item label { font-size:12px; font-weight:700; color:#555; }
+        .ci-q-item input[type="text"] { width:100%; padding:6px 8px; border:1px solid #ddd; border-radius:4px; font-size:13px; margin-top:4px; }
+        .ci-report-preview { background:#1e1e1e; color:#d4d4d4; padding:16px; border-radius:6px; font-family:monospace; font-size:12px; max-height:300px; overflow-y:auto; white-space:pre-wrap; }
+        .ci-tag-pill { display:inline-block; background:#e8f4ff; color:#2980b9; padding:2px 8px; border-radius:10px; font-size:11px; margin:2px; }
+        #ci-status-bar { background:#f8f9fa; border:1px solid #e0e0e0; border-radius:6px; padding:10px 14px; margin-bottom:12px; display:none; }
+        #ci-status-bar.visible { display:block; }
+    </style>
+
+
+
+    <script>
+    // ── Case Intelligence JS ───────────────────────────────────────────
+    const IS_ADVANCED = {{ 'true' if is_advanced else 'false' }};
+    let ciCurrentRunId = null;
+    let ciPollTimer = null;
+    let ciSelectedRunId = null;
+    let ciFindingsPollTimer = null;
+
+    function ciSwitchSub(sub) {
+        document.querySelectorAll('.ci-sub-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.ci-sub-content').forEach(c => c.classList.remove('active'));
+        const btn = document.querySelector(`.ci-sub-btn[onclick="ciSwitchSub('${sub}')"]`);
+        if (btn) btn.classList.add('active');
+        const el = document.getElementById(`ci-sub-${sub}`);
+        if (el) el.classList.add('active');
+
+        if (sub === 'findings') {
+            ciRefreshRuns();
+        }
+        // Update help panel to match the newly active CI sub-tab
+        if (typeof _refreshHelpPanel === 'function') _refreshHelpPanel();
+    }
+
+    function ciToggleSection(id) {
+        const el = document.getElementById(id);
+        if (el) el.classList.toggle('open');
+    }
+
+    // Load jurisdiction profiles on tab open
+    async function ciLoadJurisdictions() {
+        try {
+            const r = await apiFetch(apiUrl('/api/ci/jurisdictions'));
+            const d = await r.json();
+            const sel = document.getElementById('ci-jurisdiction-select');
+            sel.innerHTML = '<option value="">— Select template —</option>';
+            (d.jurisdictions || []).forEach(j => {
+                const o = document.createElement('option');
+                o.value = j.jurisdiction_id;
+                o.textContent = j.display_name;
+                o.dataset.court = j.court;
+                o.dataset.framework = j.baseline_framework;
+                sel.appendChild(o);
+            });
+        } catch(e) {
+            console.warn('CI jurisdictions load failed:', e);
+        }
+    }
+
+    function ciLoadJurisdiction() {
+        const sel = document.getElementById('ci-jurisdiction-select');
+        const opt = sel.options[sel.selectedIndex];
+        if (!opt || !opt.value) {
+            document.getElementById('ci-jurisdiction-details').style.display = 'none';
+            return;
+        }
+        document.getElementById('ci-jd-court').value = opt.dataset.court || '';
+        document.getElementById('ci-jurisdiction-details').style.display = 'flex';
+    }
+
+    async function ciDetectJurisdiction() {
+        const statusEl = document.getElementById('ci-jd-detect-status');
+        if (!statusEl) return;
+        statusEl.textContent = '🔍 Detecting jurisdiction from documents…';
+        statusEl.style.color = '#888';
+        try {
+            const r = await apiFetch(apiUrl('/api/ci/detect-jurisdiction'), { method: 'POST' });
+            const d = await r.json();
+            if (!d.detected) {
+                statusEl.textContent = d.reason || 'Could not detect jurisdiction automatically.';
+                return;
+            }
+            // Pre-select the detected profile in the dropdown
+            const sel = document.getElementById('ci-jurisdiction-select');
+            let matched = false;
+            for (let i = 0; i < sel.options.length; i++) {
+                if (sel.options[i].value === d.jurisdiction_id) {
+                    sel.selectedIndex = i;
+                    matched = true;
+                    break;
+                }
+            }
+            if (matched) {
+                ciLoadJurisdiction();
+                // Populate county if detected
+                if (d.county) {
+                    const countyEl = document.getElementById('ci-jd-county');
+                    if (countyEl && !countyEl.value) countyEl.value = d.county;
+                }
+                const pct = Math.round((d.confidence || 0.5) * 100);
+                const reason = d.reason ? ` — ${d.reason}` : '';
+                statusEl.innerHTML = `✓ Auto-detected: <strong>${escapeHtml(d.display_name)}</strong> (${pct}% confidence${reason})`;
+                statusEl.style.color = '#27ae60';
+            } else {
+                statusEl.textContent = `Detected: ${d.display_name} (not in dropdown — select manually)`;
+                statusEl.style.color = '#e67e22';
+            }
+        } catch(e) {
+            statusEl.textContent = 'Auto-detection unavailable.';
+            console.warn('CI detect-jurisdiction failed:', e);
+        }
+    }
+
+    function ciGetConfig() {
+        const jdSelect = document.getElementById('ci-jurisdiction-select');
+        const jdOpt = jdSelect.options[jdSelect.selectedIndex];
+        const jurisdiction = {
+            jurisdiction_id: jdSelect.value,
+            display_name: jdOpt ? jdOpt.textContent.trim() : 'Custom',
+            court: document.getElementById('ci-jd-court').value,
+            county: document.getElementById('ci-jd-county').value,
+            judge_part: document.getElementById('ci-jd-part').value,
+            baseline_framework: jdOpt ? (jdOpt.dataset.framework || '') : '',
+            authority_jurisdictions: ['NYS', '2nd Circuit', 'US'],
+        };
+        return {
+            role: document.getElementById('ci-role').value,
+            goal_text: document.getElementById('ci-goal').value.trim(),
+            budget_per_run_usd: parseFloat(document.getElementById('ci-budget').value) || 10.0,
+            max_tier: parseInt(document.getElementById('ci-max-tier').value) || 3,
+            jurisdiction,
+        };
+    }
+
+    async function ciSaveDraft() {
+        if (!IS_ADVANCED) return;
+        try {
+            const config = ciGetConfig();
+            const r = await apiFetch(apiUrl('/api/ci/runs'), {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(config),
+            });
+            const d = await r.json();
+            if (d.run_id) {
+                ciCurrentRunId = d.run_id;
+                showToast('Config saved (draft run: ' + d.run_id.substr(0,8) + ')', 'success');
+                // Load questions
+                await ciLoadQuestions(d.run_id);
+            } else {
+                showToast(d.error || 'Save failed', 'error');
+            }
+        } catch(e) {
+            showToast('Error: ' + e.message, 'error');
+        }
+    }
+
+    async function ciStartRun() {
+        if (!IS_ADVANCED) return;
+        // Save draft first if no run
+        if (!ciCurrentRunId) {
+            await ciSaveDraft();
+        }
+        if (!ciCurrentRunId) return;
+
+        try {
+            const r = await apiFetch(apiUrl('/api/ci/runs/' + ciCurrentRunId + '/start'), {
+                method: 'POST',
+            });
+            const d = await r.json();
+            if (d.status === 'started') {
+                document.getElementById('ci-status-bar').classList.add('visible');
+                document.getElementById('ci-cancel-btn').style.display = 'inline-block';
+                document.getElementById('ci-run-btn').disabled = true;
+                showToast('Case Intelligence run started', 'success');
+                ciStartPolling(ciCurrentRunId);
+            } else {
+                showToast(d.error || 'Failed to start', 'error');
+            }
+        } catch(e) {
+            showToast('Error: ' + e.message, 'error');
+        }
+    }
+
+    async function ciCancelRun() {
+        if (!ciCurrentRunId) return;
+        try {
+            await apiFetch(apiUrl('/api/ci/runs/' + ciCurrentRunId + '/cancel'), { method: 'POST' });
+            showToast('Cancellation signal sent', 'info');
+        } catch(e) {
+            showToast('Error: ' + e.message, 'error');
+        }
+    }
+
+    function ciStartPolling(runId) {
+        if (ciPollTimer) clearInterval(ciPollTimer);
+        ciPollTimer = setInterval(() => ciPollStatus(runId), 3000);
+        ciPollStatus(runId);
+    }
+
+    async function ciPollStatus(runId) {
+        try {
+            const r = await apiFetch(apiUrl('/api/ci/runs/' + runId + '/status'));
+            const d = await r.json();
+            ciUpdateStatusBar(d);
+            if (['completed', 'failed', 'cancelled', 'budget_blocked'].includes(d.status)) {
+                clearInterval(ciPollTimer);
+                document.getElementById('ci-cancel-btn').style.display = 'none';
+                document.getElementById('ci-run-btn').disabled = false;
+                if (d.status === 'completed') {
+                    showToast('CI run completed!', 'success');
+                } else if (d.status === 'budget_blocked') {
+                    showToast('Budget ceiling reached: ' + (d.budget_blocked_note || ''), 'warning');
+                } else if (d.status === 'failed') {
+                    showToast('Run failed: ' + (d.error_message || 'unknown error'), 'error');
+                }
+            }
+        } catch(e) {
+            console.warn('CI poll failed:', e);
+        }
+    }
+
+    function ciUpdateStatusBar(d) {
+        const pct = d.progress_pct || 0;
+        const fill = document.getElementById('ci-progress-fill');
+        if (fill) {
+            fill.style.width = pct + '%';
+            fill.className = 'ci-progress-fill' + (d.budget_blocked ? ' blocked' : '');
+        }
+        const stage = document.getElementById('ci-stage-label');
+        if (stage) stage.textContent = d.current_stage || d.status || '—';
+        const cost = document.getElementById('ci-cost-label');
+        if (cost) cost.textContent = '$' + (d.cost_so_far_usd || 0).toFixed(2) + ' / $' + (d.budget_per_run_usd || 10).toFixed(2);
+        const docs = document.getElementById('ci-docs-label');
+        if (docs) docs.textContent = (d.docs_processed || 0) + ' / ' + (d.docs_total || 0) + ' docs';
+        const st = document.getElementById('ci-status-label');
+        if (st) st.textContent = d.status || '—';
+    }
+
+    async function ciLoadQuestions(runId) {
+        try {
+            const r = await apiFetch(apiUrl('/api/ci/runs/' + runId + '/questions'));
+            const d = await r.json();
+            const qs = d.questions || [];
+            const section = document.getElementById('ci-questions-section');
+            const list = document.getElementById('ci-questions-list');
+            const count = document.getElementById('ci-q-count');
+            if (qs.length === 0) {
+                section.style.display = 'none';
+                return;
+            }
+            section.style.display = 'block';
+            count.textContent = '(' + qs.filter(q => q.is_required).length + ' required)';
+            list.innerHTML = qs.map(q => `
+                <div class="ci-q-item ${q.is_required ? 'required' : ''}">
+                    <label>${q.is_required ? '★ ' : ''}${escapeHtml(q.question)}</label>
+                    <input type="text" id="ci-q-${q.id}" placeholder="Your answer..." value="${escapeHtml(q.answer || '')}">
+                </div>
+            `).join('');
+        } catch(e) {
+            console.warn('CI load questions failed:', e);
+        }
+    }
+
+    async function ciSaveAnswers() {
+        if (!ciCurrentRunId) return;
+        const qs = document.querySelectorAll('[id^="ci-q-"]');
+        const answers = {};
+        qs.forEach(inp => {
+            const qid = inp.id.replace('ci-q-', '');
+            if (inp.value.trim()) answers[qid] = inp.value.trim();
+        });
+        try {
+            const r = await apiFetch(apiUrl('/api/ci/runs/' + ciCurrentRunId + '/answers'), {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ answers }),
+            });
+            const d = await r.json();
+            if (d.status === 'answers_saved') showToast('Answers saved', 'success');
+        } catch(e) {
+            showToast('Error saving answers: ' + e.message, 'error');
+        }
+    }
+
+    async function ciProceedWithAssumptions() {
+        if (!ciCurrentRunId) return;
+        try {
+            await apiFetch(apiUrl('/api/ci/runs/' + ciCurrentRunId + '/answers'), {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ proceed_with_assumptions: true }),
+            });
+            showToast('Will proceed with assumptions', 'info');
+            document.getElementById('ci-questions-section').style.display = 'none';
+        } catch(e) {
+            showToast('Error: ' + e.message, 'error');
+        }
+    }
+
+    function ciStartNewRun() {
+        ciCurrentRunId = null;
+        document.getElementById('ci-status-bar').classList.remove('visible');
+        document.getElementById('ci-questions-section').style.display = 'none';
+    }
+
+    // ── Findings sub-tab ─────────────────────────────────────────────
+    async function ciRefreshRuns() {
+        try {
+            const r = await apiFetch(apiUrl('/api/ci/runs'));
+            const d = await r.json();
+            const runs = d.runs || [];
+            const sel = document.getElementById('ci-run-selector');
+            const prevVal = sel.value;
+            sel.innerHTML = '<option value="">— Select a run —</option>';
+            runs.forEach(run => {
+                const o = document.createElement('option');
+                o.value = run.id;
+                const date = run.created_at ? run.created_at.substring(0,10) : '';
+                o.textContent = `Run ${run.id.substr(0,8)} — ${date} (${run.status})`;
+                o.dataset.status = run.status;
+                sel.appendChild(o);
+            });
+            if (prevVal && runs.find(r => r.id === prevVal)) sel.value = prevVal;
+        } catch(e) {
+            console.warn('CI refresh runs failed:', e);
+        }
+    }
+
+    async function ciLoadFindings() {
+        const runId = document.getElementById('ci-run-selector').value;
+        if (!runId) {
+            document.getElementById('ci-no-findings').style.display = 'block';
+            document.getElementById('ci-key-findings-section').style.display = 'none';
+            document.getElementById('ci-findings-status').style.display = 'none';
+            document.getElementById('ci-report-builder') && (document.getElementById('ci-report-builder').style.display = 'none');
+            return;
+        }
+        ciSelectedRunId = runId;
+        if (ciFindingsPollTimer) clearInterval(ciFindingsPollTimer);
+
+        // First check status
+        try {
+            const sr = await apiFetch(apiUrl('/api/ci/runs/' + runId + '/status'));
+            const sd = await sr.json();
+            if (['running', 'queued'].includes(sd.status)) {
+                document.getElementById('ci-findings-status').style.display = 'block';
+                ciFindingsPollTimer = setInterval(() => ciFindingsPoll(runId), 3000);
+                ciFindingsPoll(runId);
+                return;
+            }
+        } catch(e) {}
+
+        // Load full findings
+        try {
+            const r = await apiFetch(apiUrl('/api/ci/runs/' + runId + '/findings'));
+            const d = await r.json();
+            ciRenderFindings(d, runId);
+        } catch(e) {
+            showToast('Error loading findings: ' + e.message, 'error');
+        }
+    }
+
+    async function ciFindingsPoll(runId) {
+        try {
+            const r = await apiFetch(apiUrl('/api/ci/runs/' + runId + '/status'));
+            const d = await r.json();
+            const stage = document.getElementById('ci-f-stage');
+            if (stage) stage.textContent = d.current_stage || d.status;
+            const cost = document.getElementById('ci-f-cost');
+            if (cost) cost.textContent = '$' + (d.cost_so_far_usd || 0).toFixed(2) + ' / $' + (d.budget_per_run_usd || 10).toFixed(2);
+            const progress = document.getElementById('ci-f-progress');
+            if (progress) progress.style.width = (d.progress_pct || 0) + '%';
+            const docs = document.getElementById('ci-f-docs');
+            if (docs) docs.textContent = (d.docs_processed || 0) + ' / ' + (d.docs_total || 0) + ' docs';
+
+            if (['completed', 'failed', 'cancelled', 'budget_blocked'].includes(d.status)) {
+                clearInterval(ciFindingsPollTimer);
+                document.getElementById('ci-findings-status').style.display = 'none';
+                if (d.status === 'completed') {
+                    ciLoadFindings();
+                }
+            }
+        } catch(e) {}
+    }
+
+    async function ciCancelRunFromFindings() {
+        if (!ciSelectedRunId) return;
+        try {
+            await apiFetch(apiUrl('/api/ci/runs/' + ciSelectedRunId + '/cancel'), { method: 'POST' });
+            showToast('Cancellation sent', 'info');
+        } catch(e) {}
+    }
+
+    function ciRenderFindings(d, runId) {
+        document.getElementById('ci-no-findings').style.display = 'none';
+        document.getElementById('ci-findings-status').style.display = 'none';
+        document.getElementById('ci-key-findings-section').style.display = 'block';
+        if (IS_ADVANCED && document.getElementById('ci-report-builder')) {
+            document.getElementById('ci-report-builder').style.display = 'block';
+        }
+
+        // Key findings from summary
+        const kf = document.getElementById('ci-key-findings-list');
+        const summary = d.findings_summary;
+        if (summary && summary.key_findings) {
+            kf.innerHTML = summary.key_findings.map(f => `
+                <div class="ci-finding-item">
+                    <span class="severity-badge ${f.severity || 'medium'}">${(f.severity || 'medium').toUpperCase()}</span>
+                    <strong>${escapeHtml(f.finding || '')}</strong>
+                    <p style="font-size:12px; color:#555; margin:4px 0 0 0;">${escapeHtml(f.detail || '')}</p>
+                    ${f.recommended_action ? '<p style="font-size:11px; color:#2980b9; margin:4px 0 0 0;">→ ' + escapeHtml(f.recommended_action) + '</p>' : ''}
+                </div>
+            `).join('');
+            document.getElementById('ci-key-findings-count').textContent = '(' + (summary.key_findings.length) + ')';
+        } else {
+            kf.innerHTML = '<p style="color:#888; font-size:13px;">No key findings summary available.</p>';
+        }
+
+        // Timeline
+        const tl = document.getElementById('ci-timeline-list');
+        const events = d.timeline || [];
+        document.getElementById('ci-timeline-count').textContent = '(' + events.length + ')';
+        tl.innerHTML = events.length ? events.map(ev => `
+            <div class="ci-finding-item">
+                <span class="severity-badge ${ev.significance || 'medium'}">${ev.event_type || 'event'}</span>
+                <strong>${escapeHtml(ev.event_date || 'Date unknown')}</strong>
+                — ${escapeHtml(ev.description || '')}
+            </div>
+        `).join('') : '<p style="color:#888; font-size:13px;">No timeline events.</p>';
+
+        // Entities
+        const el = document.getElementById('ci-entities-list');
+        const entities = d.entities || [];
+        document.getElementById('ci-entities-count').textContent = '(' + entities.length + ')';
+        el.innerHTML = entities.length ? `<table style="width:100%; border-collapse:collapse; font-size:12px;">
+            <tr style="background:#ecf0f1;"><th style="padding:5px 8px; text-align:left;">Type</th><th style="padding:5px 8px; text-align:left;">Name</th><th style="padding:5px 8px; text-align:left;">Role</th></tr>
+            ${entities.map(e => `<tr style="border-top:1px solid #f0f0f0;">
+                <td style="padding:4px 8px;">${escapeHtml(e.entity_type || '')}</td>
+                <td style="padding:4px 8px; font-weight:600;">${escapeHtml(e.name || '')}</td>
+                <td style="padding:4px 8px; color:#666;">${escapeHtml(e.role_in_case || '')}</td>
+            </tr>`).join('')}
+        </table>` : '<p style="color:#888; font-size:13px;">No entities extracted.</p>';
+
+        // Disputed facts
+        const df = document.getElementById('ci-disputed-list');
+        const disputed = d.disputed_facts || [];
+        document.getElementById('ci-disputed-count').textContent = '(' + disputed.length + ')';
+        df.innerHTML = disputed.length ? disputed.map(f => `
+            <div class="ci-finding-item">
+                <strong>${escapeHtml(f.fact_description || '')}</strong>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:6px; font-size:12px;">
+                    <div><span style="color:#e74c3c; font-weight:600;">${escapeHtml(f.position_a_label || 'Position A')}:</span><br>${escapeHtml(f.position_a_text || '—')}</div>
+                    <div><span style="color:#2980b9; font-weight:600;">${escapeHtml(f.position_b_label || 'Position B')}:</span><br>${escapeHtml(f.position_b_text || '—')}</div>
+                </div>
+            </div>
+        `).join('') : '<p style="color:#888; font-size:13px;">No disputed facts identified.</p>';
+
+        // Contradictions
+        const cl = document.getElementById('ci-contradictions-list');
+        const contradictions = d.contradictions || [];
+        document.getElementById('ci-contradictions-count').textContent = '(' + contradictions.length + ')';
+        cl.innerHTML = contradictions.length ? contradictions.map(c => `
+            <div class="ci-finding-item">
+                <span class="severity-badge ${c.severity || 'medium'}">${(c.severity || 'medium').toUpperCase()}</span>
+                ${escapeHtml(c.description || '')}
+                ${c.explanation ? '<p style="font-size:12px; color:#555; margin:4px 0 0 0;">' + escapeHtml(c.explanation) + '</p>' : ''}
+                ${c.suggested_action ? '<p style="font-size:11px; color:#2980b9; margin:3px 0 0 0;">→ ' + escapeHtml(c.suggested_action) + '</p>' : ''}
+            </div>
+        `).join('') : '<p style="color:#888; font-size:13px;">No contradictions detected.</p>';
+
+        // Theories
+        const thList = document.getElementById('ci-theories-list');
+        const theories = d.theories || [];
+        document.getElementById('ci-theories-count').textContent = '(' + theories.length + ')';
+        thList.innerHTML = theories.length ? theories.map(t => `
+            <div class="ci-finding-item">
+                <span class="severity-badge ${t.status === 'supported' ? 'high' : (t.status === 'refuted' ? 'critical' : 'medium')}">${(t.status || 'proposed').toUpperCase()} ${Math.round((t.confidence || 0.5)*100)}%</span>
+                <strong>[${escapeHtml(t.theory_type || '')}]</strong> ${escapeHtml(t.theory_text || '')}
+                ${t.falsification_report ? '<p style="font-size:11px; color:#e67e22; margin:4px 0 0 0;">⚔️ ' + escapeHtml(t.falsification_report.substring(0,200)) + '</p>' : ''}
+            </div>
+        `).join('') : '<p style="color:#888; font-size:13px;">No theories generated.</p>';
+
+        // Authorities
+        const authList = document.getElementById('ci-authorities-list');
+        const auths = d.authorities || [];
+        document.getElementById('ci-authorities-count').textContent = '(' + auths.length + ')';
+        authList.innerHTML = auths.length ? `<table style="width:100%; border-collapse:collapse; font-size:12px;">
+            <tr style="background:#ecf0f1;"><th style="padding:5px 8px; text-align:left;">Citation</th><th style="padding:5px 8px; text-align:left;">Type</th><th style="padding:5px 8px; text-align:left;">Relevance</th></tr>
+            ${auths.map(a => `<tr style="border-top:1px solid #f0f0f0;">
+                <td style="padding:4px 8px; font-weight:600;">${escapeHtml(a.citation || '')}</td>
+                <td style="padding:4px 8px;">${escapeHtml(a.authority_type || '')}</td>
+                <td style="padding:4px 8px; color:#666; font-size:11px;">${escapeHtml(a.relevance_note || '')}</td>
+            </tr>`).join('')}
+        </table>` : '<p style="color:#888; font-size:13px;">No authorities cited.</p>';
+    }
+
+    // ── Report builder ───────────────────────────────────────────────
+    let ciCurrentReportId = null;
+    let ciReportPollTimer = null;
+
+    async function ciGenerateReport() {
+        if (!IS_ADVANCED || !ciSelectedRunId) return;
+        const instructions = document.getElementById('ci-report-instructions').value.trim();
+        if (!instructions) { showToast('Please enter report instructions', 'warning'); return; }
+        const template = document.getElementById('ci-report-template').value;
+
+        try {
+            const r = await apiFetch(apiUrl('/api/ci/runs/' + ciSelectedRunId + '/reports'), {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ instructions, template }),
+            });
+            const d = await r.json();
+            if (d.report_id) {
+                ciCurrentReportId = d.report_id;
+                document.getElementById('ci-report-status').style.display = 'block';
+                document.getElementById('ci-report-status').textContent = 'Generating report...';
+                document.getElementById('ci-report-preview-section').style.display = 'none';
+                if (ciReportPollTimer) clearInterval(ciReportPollTimer);
+                ciReportPollTimer = setInterval(() => ciPollReport(ciSelectedRunId, ciCurrentReportId), 3000);
+            } else {
+                showToast(d.error || 'Failed to start report generation', 'error');
+            }
+        } catch(e) {
+            showToast('Error: ' + e.message, 'error');
+        }
+    }
+
+    async function ciPollReport(runId, reportId) {
+        try {
+            const r = await apiFetch(apiUrl('/api/ci/runs/' + runId + '/reports/' + reportId));
+            const d = await r.json();
+            if (d.status === 'complete' && d.content) {
+                clearInterval(ciReportPollTimer);
+                document.getElementById('ci-report-status').textContent = 'Report ready!';
+                document.getElementById('ci-report-preview-section').style.display = 'block';
+                document.getElementById('ci-report-preview').textContent = d.content.substring(0, 2000) + (d.content.length > 2000 ? '\n\n[... truncated for preview ...]' : '');
+                const pdfLink = document.getElementById('ci-report-pdf-link');
+                pdfLink.style.display = 'inline';
+                pdfLink.href = apiUrl('/api/ci/runs/' + runId + '/reports/' + reportId + '/pdf');
+            } else if (d.status === 'failed') {
+                clearInterval(ciReportPollTimer);
+                document.getElementById('ci-report-status').textContent = 'Report generation failed.';
+            }
+        } catch(e) {}
+    }
+
+    // ── Tab open hook ────────────────────────────────────────────────
+    const _origSwitchTab = window.switchTab;
+    if (_origSwitchTab) {
+        window.switchTab = function(tab) {
+            _origSwitchTab(tab);
+            if (tab === 'case-intelligence') {
+                ciLoadJurisdictions().then(() => ciDetectJurisdiction());
+                ciRefreshRuns();
+            }
+        };
+    }
+
+    function escapeHtml(s) {
+        if (!s) return '';
+        return String(s)
+            .replace(/&/g,'&amp;')
+            .replace(/</g,'&lt;')
+            .replace(/>/g,'&gt;')
+            .replace(/"/g,'&quot;');
+    }
+
+    </script>
+    {% endif %}
 
     <!-- Tag Evidence Modal -->
     <div id="tag-evidence-modal" class="modal-overlay">
