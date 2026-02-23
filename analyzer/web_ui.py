@@ -3306,12 +3306,16 @@ def api_list_project_documents(slug):
         docs = []
         for i, doc_id in enumerate(raw.get('ids', [])):
             m = raw['metadatas'][i]
+            anomalies_str = m.get('anomalies', '')
+            anomalies_list = [a.strip() for a in anomalies_str.split(',') if a.strip()] if anomalies_str else []
             docs.append({
                 'doc_id':        int(m.get('document_id', 0)),
                 'title':         m.get('title', 'Untitled'),
                 'timestamp':     m.get('timestamp', ''),
                 'brief_summary': m.get('brief_summary', ''),
                 'full_summary':  m.get('full_summary', ''),
+                'anomalies':     anomalies_list,
+                'risk_score':    float(m.get('risk_score') or 0),
             })
         docs.sort(key=lambda x: x['doc_id'])
         return jsonify({'documents': docs, 'count': len(docs)})
