@@ -36,7 +36,8 @@ class PaperlessClient:
                       ordering: str = '-modified',
                       page_size: int = 100,
                       page: int = 1,
-                      modified_after: Optional[str] = None) -> Dict[str, Any]:
+                      modified_after: Optional[str] = None,
+                      **extra_params) -> Dict[str, Any]:
         """
         Fetch documents from Paperless API.
 
@@ -45,6 +46,7 @@ class PaperlessClient:
             page_size: Number of results per page
             page: Page number
             modified_after: ISO datetime string to filter by modified date
+            **extra_params: Additional Paperless API filter params (e.g. tags__id__all)
 
         Returns:
             API response with results, count, next, previous
@@ -58,6 +60,8 @@ class PaperlessClient:
 
         if modified_after:
             params['modified__gt'] = modified_after
+
+        params.update(extra_params)
 
         logger.debug(f"Fetching documents: {params}")
         response = self.session.get(url, params=params)

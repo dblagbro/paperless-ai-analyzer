@@ -204,8 +204,18 @@ class TheoryPlanner:
             else:
                 return None
 
-            return json.loads(text)
-        except json.JSONDecodeError:
+            # Strip markdown fences before parsing (Anthropic wraps JSON in ```json...```)
+            if '```json' in text:
+                text = text.split('```json')[1].split('```')[0].strip()
+            elif '```' in text:
+                text = text.split('```')[1].split('```')[0].strip()
+            parsed = json.loads(text)
+            logger.info(f"TheoryPlanner: {provider}/{model} returned "
+                        f"{len(parsed.get('theories', []))} theories")
+            return parsed
+        except json.JSONDecodeError as e:
+            logger.warning(f"TheoryPlanner: JSON parse error ({provider}/{model}): {e} | "
+                           f"text[:200]={text[:200]!r}")
             return None
         except Exception as e:
             logger.error(f"TheoryPlanner LLM call failed: {e}")
@@ -320,6 +330,11 @@ class AdversarialTester:
             else:
                 return None
 
+            # Strip markdown fences before parsing (Anthropic wraps JSON in ```json...```)
+            if '```json' in text:
+                text = text.split('```json')[1].split('```')[0].strip()
+            elif '```' in text:
+                text = text.split('```')[1].split('```')[0].strip()
             return json.loads(text)
         except json.JSONDecodeError:
             return None

@@ -210,6 +210,17 @@ def init_ci_db():
                 completed_at  TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_ci_manager_reports_run ON ci_manager_reports(run_id);
+
+            -- Run sharing
+            CREATE TABLE IF NOT EXISTS ci_run_shares (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id        TEXT NOT NULL REFERENCES ci_runs(id) ON DELETE CASCADE,
+                shared_with   INTEGER NOT NULL,
+                shared_by     INTEGER NOT NULL,
+                shared_at     TEXT NOT NULL DEFAULT (datetime('now')),
+                UNIQUE(run_id, shared_with)
+            );
+            CREATE INDEX IF NOT EXISTS idx_ci_run_shares_user ON ci_run_shares(shared_with);
         """)
 
         # Idempotent migrations — new columns for hierarchical orchestrator
@@ -250,9 +261,10 @@ def create_ci_run(project_slug: str, user_id: int, role: str = 'neutral',
     return run_id
 
 
-def get_ci_run(run_id: str) -> Optional[sqlite3.Row]:
+def get_ci_run(run_id: str) -> Optional[dict]:
     with _get_conn() as conn:
-        return conn.execute("SELECT * FROM ci_runs WHERE id = ?", (run_id,)).fetchone()
+        row = conn.execute("SELECT * FROM ci_runs WHERE id = ?", (run_id,)).fetchone()
+        return dict(row) if row else None
 
 
 def list_ci_runs(project_slug: str, user_id: int = None) -> List[sqlite3.Row]:
@@ -298,9 +310,66 @@ def increment_ci_run_cost(run_id: str, cost: float):
         )
 
 
+def increment_ci_run_docs(run_id: str, count: int = 1):
+    with _get_conn() as conn:
+        conn.execute(
+            "UPDATE ci_runs SET docs_processed = docs_processed + ? WHERE id = ?",
+            (count, run_id)
+        )
+
+
 def delete_ci_run(run_id: str):
     with _get_conn() as conn:
         conn.execute("DELETE FROM ci_runs WHERE id = ?", (run_id,))
+
+
+# ---------------------------------------------------------------------------
+# ci_run_shares CRUD
+# ---------------------------------------------------------------------------
+
+def add_ci_run_share(run_id: str, shared_with: int, shared_by: int):
+    """Share a run with another user. Silently ignores duplicate."""
+    with _get_conn() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO ci_run_shares (run_id, shared_with, shared_by) VALUES (?, ?, ?)",
+            (run_id, shared_with, shared_by),
+        )
+
+
+def remove_ci_run_share(run_id: str, shared_with: int):
+    with _get_conn() as conn:
+        conn.execute(
+            "DELETE FROM ci_run_shares WHERE run_id=? AND shared_with=?",
+            (run_id, shared_with),
+        )
+
+
+def list_ci_run_shares(run_id: str) -> list:
+    """Return rows with shared_with, shared_by, shared_at for a run."""
+    with _get_conn() as conn:
+        return conn.execute(
+            "SELECT * FROM ci_run_shares WHERE run_id=? ORDER BY shared_at",
+            (run_id,),
+        ).fetchall()
+
+
+def get_run_ids_shared_with(user_id: int) -> list:
+    """Return list of run_ids that have been shared with the given user."""
+    with _get_conn() as conn:
+        rows = conn.execute(
+            "SELECT run_id FROM ci_run_shares WHERE shared_with=?",
+            (user_id,),
+        ).fetchall()
+        return [r[0] for r in rows]
+
+
+def is_run_shared_with(run_id: str, user_id: int) -> bool:
+    with _get_conn() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM ci_run_shares WHERE run_id=? AND shared_with=?",
+            (run_id, user_id),
+        ).fetchone()
+        return row is not None
 
 
 # ---------------------------------------------------------------------------
