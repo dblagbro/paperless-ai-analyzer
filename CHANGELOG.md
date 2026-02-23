@@ -4,6 +4,31 @@ All notable changes to Paperless AI Analyzer are documented here.
 
 ---
 
+## v3.1.0 — 2026-02-23
+
+### Added
+- **CI run sharing** — run owners can share Case Intelligence runs with specific users via
+  the 👥 Share button in CI Findings. Shared runs appear in the recipient's run dropdown
+  annotated with the owner's name. Admins always see all runs.
+- **Goal Assistant** — "✨ Refine with AI" chat in CI Setup asks clarifying questions and
+  produces a structured goal statement; apply it with one click.
+- **My Profile modal** — header button (previously "Change Password") is now "👤 My Profile".
+  Opens a full profile form where users can update name, email, phone, address, and job title,
+  plus change their password in the same modal.
+- **Advanced user role (UI)** — Add User and Edit User forms now include the Advanced role
+  option. Role badges display in purple throughout the interface.
+
+### Changed
+- CI Findings: run dropdown annotates runs by owner (admin view) and shows "(shared by X)"
+  for runs shared with the current user.
+- AI Chat: key detection now correctly reads the v2 `global` config format — the spurious
+  "No AI API key configured" warning no longer appears when global keys are set.
+- Help panels updated for CI Setup, CI Findings, Configuration → Users, and CI tab overview.
+- Built-in manual (/docs/): Configuration page updated for v2 per-project AI config format;
+  User Management page updated with Advanced role and My Profile; new Case Intelligence page.
+
+---
+
 ## v3.0.1 — 2026-02-23
 
 ### Fixed

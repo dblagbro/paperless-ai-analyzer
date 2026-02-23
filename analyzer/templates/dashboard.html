@@ -1213,6 +1213,7 @@
             text-transform: uppercase;
         }
         .role-badge.admin { background: #e74c3c; color: white; }
+        .role-badge.advanced { background: #8e44ad; color: white; }
         .role-badge.basic { background: #3d5166; color: #aabbcc; }
 
         .btn-logout {
@@ -1410,13 +1411,13 @@
                 <div style="color: #cce5ff; font-size: 13px; margin-bottom: 6px; display: flex; align-items: center; justify-content: flex-end; gap: 10px;">
                     <a href="{{ request.script_root }}/docs" target="_blank" style="background: rgba(255,255,255,0.15); color: #cce5ff; border: 1px solid rgba(255,255,255,0.35); padding: 3px 10px; border-radius: 5px; font-size: 12px; text-decoration: none;" title="Open the full user manual">📖 Users Manual</a>
                     <span><strong>{{ current_user.display_name }}</strong>
-                    <span style="background: {{ '#e74c3c' if is_admin else '#3498db' }}; color: white; font-size: 11px; padding: 1px 6px; border-radius: 10px; margin-left: 6px;">{{ 'Admin' if is_admin else 'Basic' }}</span></span>
+                    <span style="background: {{ '#e74c3c' if is_admin else ('#8e44ad' if current_user.role == 'advanced' else '#3498db') }}; color: white; font-size: 11px; padding: 1px 6px; border-radius: 10px; margin-left: 6px;">{{ 'Admin' if is_admin else ('Advanced' if current_user.role == 'advanced' else 'Basic') }}</span></span>
                 </div>
                 <div style="display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap;">
-                    <button onclick="openAboutModal()" style="background: rgba(255,255,255,0.12); color: #cce5ff; border: 1px solid rgba(255,255,255,0.25); padding: 5px 12px; border-radius: 5px; font-size: 12px; cursor: pointer;" title="About this application">ℹ About</button>
+                    <button onclick="openAboutModal()" style="background: rgba(255,255,255,0.12); color: #cce5ff; border: 1px solid rgba(255,255,255,0.25); padding: 5px 12px; border-radius: 5px; font-size: 12px; cursor: pointer;" title="About this application">About</button>
                     <button onclick="toggleTabHelp()" id="help-toggle-btn" style="background: rgba(255,255,255,0.12); color: #cce5ff; border: 1px solid rgba(255,255,255,0.25); padding: 5px 12px; border-radius: 5px; font-size: 12px; cursor: pointer;" title="Toggle help panel for current tab">? Help: Off</button>
                     <button onclick="openBugReportModal()" style="background: rgba(255,165,0,0.25); color: #ffd580; border: 1px solid rgba(255,165,0,0.4); padding: 5px 12px; border-radius: 5px; font-size: 12px; cursor: pointer;" title="Report a problem">🐛 Report Issue</button>
-                    <button onclick="openChangePasswordModal()" style="background: rgba(255,255,255,0.15); color: white; border: 1px solid rgba(255,255,255,0.3); padding: 5px 12px; border-radius: 5px; font-size: 12px; cursor: pointer;">🔑 Change Password</button>
+                    <button onclick="openProfileModal()" style="background: rgba(255,255,255,0.15); color: white; border: 1px solid rgba(255,255,255,0.3); padding: 5px 12px; border-radius: 5px; font-size: 12px; cursor: pointer;">👤 My Profile</button>
                     <a href="{{ url_for('logout') }}" style="background: rgba(231,76,60,0.7); color: white; border: 1px solid rgba(231,76,60,0.9); padding: 5px 12px; border-radius: 5px; font-size: 12px; text-decoration: none; display: inline-block;">Sign Out</a>
                 </div>
             </div>
@@ -1424,29 +1425,84 @@
     </header>
 
     <!-- Change Password Modal -->
-    <div id="change-password-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:9999; align-items:center; justify-content:center;">
-        <div style="background:#243447; border-radius:10px; padding:32px; width:100%; max-width:380px; box-shadow:0 8px 32px rgba(0,0,0,0.5);">
-            <h3 style="color:#fff; margin:0 0 20px; font-size:16px;">🔑 Change Password</h3>
-            <div id="cp-error" style="display:none; background:rgba(231,76,60,0.2); border:1px solid rgba(231,76,60,0.5); color:#f08080; padding:8px 12px; border-radius:5px; font-size:13px; margin-bottom:14px;"></div>
-            <div id="cp-success" style="display:none; background:rgba(39,174,96,0.2); border:1px solid rgba(39,174,96,0.5); color:#7dcea0; padding:8px 12px; border-radius:5px; font-size:13px; margin-bottom:14px;"></div>
-            <div style="margin-bottom:14px;">
-                <label style="display:block; font-size:12px; color:#aabbcc; margin-bottom:5px;">Current Password</label>
-                <input type="password" id="cp-current" style="width:100%; padding:9px 12px; background:#1a2332; border:1px solid #334455; border-radius:5px; color:#eee; font-size:14px; box-sizing:border-box;" autocomplete="current-password">
+    <div id="profile-modal" onclick="if(event.target===this)closeProfileModal()" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:9999; align-items:center; justify-content:center;">
+        <div style="background:#243447; border-radius:12px; padding:0; width:100%; max-width:520px; max-height:90vh; overflow-y:auto; box-shadow:0 10px 40px rgba(0,0,0,0.6);">
+            <!-- Header -->
+            <div style="padding:22px 28px 16px; border-bottom:1px solid #334455; display:flex; align-items:center; justify-content:space-between;">
+                <div>
+                    <div style="color:#fff; font-size:16px; font-weight:700;">👤 My Profile</div>
+                    <div id="profile-username-display" style="color:#7a9bb5; font-size:12px; margin-top:2px;"></div>
+                </div>
+                <button onclick="closeProfileModal()" style="background:none; border:none; color:#7a9bb5; font-size:22px; cursor:pointer; padding:0 4px; line-height:1;">×</button>
             </div>
-            <div style="margin-bottom:14px;">
-                <label style="display:block; font-size:12px; color:#aabbcc; margin-bottom:5px;">New Password</label>
-                <input type="password" id="cp-new" style="width:100%; padding:9px 12px; background:#1a2332; border:1px solid #334455; border-radius:5px; color:#eee; font-size:14px; box-sizing:border-box;" autocomplete="new-password">
+
+            <!-- Alerts -->
+            <div style="padding:0 28px;">
+                <div id="profile-error" style="display:none; background:rgba(231,76,60,0.2); border:1px solid rgba(231,76,60,0.5); color:#f08080; padding:8px 12px; border-radius:5px; font-size:13px; margin-top:14px;"></div>
+                <div id="profile-success" style="display:none; background:rgba(39,174,96,0.2); border:1px solid rgba(39,174,96,0.5); color:#7dcea0; padding:8px 12px; border-radius:5px; font-size:13px; margin-top:14px;"></div>
             </div>
-            <div style="margin-bottom:20px;">
-                <label style="display:block; font-size:12px; color:#aabbcc; margin-bottom:5px;">Confirm New Password</label>
-                <input type="password" id="cp-confirm" style="width:100%; padding:9px 12px; background:#1a2332; border:1px solid #334455; border-radius:5px; color:#eee; font-size:14px; box-sizing:border-box;" autocomplete="new-password">
+
+            <!-- Profile fields -->
+            <div style="padding:20px 28px 0;">
+                <div style="font-size:11px; font-weight:700; text-transform:uppercase; color:#5a7a99; letter-spacing:.08em; margin-bottom:14px;">Profile Information</div>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:14px;">
+                    <div>
+                        <label style="display:block; font-size:12px; color:#aabbcc; margin-bottom:5px;">Full Name</label>
+                        <input type="text" id="profile-display-name" style="width:100%; padding:9px 12px; background:#1a2332; border:1px solid #334455; border-radius:5px; color:#eee; font-size:13px; box-sizing:border-box;">
+                    </div>
+                    <div>
+                        <label style="display:block; font-size:12px; color:#aabbcc; margin-bottom:5px;">Job Title</label>
+                        <input type="text" id="profile-job-title" placeholder="e.g. Attorney, Paralegal" style="width:100%; padding:9px 12px; background:#1a2332; border:1px solid #334455; border-radius:5px; color:#eee; font-size:13px; box-sizing:border-box;">
+                    </div>
+                </div>
+                <div style="margin-bottom:14px;">
+                    <label style="display:block; font-size:12px; color:#aabbcc; margin-bottom:5px;">Email Address</label>
+                    <input type="email" id="profile-email" style="width:100%; padding:9px 12px; background:#1a2332; border:1px solid #334455; border-radius:5px; color:#eee; font-size:13px; box-sizing:border-box;">
+                </div>
+                <div style="margin-bottom:14px;">
+                    <label style="display:block; font-size:12px; color:#aabbcc; margin-bottom:5px;">Phone Number</label>
+                    <input type="tel" id="profile-phone" placeholder="e.g. +1 555 000 0000" style="width:100%; padding:9px 12px; background:#1a2332; border:1px solid #334455; border-radius:5px; color:#eee; font-size:13px; box-sizing:border-box;">
+                </div>
+                <div style="margin-bottom:20px;">
+                    <label style="display:block; font-size:12px; color:#aabbcc; margin-bottom:5px;">Address</label>
+                    <textarea id="profile-address" rows="2" placeholder="Street, City, State, ZIP" style="width:100%; padding:9px 12px; background:#1a2332; border:1px solid #334455; border-radius:5px; color:#eee; font-size:13px; box-sizing:border-box; resize:vertical; font-family:inherit;"></textarea>
+                </div>
+                <div style="text-align:right; margin-bottom:24px;">
+                    <button onclick="submitProfileUpdate()" style="padding:9px 22px; background:#4a90d9; color:white; border:none; border-radius:5px; cursor:pointer; font-size:13px; font-weight:600;">Save Profile</button>
+                </div>
             </div>
-            <div style="display:flex; gap:10px; justify-content:flex-end;">
-                <button onclick="closeChangePasswordModal()" style="padding:8px 18px; background:rgba(255,255,255,0.1); color:#ccc; border:1px solid #334455; border-radius:5px; cursor:pointer; font-size:13px;">Cancel</button>
-                <button onclick="submitChangePassword()" style="padding:8px 18px; background:#4a90d9; color:white; border:none; border-radius:5px; cursor:pointer; font-size:13px; font-weight:600;">Update Password</button>
+
+            <!-- Divider -->
+            <div style="border-top:1px solid #334455;"></div>
+
+            <!-- Change password -->
+            <div style="padding:20px 28px 24px;">
+                <div style="font-size:11px; font-weight:700; text-transform:uppercase; color:#5a7a99; letter-spacing:.08em; margin-bottom:14px;">Change Password</div>
+                <div id="cp-error" style="display:none; background:rgba(231,76,60,0.2); border:1px solid rgba(231,76,60,0.5); color:#f08080; padding:8px 12px; border-radius:5px; font-size:13px; margin-bottom:14px;"></div>
+                <div id="cp-success" style="display:none; background:rgba(39,174,96,0.2); border:1px solid rgba(39,174,96,0.5); color:#7dcea0; padding:8px 12px; border-radius:5px; font-size:13px; margin-bottom:14px;"></div>
+                <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; margin-bottom:16px;">
+                    <div>
+                        <label style="display:block; font-size:12px; color:#aabbcc; margin-bottom:5px;">Current Password</label>
+                        <input type="password" id="cp-current" style="width:100%; padding:9px 12px; background:#1a2332; border:1px solid #334455; border-radius:5px; color:#eee; font-size:13px; box-sizing:border-box;" autocomplete="current-password">
+                    </div>
+                    <div>
+                        <label style="display:block; font-size:12px; color:#aabbcc; margin-bottom:5px;">New Password</label>
+                        <input type="password" id="cp-new" style="width:100%; padding:9px 12px; background:#1a2332; border:1px solid #334455; border-radius:5px; color:#eee; font-size:13px; box-sizing:border-box;" autocomplete="new-password">
+                    </div>
+                    <div>
+                        <label style="display:block; font-size:12px; color:#aabbcc; margin-bottom:5px;">Confirm Password</label>
+                        <input type="password" id="cp-confirm" style="width:100%; padding:9px 12px; background:#1a2332; border:1px solid #334455; border-radius:5px; color:#eee; font-size:13px; box-sizing:border-box;" autocomplete="new-password">
+                    </div>
+                </div>
+                <div style="text-align:right;">
+                    <button onclick="submitChangePassword()" style="padding:9px 22px; background:#5a6a7a; color:white; border:none; border-radius:5px; cursor:pointer; font-size:13px; font-weight:600;">Update Password</button>
+                </div>
             </div>
         </div>
     </div>
+
+    <!-- Backward-compat alias so any other code that calls openChangePasswordModal() still works -->
+    <script>function openChangePasswordModal() { openProfileModal(); }</script>
 
     <div class="container">
         <!-- Tabbed Interface -->
@@ -1702,9 +1758,9 @@
                                 <option value="token">Bearer Token</option>
                             </select>
                             <div id="upload-auth-basic" style="display:none; margin-top:8px;">
-                                <input type="text" id="upload-auth-user" placeholder="Username"
+                                <input type="text" id="upload-auth-user" placeholder="Username" autocomplete="off"
                                     style="width:100%; box-sizing:border-box; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px; font-size:14px; margin-bottom:8px;">
-                                <input type="password" id="upload-auth-pass" placeholder="Password"
+                                <input type="password" id="upload-auth-pass" placeholder="Password" autocomplete="new-password"
                                     style="width:100%; box-sizing:border-box; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px; font-size:14px;">
                             </div>
                             <div id="upload-auth-token" style="display:none; margin-top:8px;">
@@ -1896,10 +1952,11 @@
                 <div class="tab-help-panel" id="help-search">
                     <strong>🔍 Search &amp; Analysis</strong> — Browse, sort, and filter all documents in the current project.
                     <ul style="margin:8px 0 0 0; padding-left:18px;">
-                        <li>Type in the <strong>global search box</strong> or any <strong>column filter</strong> to narrow results instantly — no button needed.</li>
+                        <li>Type in the <strong>global search box</strong> and press <strong>Enter</strong> or click <strong>Search</strong>, or use any <strong>column filter</strong> to narrow results instantly.</li>
                         <li>Click any <strong>column header</strong> to sort ascending/descending.</li>
                         <li>Use the <strong>Risk min/max</strong> inputs to filter by risk score range.</li>
                         <li>Multiple column filters combine with AND logic.</li>
+                        <li>Use <strong>Show / page</strong> to control how many rows appear per page (10, 25, 50, 100, or All).</li>
                         <li>Click <strong>more</strong> on any summary to expand the full text.</li>
                     </ul>
                     <div style="margin-top:8px; font-size:12px;"><a href="{{ request.script_root }}/docs/search" target="_blank" style="color:#5dade2;">📖 Full manual for this section →</a></div>
@@ -1912,6 +1969,8 @@
                         oninput="saApplyFilters()"
                         onkeydown="if(event.key==='Enter') saApplyFilters()"
                         style="flex:1; min-width:220px; padding:7px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:13px;" />
+                    <button onclick="saApplyFilters()"
+                        style="padding:7px 14px; border:1px solid #3b82f6; border-radius:6px; background:#3b82f6; color:#fff; cursor:pointer; font-size:13px; font-weight:500;">Search</button>
                     <select id="sa-sort-select" onchange="saApplyFilters()"
                         style="padding:7px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:13px; background:#fff; cursor:pointer;">
                         <option value="doc_id">Sort: Doc #</option>
@@ -1926,6 +1985,18 @@
                         <input type="checkbox" id="sa-anomalies-only" onchange="saApplyFilters()" />
                         Anomalies only
                     </label>
+                    <label style="display:flex; align-items:center; gap:5px; font-size:13px;">
+                        Show
+                        <select id="sa-per-page" onchange="saSetPerPage(this.value)"
+                            style="padding:5px 8px; border:1px solid #d1d5db; border-radius:6px; font-size:13px; background:#fff; cursor:pointer;">
+                            <option value="10">10</option>
+                            <option value="25" selected>25</option>
+                            <option value="50">50</option>
+                            <option value="100">100</option>
+                            <option value="0">All</option>
+                        </select>
+                        / page
+                    </label>
                     <button onclick="saClearAll()"
                         style="padding:7px 12px; border:1px solid #d1d5db; border-radius:6px; background:#fff; cursor:pointer; font-size:13px;">Clear</button>
                     <span id="sa-count" style="font-size:12px; color:#6b7280; margin-left:4px;"></span>
@@ -1933,7 +2004,15 @@
 
                 <!-- Document table -->
                 <div style="overflow-x:auto; border:1px solid #e5e7eb; border-radius:8px;">
-                    <table style="width:100%; border-collapse:collapse; font-size:13px;">
+                    <table style="width:100%; border-collapse:collapse; font-size:13px; table-layout:fixed;">
+                        <colgroup>
+                            <col style="width:70px;" />
+                            <col style="width:22%;" />
+                            <col style="width:90px;" />
+                            <col style="width:60px;" />
+                            <col style="width:24%;" />
+                            <col />
+                        </colgroup>
                         <thead style="background:#f9fafb; position:sticky; top:0; z-index:1;">
                             <!-- Sortable column headers -->
                             <tr>
@@ -1953,32 +2032,37 @@
                             <tr style="background:#f3f4f6;">
                                 <td style="padding:4px 6px; border-bottom:2px solid #e5e7eb;">
                                     <input id="sa-filter-doc_id" type="text" placeholder="filter…" oninput="saApplyFilters()"
-                                        style="width:100%; padding:4px 6px; border:1px solid #d1d5db; border-radius:4px; font-size:12px;" /></td>
+                                        style="width:100%; padding:4px 6px; border:1px solid #d1d5db; border-radius:4px; font-size:12px; box-sizing:border-box;" /></td>
                                 <td style="padding:4px 6px; border-bottom:2px solid #e5e7eb;">
                                     <input id="sa-filter-title" type="text" placeholder="filter…" oninput="saApplyFilters()"
-                                        style="width:100%; padding:4px 6px; border:1px solid #d1d5db; border-radius:4px; font-size:12px;" /></td>
+                                        style="width:100%; padding:4px 6px; border:1px solid #d1d5db; border-radius:4px; font-size:12px; box-sizing:border-box;" /></td>
                                 <td style="padding:4px 6px; border-bottom:2px solid #e5e7eb;">
                                     <input id="sa-filter-date" type="text" placeholder="filter…" oninput="saApplyFilters()"
-                                        style="width:100%; padding:4px 6px; border:1px solid #d1d5db; border-radius:4px; font-size:12px;" /></td>
+                                        style="width:100%; padding:4px 6px; border:1px solid #d1d5db; border-radius:4px; font-size:12px; box-sizing:border-box;" /></td>
                                 <td style="padding:4px 6px; border-bottom:2px solid #e5e7eb;">
                                     <div style="display:flex; gap:3px;">
                                         <input id="sa-filter-risk-min" type="number" placeholder="min" oninput="saApplyFilters()"
-                                            style="width:46%; padding:4px 5px; border:1px solid #d1d5db; border-radius:4px; font-size:12px;" />
+                                            style="width:46%; padding:4px 3px; border:1px solid #d1d5db; border-radius:4px; font-size:11px;" />
                                         <input id="sa-filter-risk-max" type="number" placeholder="max" oninput="saApplyFilters()"
-                                            style="width:46%; padding:4px 5px; border:1px solid #d1d5db; border-radius:4px; font-size:12px;" />
+                                            style="width:46%; padding:4px 3px; border:1px solid #d1d5db; border-radius:4px; font-size:11px;" />
                                     </div></td>
                                 <td style="padding:4px 6px; border-bottom:2px solid #e5e7eb;">
                                     <input id="sa-filter-anomalies" type="text" placeholder="filter…" oninput="saApplyFilters()"
-                                        style="width:100%; padding:4px 6px; border:1px solid #d1d5db; border-radius:4px; font-size:12px;" /></td>
+                                        style="width:100%; padding:4px 6px; border:1px solid #d1d5db; border-radius:4px; font-size:12px; box-sizing:border-box;" /></td>
                                 <td style="padding:4px 6px; border-bottom:2px solid #e5e7eb;">
                                     <input id="sa-filter-summary" type="text" placeholder="filter…" oninput="saApplyFilters()"
-                                        style="width:100%; padding:4px 6px; border:1px solid #d1d5db; border-radius:4px; font-size:12px;" /></td>
+                                        style="width:100%; padding:4px 6px; border:1px solid #d1d5db; border-radius:4px; font-size:12px; box-sizing:border-box;" /></td>
                             </tr>
                         </thead>
                         <tbody id="sa-tbody">
                             <tr><td colspan="6" style="text-align:center; padding:30px; color:#9ca3af;">Loading…</td></tr>
                         </tbody>
                     </table>
+                    <!-- Pagination bar -->
+                    <div id="sa-pagination" style="display:none; align-items:center; justify-content:space-between; padding:8px 12px; border-top:1px solid #e5e7eb; background:#f9fafb; border-radius:0 0 8px 8px; flex-wrap:wrap; gap:8px; font-size:13px;">
+                        <span id="sa-page-info" style="color:#6b7280;"></span>
+                        <div id="sa-page-controls" style="display:flex; gap:4px; flex-wrap:wrap;"></div>
+                    </div>
                 </div>
             </div>
 
@@ -2063,6 +2147,7 @@
                         <li><strong>+ Add User</strong> — creates a new account. A welcome email is sent automatically if SMTP is configured.</li>
                         <li><strong>Deactivate</strong> (trash icon) — soft-deletes the account; chat history is preserved. Click Reactivate to restore access.</li>
                         <li>You cannot deactivate your own account. At least one Admin must remain active.</li>
+                        <li><strong>👤 My Profile</strong> (header button, all users) — every user can update their own name, email, phone, address, job title, and password without admin help.</li>
                     </ul>
                     <div style="margin-top:8px; font-size:12px;"><a href="{{ request.script_root }}/docs/users" target="_blank" style="color:#5dade2;">📖 User Management manual →</a></div>
                 </div>
@@ -2093,9 +2178,13 @@
                         <p style="font-size:13px; color:#555; margin-bottom:14px;">These API keys are shared across all projects as the default credential source. Per-project overrides can be set below.</p>
                         <!-- OpenAI -->
                         <div style="background:#f8f9fa; padding:14px; border-radius:6px; margin-bottom:12px;">
-                            <h3 style="margin-bottom:8px; font-size:14px;">OpenAI</h3>
+                            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+                                <h3 style="margin:0; font-size:14px;">OpenAI</h3>
+                                <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener"
+                                   style="font-size:12px; color:#3b82f6; text-decoration:none;">🔗 Get a key →</a>
+                            </div>
                             <div class="action-group" style="margin-bottom:6px;">
-                                <input type="password" autocomplete="off" id="openai-api-key" placeholder="sk-..."
+                                <input type="text" autocomplete="off" id="openai-api-key" placeholder="sk-..."
                                        style="flex:1; font-family:monospace; font-size:13px;" />
                                 <button class="btn" onclick="testAIProvider('openai')">🧪 Test</button>
                             </div>
@@ -2103,9 +2192,13 @@
                         </div>
                         <!-- Anthropic -->
                         <div style="background:#f8f9fa; padding:14px; border-radius:6px; margin-bottom:12px;">
-                            <h3 style="margin-bottom:8px; font-size:14px;">Anthropic</h3>
+                            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+                                <h3 style="margin:0; font-size:14px;">Anthropic</h3>
+                                <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener"
+                                   style="font-size:12px; color:#3b82f6; text-decoration:none;">🔗 Get a key →</a>
+                            </div>
                             <div class="action-group" style="margin-bottom:6px;">
-                                <input type="password" autocomplete="off" id="anthropic-api-key" placeholder="sk-ant-api03-..."
+                                <input type="text" autocomplete="off" id="anthropic-api-key" placeholder="sk-ant-api03-..."
                                        style="flex:1; font-family:monospace; font-size:13px;" />
                                 <button class="btn" onclick="testAIProvider('anthropic')">🧪 Test</button>
                             </div>
@@ -2145,6 +2238,38 @@
                         <p style="color:#888; font-size:13px; font-style:italic;" id="project-ai-placeholder">
                             {% if is_admin %}Select a project above to configure its AI settings.{% else %}Loading AI settings…{% endif %}
                         </p>
+
+                        <!-- Per-project API key overrides -->
+                        <div id="project-api-keys-wrap" style="display:none; margin-bottom:16px; padding:12px 14px; background:#f8f9ff; border:1px solid #d4ddf7; border-radius:6px;">
+                            <div style="font-size:13px; font-weight:600; margin-bottom:10px; color:#374151;">
+                                🔑 API Key Overrides
+                                <span style="font-size:11px; font-weight:400; color:#6b7280; margin-left:6px;">Leave blank to use the global key</span>
+                            </div>
+                            <div style="display:flex; flex-direction:column; gap:8px;">
+                                <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                                    <label style="font-size:12px; min-width:80px; color:#555;">OpenAI:</label>
+                                    <input type="text" autocomplete="off" id="proj-openai-key"
+                                        placeholder="sk-…  (blank = use global key)"
+                                        style="flex:1; min-width:200px; padding:5px 8px; border:1px solid #ccc; border-radius:4px; font-size:12px; font-family:monospace;" />
+                                    <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener"
+                                       style="font-size:11px; color:#3b82f6; text-decoration:none; white-space:nowrap;">🔗 Get a key</a>
+                                    <button class="btn btn-sm" onclick="clearProjectKey('openai')" style="font-size:11px; padding:4px 8px;">✕ Clear</button>
+                                    <button class="btn btn-sm" onclick="testProjectKey('openai')" style="font-size:11px; padding:4px 8px;">🧪 Test</button>
+                                    <span id="proj-openai-key-status" style="font-size:11px;"></span>
+                                </div>
+                                <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                                    <label style="font-size:12px; min-width:80px; color:#555;">Anthropic:</label>
+                                    <input type="text" autocomplete="off" id="proj-anthropic-key"
+                                        placeholder="sk-ant-…  (blank = use global key)"
+                                        style="flex:1; min-width:200px; padding:5px 8px; border:1px solid #ccc; border-radius:4px; font-size:12px; font-family:monospace;" />
+                                    <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener"
+                                       style="font-size:11px; color:#3b82f6; text-decoration:none; white-space:nowrap;">🔗 Get a key</a>
+                                    <button class="btn btn-sm" onclick="clearProjectKey('anthropic')" style="font-size:11px; padding:4px 8px;">✕ Clear</button>
+                                    <button class="btn btn-sm" onclick="testProjectKey('anthropic')" style="font-size:11px; padding:4px 8px;">🧪 Test</button>
+                                    <span id="proj-anthropic-key-status" style="font-size:11px;"></span>
+                                </div>
+                            </div>
+                        </div>
 
                         <div id="project-ai-table" style="display:none;">
                             <table style="width:100%; font-size:13px; border-collapse:collapse;">
@@ -2366,9 +2491,10 @@
                             <input type="text" id="new-user-username" placeholder="Username *" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px;">
                             <input type="text" id="new-user-display" placeholder="Display Name" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px;">
                             <input type="email" id="new-user-email" placeholder="Email (for notifications)" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px;">
-                            <input type="password" id="new-user-password" placeholder="Password *" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px;">
+                            <input type="password" id="new-user-password" placeholder="Password *" autocomplete="new-password" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px;">
                             <select id="new-user-role" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px;">
                                 <option value="basic">Basic</option>
+                                <option value="advanced">Advanced</option>
                                 <option value="admin">Admin</option>
                             </select>
                             <div style="display:flex; align-items:center; font-size:12px; color:#888;">
@@ -2447,6 +2573,7 @@
                                     <label style="font-size:13px; font-weight:600; display:block; margin-bottom:4px;">Role</label>
                                     <select id="edit-role" style="width:100%; box-sizing:border-box; padding:8px 12px; border:1px solid #ddd; border-radius:4px;">
                                         <option value="basic">Basic</option>
+                                        <option value="advanced">Advanced</option>
                                         <option value="admin">Admin</option>
                                     </select>
                                 </div>
@@ -2457,7 +2584,7 @@
                             </div>
                             <div>
                                 <label style="font-size:13px; font-weight:600; display:block; margin-bottom:4px;">New Password <span style="font-weight:400; color:#888;">(leave blank to keep current)</span></label>
-                                <input type="password" id="edit-password" placeholder="New password (optional)" style="width:100%; box-sizing:border-box; padding:8px 12px; border:1px solid #ddd; border-radius:4px;">
+                                <input type="password" id="edit-password" placeholder="New password (optional)" autocomplete="new-password" style="width:100%; box-sizing:border-box; padding:8px 12px; border:1px solid #ddd; border-radius:4px;">
                             </div>
                             <div id="edit-user-error" style="color:#e74c3c; font-size:13px; margin-top:10px; display:none;"></div>
                             <div id="edit-user-success" style="color:#27ae60; font-size:13px; margin-top:10px; display:none;"></div>
@@ -2620,17 +2747,19 @@
                 <li><strong>Findings</strong> — 6 finding domains: Entities · Timeline · Financial · Contradictions · Theories · Authorities. Each finding cites source doc + page.</li>
                 <li>Report Builder: Director synthesizes a 12-section scientific paper (Sections I–IX + Appendices A–C) → PDF download.</li>
             </ul>
-            <div style="margin-top:6px; font-size:11px; color:#e74c3c; font-weight:600;">⚠️ DEV ONLY — This feature is only active in the development container.</div>
+            <div style="margin-top:6px; font-size:11px; color:#888;">Requires <code>CASE_INTELLIGENCE_ENABLED=true</code> in the container environment.</div>
         </div>
 
         <!-- CI sub-tab help panels — hidden by default; _refreshHelpPanel() shows the active one -->
         <div class="tab-help-panel" id="help-ci-setup" style="display:none;">
             <strong>🔧 CI Setup</strong> — Configure and launch an analysis run.
             <ul style="margin:8px 0 0 0; padding-left:18px;">
-                <li><strong>Case Name</strong> — identifies this run in the run list.</li>
-                <li><strong>Budget (USD)</strong> — per-run spending cap. Set to 0 for unlimited. Run pauses if exceeded; override button shown.</li>
-                <li><strong>Orchestration Tiers</strong>: Director = 1 (fixed, plans all work via LLM); Managers = Auto (min(6, docs÷20)) or 1–10; Workers/Manager = Auto (budget-scaled) or 1–20.</li>
-                <li><strong>Notifications</strong>: Email on run complete + every 10% budget checkpoint (under/on/over track). Recipient pre-filled from your profile email.</li>
+                <li><strong>Role</strong> — Plaintiff / Defendant / Neutral — shapes how the Director frames analysis and theories.</li>
+                <li><strong>Jurisdiction</strong> — choose a template or leave blank for auto-detect from documents.</li>
+                <li><strong>Goal / Case Description</strong> — what to find. Click <strong>✨ Refine with AI</strong> to chat with an assistant that helps craft a precise, effective goal.</li>
+                <li><strong>Budget (USD)</strong> — per-run spending cap. Run pauses if exceeded; override button shown.</li>
+                <li><strong>Orchestration Tiers</strong>: Director = 1 (fixed, plans all work); Managers = Auto (min(6, docs÷20)) or 1–10; Workers/Manager = Auto (budget-scaled) or 1–20.</li>
+                <li><strong>Notifications</strong>: Email on run complete + every 10% budget checkpoint. Recipient pre-filled from your 👤 My Profile email.</li>
                 <li>Click <strong>▶ Start Analysis</strong> → Director generates clarifying questions → answer or check "Proceed with assumptions".</li>
             </ul>
             <div style="margin-top:8px; font-size:12px;"><a href="{{ request.script_root }}/docs/case-intelligence#ci-setup" target="_blank" style="color:#5dade2;">📖 CI Setup manual →</a></div>
@@ -2639,11 +2768,12 @@
         <div class="tab-help-panel" id="help-ci-findings" style="display:none;">
             <strong>📋 CI Findings</strong> — Browse run results and generate reports.
             <ul style="margin:8px 0 0 0; padding-left:18px;">
-                <li>Select a run from the dropdown; live status shows while running (cancel button available).</li>
-                <li><strong>6 finding domains</strong>: Entities · Timeline · Financial · Contradictions · Theories · Authorities.</li>
-                <li>Every finding includes a citation to the source document and page (Bates reference).</li>
-                <li><strong>Report Builder</strong>: Director synthesizes a 12-section scientific paper including Executive Summary, Key Findings, Chronology, Financial Analysis, Contested Facts, Theories, Authorities, Discovery Gaps, and Appendices A–C.</li>
-                <li>Click <strong>Download PDF</strong> to export the report.</li>
+                <li>Select a run from the dropdown; live progress shows while running (Cancel button available).</li>
+                <li><strong>Run metadata header</strong> — who ran it, when, duration, role, document count, and AI cost.</li>
+                <li><strong>6 finding domains</strong>: Entities · Timeline · Financial · Contradictions · Theories · Authorities. Every finding cites source document + page.</li>
+                <li><strong>👥 Share</strong> — share a run with another Advanced or Admin user by username. Shared users can view all findings and download the report.</li>
+                <li><strong>🗑 Delete Run</strong> — permanently removes a completed run and all its findings.</li>
+                <li><strong>Report Builder</strong>: Director synthesizes a 12-section scientific paper (Executive Summary → Discovery Gaps + Appendices A–C) → PDF download.</li>
             </ul>
             <div style="margin-top:8px; font-size:12px;"><a href="{{ request.script_root }}/docs/case-intelligence#ci-findings" target="_blank" style="color:#5dade2;">📖 CI Findings manual →</a></div>
         </div>
@@ -2705,7 +2835,10 @@
             </div>
 
             <div class="ci-form-group" style="margin-bottom:14px;">
-                <label>GOAL / CASE DESCRIPTION</label>
+                <label style="display:flex; align-items:center; justify-content:space-between;">
+                    <span>GOAL / CASE DESCRIPTION</span>
+                    <button type="button" onclick="ciOpenGoalAssistant()" style="background:none; border:1px solid #8e44ad; color:#8e44ad; border-radius:5px; padding:2px 10px; font-size:11px; cursor:pointer; font-weight:600;">✨ Refine with AI</button>
+                </label>
                 <textarea id="ci-goal" placeholder="Describe the case goal and what you want the AI to focus on...&#10;e.g. Analyze all documents for evidence of financial fraud and identify key exhibits."></textarea>
             </div>
 
@@ -2836,6 +2969,8 @@
                 <button class="btn btn-sm" onclick="ciRefreshRuns()" style="background:#3498db; color:white;">↻ Refresh</button>
                 {% if is_advanced %}
                 <button class="btn btn-sm" onclick="ciSwitchSub('setup'); ciStartNewRun()" style="background:#27ae60; color:white;">+ New Run</button>
+                <button class="btn btn-sm" id="ci-share-run-btn" onclick="ciOpenShareModal()" style="background:#8e44ad; color:white; display:none;">👥 Share</button>
+                <button class="btn btn-sm" id="ci-delete-run-btn" onclick="ciDeleteSelectedRun()" style="background:#e74c3c; color:white; display:none;">🗑 Delete Run</button>
                 {% endif %}
             </div>
 
@@ -2852,6 +2987,20 @@
                     &nbsp;<button class="btn btn-sm" onclick="ciCancelRunFromFindings()" style="background:#e74c3c; color:white; padding:2px 8px; font-size:11px; margin-left:8px;">✕ Cancel</button>
                     {% endif %}
                 </div>
+            </div>
+
+            <!-- Run Metadata Header -->
+            <div id="ci-run-meta-header" style="display:none; background:#f8f9fb; border:1px solid #dde3ec; border-radius:8px; padding:14px 18px; margin-bottom:14px; font-size:12px; color:#555;">
+                <div style="font-weight:700; font-size:13px; color:#1a2535; margin-bottom:8px;">📋 Run Details</div>
+                <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap:6px 20px;">
+                    <div><span style="color:#888;">Run by:</span> <span id="ci-meta-run-by" style="color:#222; font-weight:600;"></span></div>
+                    <div><span style="color:#888;">Started:</span> <span id="ci-meta-started"></span></div>
+                    <div><span style="color:#888;">Duration:</span> <span id="ci-meta-duration"></span></div>
+                    <div><span style="color:#888;">Role:</span> <span id="ci-meta-role" style="text-transform:capitalize;"></span></div>
+                    <div><span style="color:#888;">Documents:</span> <span id="ci-meta-docs"></span></div>
+                    <div><span style="color:#888;">AI Cost:</span> <span id="ci-meta-cost" style="color:#27ae60; font-weight:600;"></span></div>
+                </div>
+                <div style="margin-top:8px;"><span style="color:#888;">Goal:</span> <span id="ci-meta-goal" style="color:#2c3e50; font-style:italic;"></span></div>
             </div>
 
             <!-- Key Findings -->
@@ -3434,29 +3583,87 @@
             try {
                 const res = await apiFetch(apiUrl('/api/llm/status'));
                 const data = await res.json();
-                // Show warning if LLM is not enabled or has no key, and also
-                // check the chat-specific ai-config for any enabled provider with a key
+                // Check v2 config: any global key present = chat is usable
                 const configRes = await apiFetch(apiUrl('/api/ai-config'));
                 const configData = await configRes.json();
-                const chatProviders = configData.config?.chat?.providers || [];
-                const hasAnyKey = chatProviders.some(p => p.enabled && p.api_key && p.api_key.trim());
+                const globalCfg = configData.config?.global || {};
+                const hasAnyKey = Object.values(globalCfg).some(p => p.api_key && p.api_key.trim());
                 document.getElementById('ai-key-warning').style.display = hasAnyKey ? 'none' : 'block';
             } catch (e) {
                 // If we can't check, hide the warning (don't block usage)
             }
         }
 
-        function openChangePasswordModal() {
-            document.getElementById('cp-current').value = '';
-            document.getElementById('cp-new').value = '';
-            document.getElementById('cp-confirm').value = '';
-            document.getElementById('cp-error').style.display = 'none';
-            document.getElementById('cp-success').style.display = 'none';
-            document.getElementById('change-password-modal').style.display = 'flex';
+        async function openProfileModal() {
+            // Clear state
+            ['profile-error','profile-success','cp-error','cp-success'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.style.display = 'none';
+            });
+            ['cp-current','cp-new','cp-confirm'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.value = '';
+            });
+            document.getElementById('profile-modal').style.display = 'flex';
+
+            // Load current profile
+            try {
+                const r = await apiFetch(apiUrl('/api/me'));
+                const d = await r.json();
+                document.getElementById('profile-username-display').textContent =
+                    '@' + (d.username || '') + '  ·  ' + (d.role || '').charAt(0).toUpperCase() + (d.role || '').slice(1);
+                document.getElementById('profile-display-name').value = d.display_name || '';
+                document.getElementById('profile-job-title').value   = d.job_title || '';
+                document.getElementById('profile-email').value       = d.email || '';
+                document.getElementById('profile-phone').value       = d.phone || '';
+                document.getElementById('profile-address').value     = d.address || '';
+            } catch(e) {
+                const err = document.getElementById('profile-error');
+                err.textContent = 'Could not load profile: ' + e.message;
+                err.style.display = 'block';
+            }
         }
 
-        function closeChangePasswordModal() {
-            document.getElementById('change-password-modal').style.display = 'none';
+        function closeProfileModal() {
+            document.getElementById('profile-modal').style.display = 'none';
+        }
+
+        async function submitProfileUpdate() {
+            const errEl = document.getElementById('profile-error');
+            const okEl  = document.getElementById('profile-success');
+            errEl.style.display = 'none';
+            okEl.style.display  = 'none';
+            const payload = {
+                display_name: document.getElementById('profile-display-name').value.trim(),
+                job_title:    document.getElementById('profile-job-title').value.trim(),
+                email:        document.getElementById('profile-email').value.trim(),
+                phone:        document.getElementById('profile-phone').value.trim(),
+                address:      document.getElementById('profile-address').value.trim(),
+            };
+            if (!payload.display_name) {
+                errEl.textContent = 'Full name cannot be empty.';
+                errEl.style.display = 'block';
+                return;
+            }
+            try {
+                const r = await apiFetch(apiUrl('/api/me'), {
+                    method: 'PATCH',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload),
+                });
+                const d = await r.json();
+                if (d.success) {
+                    okEl.textContent = 'Profile saved.';
+                    okEl.style.display = 'block';
+                    setTimeout(() => { if (okEl) okEl.style.display = 'none'; }, 3000);
+                } else {
+                    errEl.textContent = d.error || 'Save failed.';
+                    errEl.style.display = 'block';
+                }
+            } catch(e) {
+                errEl.textContent = 'Network error: ' + e.message;
+                errEl.style.display = 'block';
+            }
         }
 
         async function submitChangePassword() {
@@ -3480,7 +3687,10 @@
                 if (data.success) {
                     okEl.textContent = 'Password updated successfully!';
                     okEl.style.display = 'block';
-                    setTimeout(closeChangePasswordModal, 1500);
+                    document.getElementById('cp-current').value = '';
+                    document.getElementById('cp-new').value = '';
+                    document.getElementById('cp-confirm').value = '';
+                    setTimeout(() => { if (okEl) okEl.style.display = 'none'; }, 3000);
                 } else {
                     errEl.textContent = data.error || 'Failed to update password.';
                     errEl.style.display = 'block';
@@ -3490,12 +3700,6 @@
                 errEl.style.display = 'block';
             }
         }
-
-        // Close modal on backdrop click (use delegation so element doesn't need to exist yet)
-        document.addEventListener('click', function(e) {
-            const m = document.getElementById('change-password-modal');
-            if (m && e.target === m) closeChangePasswordModal();
-        });
 
         // Auto-refresh data every 10 seconds
         let refreshInterval;
@@ -4895,6 +5099,9 @@
         var _saSortField = 'doc_id';
         var _saSortDir = 'asc';
         var _saLoaded = false;
+        var _saFiltered = [];   // current filtered+sorted result set
+        var _saPage = 0;        // current page (0-based)
+        var _saPerPage = 25;    // items per page; 0 = all
 
         // Load (or reload) all docs for current project into the table
         async function loadSearchTab() {
@@ -4914,7 +5121,7 @@
             }
         }
 
-        // Apply all active filters + sort, then render
+        // Apply all active filters + sort, reset to page 0, then render
         function saApplyFilters() {
             const global  = (document.getElementById('sa-global')?.value || '').toLowerCase();
             const fDocId  = (document.getElementById('sa-filter-doc_id')?.value || '').toLowerCase();
@@ -4926,7 +5133,7 @@
             const fSum    = (document.getElementById('sa-filter-summary')?.value || '').toLowerCase();
             const anomOnly= document.getElementById('sa-anomalies-only')?.checked || false;
 
-            // Read sort from dropdown (may differ from _saSortField if changed via dropdown)
+            // Read sort from dropdown
             const sortSel = document.getElementById('sa-sort-select');
             if (sortSel) _saSortField = sortSel.value;
 
@@ -4955,11 +5162,11 @@
             // Sort
             docs.sort((a, b) => {
                 let av, bv;
-                if (_saSortField === 'doc_id')    { av = a.doc_id || 0;           bv = b.doc_id || 0; }
-                else if (_saSortField === 'title') { av = (a.title||'').toLowerCase(); bv = (b.title||'').toLowerCase(); }
-                else if (_saSortField === 'timestamp') { av = a.timestamp || ''; bv = b.timestamp || ''; }
-                else if (_saSortField === 'risk_score') { av = a.risk_score || 0; bv = b.risk_score || 0; }
-                else if (_saSortField === 'anomalies')  { av = (a.anomalies||[]).length; bv = (b.anomalies||[]).length; }
+                if (_saSortField === 'doc_id')         { av = a.doc_id || 0;               bv = b.doc_id || 0; }
+                else if (_saSortField === 'title')      { av = (a.title||'').toLowerCase(); bv = (b.title||'').toLowerCase(); }
+                else if (_saSortField === 'timestamp')  { av = a.timestamp || '';           bv = b.timestamp || ''; }
+                else if (_saSortField === 'risk_score') { av = a.risk_score || 0;           bv = b.risk_score || 0; }
+                else if (_saSortField === 'anomalies')  { av = (a.anomalies||[]).length;    bv = (b.anomalies||[]).length; }
                 else { av = 0; bv = 0; }
                 if (av < bv) return _saSortDir === 'asc' ? -1 : 1;
                 if (av > bv) return _saSortDir === 'asc' ?  1 : -1;
@@ -4967,10 +5174,100 @@
             });
 
             updateSaSortIndicators();
-            renderSearchTable(docs);
+            _saFiltered = docs;
+            _saPage = 0;
+            saRenderPage();
+        }
+
+        // Render the current page from _saFiltered
+        function saRenderPage() {
+            const total = _saFiltered.length;
+            let pageDocs;
+            if (_saPerPage === 0) {
+                pageDocs = _saFiltered;
+            } else {
+                const start = _saPage * _saPerPage;
+                pageDocs = _saFiltered.slice(start, start + _saPerPage);
+            }
+            renderSearchTable(pageDocs);
+            saRenderPagination(total);
 
             const cnt = document.getElementById('sa-count');
-            if (cnt) cnt.textContent = `${docs.length} of ${_saDocs.length} doc${_saDocs.length !== 1 ? 's' : ''}`;
+            if (cnt) {
+                if (total === 0) {
+                    cnt.textContent = `0 of ${_saDocs.length} doc${_saDocs.length !== 1 ? 's' : ''}`;
+                } else if (_saPerPage === 0) {
+                    cnt.textContent = `${total} of ${_saDocs.length} doc${_saDocs.length !== 1 ? 's' : ''}`;
+                } else {
+                    const s = _saPage * _saPerPage + 1;
+                    const e = Math.min((_saPage + 1) * _saPerPage, total);
+                    cnt.textContent = `${s}–${e} of ${total} (${_saDocs.length} total)`;
+                }
+            }
+        }
+
+        // Render pagination bar
+        function saRenderPagination(total) {
+            const pag = document.getElementById('sa-pagination');
+            const info = document.getElementById('sa-page-info');
+            const controls = document.getElementById('sa-page-controls');
+            if (!pag) return;
+
+            if (total === 0 || _saPerPage === 0) {
+                pag.style.display = 'none';
+                return;
+            }
+
+            const totalPages = Math.ceil(total / _saPerPage);
+            pag.style.display = 'flex';
+            const s = _saPage * _saPerPage + 1;
+            const e = Math.min((_saPage + 1) * _saPerPage, total);
+            if (info) info.textContent = `Showing ${s}–${e} of ${total} documents`;
+
+            // Build page buttons
+            const btnBase = 'padding:4px 9px; border:1px solid #d1d5db; border-radius:4px; cursor:pointer; font-size:12px; background:#fff; color:#374151;';
+            const btnActive = 'padding:4px 9px; border:1px solid #3b82f6; border-radius:4px; cursor:pointer; font-size:12px; background:#3b82f6; color:#fff; font-weight:600;';
+            const btnDis = 'padding:4px 9px; border:1px solid #e5e7eb; border-radius:4px; font-size:12px; background:#f9fafb; color:#9ca3af; cursor:default;';
+
+            let pages = [];
+            if (totalPages <= 9) {
+                for (let i = 0; i < totalPages; i++) pages.push(i);
+            } else {
+                pages.push(0);
+                if (_saPage > 3) pages.push('…');
+                for (let i = Math.max(1, _saPage - 2); i <= Math.min(totalPages - 2, _saPage + 2); i++) pages.push(i);
+                if (_saPage < totalPages - 4) pages.push('…');
+                pages.push(totalPages - 1);
+            }
+
+            let html = `<button onclick="saGoPage(${_saPage - 1})" ${_saPage === 0 ? 'disabled' : ''} style="${_saPage === 0 ? btnDis : btnBase}">‹ Prev</button>`;
+            pages.forEach(p => {
+                if (p === '…') {
+                    html += `<span style="padding:4px 6px; font-size:12px; color:#9ca3af; align-self:center;">…</span>`;
+                } else {
+                    html += `<button onclick="saGoPage(${p})" style="${p === _saPage ? btnActive : btnBase}">${p + 1}</button>`;
+                }
+            });
+            html += `<button onclick="saGoPage(${_saPage + 1})" ${_saPage >= totalPages - 1 ? 'disabled' : ''} style="${_saPage >= totalPages - 1 ? btnDis : btnBase}">Next ›</button>`;
+            if (controls) controls.innerHTML = html;
+        }
+
+        // Navigate to a specific page
+        function saGoPage(p) {
+            const totalPages = _saPerPage === 0 ? 1 : Math.ceil(_saFiltered.length / _saPerPage);
+            if (p < 0 || p >= totalPages) return;
+            _saPage = p;
+            saRenderPage();
+            // Scroll table back to top
+            const wrap = document.querySelector('#tab-search [style*="overflow-x"]');
+            if (wrap) wrap.scrollTop = 0;
+        }
+
+        // Change items per page
+        function saSetPerPage(val) {
+            _saPerPage = parseInt(val) || 0;
+            _saPage = 0;
+            saRenderPage();
         }
 
         // Change sort field; toggle direction if same field clicked again
@@ -5044,14 +5341,14 @@
                 const dateStr = d.timestamp ? new Date(d.timestamp).toLocaleDateString() : '—';
                 const rowBg = anomList.length ? '#fff8f8' : (idx % 2 === 0 ? '#fff' : '#f9fafb');
                 return `<tr style="background:${rowBg}; border-bottom:1px solid #e5e7eb;">
-                    <td style="padding:7px 10px; white-space:nowrap; font-size:12px;">
+                    <td style="padding:7px 8px; white-space:nowrap; font-size:12px; text-align:center;">
                         <a href="https://www.voipguru.org/paperless/documents/${d.doc_id}" target="_blank" style="color:#3b82f6;text-decoration:none;">#${d.doc_id}</a>
                     </td>
-                    <td style="padding:7px 10px; font-size:13px; max-width:280px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${_escHtml(d.title || '')}">${_escHtml(d.title || '—')}</td>
-                    <td style="padding:7px 10px; white-space:nowrap; font-size:12px; color:#6b7280;">${dateStr}</td>
-                    <td style="padding:7px 10px; white-space:nowrap; font-weight:600; color:${riskColor}; font-size:13px;">${risk}%</td>
-                    <td style="padding:7px 10px;">${anomHtml}</td>
-                    <td style="padding:7px 10px; max-width:300px;">${summaryHtml}</td>
+                    <td style="padding:7px 10px; font-size:13px; word-wrap:break-word; overflow-wrap:break-word;">${_escHtml(d.title || '—')}</td>
+                    <td style="padding:7px 8px; white-space:nowrap; font-size:12px; color:#6b7280;">${dateStr}</td>
+                    <td style="padding:7px 8px; white-space:nowrap; font-weight:600; color:${riskColor}; font-size:13px; text-align:center;">${risk}%</td>
+                    <td style="padding:7px 10px; word-wrap:break-word; overflow-wrap:break-word;">${anomHtml}</td>
+                    <td style="padding:7px 10px;">${summaryHtml}</td>
                 </tr>`;
             }).join('');
         }
@@ -5075,6 +5372,7 @@
             });
             const anom = document.getElementById('sa-anomalies-only');
             if (anom) anom.checked = false;
+            _saPage = 0;
             saApplyFilters();
         }
 
@@ -5490,27 +5788,27 @@
                     }
                 } catch(e) { console.error('Failed to load global AI keys:', e); }
 
-                // Populate admin project selectors
-                try {
-                    const r2 = await apiFetch(apiUrl('/api/projects'));
-                    const d2 = await r2.json();
-                    const projects = Array.isArray(d2) ? d2 : (d2.projects || []);
-                    const sel = document.getElementById('ai-project-selector');
-                    const cpDst = document.getElementById('ai-copy-dest-project');
-                    projects.forEach(p => {
-                        const slug = p.slug || p.name || String(p);
-                        if (sel) {
+                // Populate admin project selectors (only once — refresh() calls us repeatedly)
+                const sel = document.getElementById('ai-project-selector');
+                if (sel && sel.options.length <= 1) {
+                    try {
+                        const r2 = await apiFetch(apiUrl('/api/projects'));
+                        const d2 = await r2.json();
+                        const projects = Array.isArray(d2) ? d2 : (d2.projects || []);
+                        const cpDst = document.getElementById('ai-copy-dest-project');
+                        projects.forEach(p => {
+                            const slug = p.slug || p.name || String(p);
                             const opt = document.createElement('option');
                             opt.value = slug; opt.textContent = slug;
                             sel.appendChild(opt);
-                        }
-                        if (cpDst) {
-                            const opt2 = document.createElement('option');
-                            opt2.value = slug; opt2.textContent = slug;
-                            cpDst.appendChild(opt2);
-                        }
-                    });
-                } catch(e) { console.error('Failed to load project list:', e); }
+                            if (cpDst) {
+                                const opt2 = document.createElement('option');
+                                opt2.value = slug; opt2.textContent = slug;
+                                cpDst.appendChild(opt2);
+                            }
+                        });
+                    } catch(e) { console.error('Failed to load project list:', e); }
+                }
             } else {
                 // Non-admin: auto-load current project
                 loadProjectAIConfig(CURRENT_PROJECT);
@@ -5623,10 +5921,52 @@
                 const d = await r.json();
                 if (d.success !== false) {
                     _renderProjectAITable(slug, d.config || {}, d.defaults || {});
+                    // Populate per-project key inputs
+                    const oKey = document.getElementById('proj-openai-key');
+                    const aKey = document.getElementById('proj-anthropic-key');
+                    const oSt  = document.getElementById('proj-openai-key-status');
+                    const aSt  = document.getElementById('proj-anthropic-key-status');
+                    if (oKey) oKey.value = d.has_openai_key    ? '••••••••' : '';
+                    if (aKey) aKey.value = d.has_anthropic_key ? '••••••••' : '';
+                    if (oSt)  oSt.textContent  = d.has_openai_key    ? '✓ key saved' : '(using global)';
+                    if (aSt)  aSt.textContent  = d.has_anthropic_key ? '✓ key saved' : '(using global)';
+                    if (oSt)  oSt.style.color  = d.has_openai_key    ? '#16a34a' : '#9ca3af';
+                    if (aSt)  aSt.style.color  = d.has_anthropic_key ? '#16a34a' : '#9ca3af';
+                    const wrap = document.getElementById('project-api-keys-wrap');
+                    if (wrap) wrap.style.display = 'block';
                 } else {
                     console.error('loadProjectAIConfig error:', d.error);
                 }
             } catch(e) { console.error('Failed to load project AI config:', e); }
+        }
+
+        function clearProjectKey(provider) {
+            const inp = document.getElementById(`proj-${provider}-key`);
+            const st  = document.getElementById(`proj-${provider}-key-status`);
+            if (inp) inp.value = '';
+            if (st)  { st.textContent = '(will use global on save)'; st.style.color = '#9ca3af'; }
+        }
+
+        async function testProjectKey(provider) {
+            const inp = document.getElementById(`proj-${provider}-key`);
+            const st  = document.getElementById(`proj-${provider}-key-status`);
+            const key = inp?.value.trim();
+            if (!key || key === '••••••••') {
+                if (st) { st.textContent = 'Enter a new key to test'; st.style.color = '#d97706'; }
+                return;
+            }
+            if (st) { st.textContent = '🧪 Testing…'; st.style.color = '#2563eb'; }
+            try {
+                const r = await apiFetch(apiUrl('/api/ai-config/test'), {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({provider, api_key: key})
+                });
+                const d = await r.json();
+                if (st) { st.textContent = d.success ? ('✓ ' + d.message) : ('✗ ' + d.error); st.style.color = d.success ? '#16a34a' : '#dc2626'; }
+            } catch(e) {
+                if (st) { st.textContent = '✗ ' + e.message; st.style.color = '#dc2626'; }
+            }
         }
 
         async function saveProjectAIConfig() {
@@ -5641,6 +5981,9 @@
                     fallback_model:    document.getElementById(`ai-${uc}-fmod`)?.value || 'claude-sonnet-4-6',
                 };
             });
+            // Include per-project API key overrides (backend preserves existing if masked)
+            config.openai_api_key    = document.getElementById('proj-openai-key')?.value.trim()    || '';
+            config.anthropic_api_key = document.getElementById('proj-anthropic-key')?.value.trim() || '';
             try {
                 const r = await apiFetch(apiUrl(`/api/ai-config/projects/${_aiCurrentSlug}`), {
                     method: 'POST',
@@ -5649,6 +5992,7 @@
                 });
                 const d = await r.json();
                 _showAIResult('project-ai-result', d.success, d.message || d.error || 'Saved.');
+                if (d.success) loadProjectAIConfig(_aiCurrentSlug); // refresh key status badges
             } catch(e) {
                 _showAIResult('project-ai-result', false, e.message);
             }
@@ -7301,9 +7645,12 @@
             runs.forEach(run => {
                 const o = document.createElement('option');
                 o.value = run.id;
-                const date = run.created_at ? run.created_at.substring(0,10) : '';
-                o.textContent = `Run ${run.id.substr(0,8)} — ${date} (${run.status})`;
+                const date = run.created_at ? run.created_at.substring(0,16).replace('T',' ') : '';
+                const ownerNote = run._shared ? ` · shared by ${run.owner_name}` :
+                                  (run.owner_name && run.user_id !== {{ current_user.id }} ? ` · ${run.owner_name}` : '');
+                o.textContent = `Run ${run.id.substr(0,8)} — ${date} (${run.status})${ownerNote}`;
                 o.dataset.status = run.status;
+                o.dataset.ownerId = run.user_id;
                 sel.appendChild(o);
             });
             if (prevVal && runs.find(r => r.id === prevVal)) sel.value = prevVal;
@@ -7314,14 +7661,21 @@
 
     async function ciLoadFindings() {
         const runId = document.getElementById('ci-run-selector').value;
+        const deleteBtn = document.getElementById('ci-delete-run-btn');
+        const shareBtn = document.getElementById('ci-share-run-btn');
         if (!runId) {
             document.getElementById('ci-no-findings').style.display = 'block';
             document.getElementById('ci-key-findings-section').style.display = 'none';
             document.getElementById('ci-findings-status').style.display = 'none';
+            document.getElementById('ci-run-meta-header').style.display = 'none';
             document.getElementById('ci-report-builder') && (document.getElementById('ci-report-builder').style.display = 'none');
+            if (deleteBtn) deleteBtn.style.display = 'none';
+            if (shareBtn) shareBtn.style.display = 'none';
             return;
         }
         ciSelectedRunId = runId;
+        if (deleteBtn) deleteBtn.style.display = 'inline-block';
+        if (shareBtn) shareBtn.style.display = 'inline-block';
         if (ciFindingsPollTimer) clearInterval(ciFindingsPollTimer);
 
         // First check status
@@ -7377,12 +7731,229 @@
         } catch(e) {}
     }
 
+    async function ciDeleteSelectedRun() {
+        if (!ciSelectedRunId) return;
+        const selector = document.getElementById('ci-run-selector');
+        const runLabel = selector ? selector.options[selector.selectedIndex]?.text : ciSelectedRunId;
+        if (!confirm(`Permanently delete this run and all its findings?\n\n"${runLabel}"\n\nThis cannot be undone.`)) return;
+        try {
+            const r = await apiFetch(apiUrl('/api/ci/runs/' + ciSelectedRunId), { method: 'DELETE' });
+            const d = await r.json();
+            if (!r.ok) { showToast(d.error || 'Delete failed', 'error'); return; }
+            showToast('Run deleted', 'success');
+            // Remove the option from the selector and reset
+            if (selector) {
+                const opt = selector.querySelector(`option[value="${ciSelectedRunId}"]`);
+                if (opt) opt.remove();
+            }
+            ciSelectedRunId = null;
+            const deleteBtn = document.getElementById('ci-delete-run-btn');
+            if (deleteBtn) deleteBtn.style.display = 'none';
+            const shareBtn2 = document.getElementById('ci-share-run-btn');
+            if (shareBtn2) shareBtn2.style.display = 'none';
+            // Reset findings panel
+            document.getElementById('ci-no-findings').style.display = 'block';
+            document.getElementById('ci-key-findings-section').style.display = 'none';
+            document.getElementById('ci-run-meta-header').style.display = 'none';
+            document.getElementById('ci-report-builder') && (document.getElementById('ci-report-builder').style.display = 'none');
+            if (selector) selector.value = '';
+        } catch(e) {
+            showToast('Delete failed: ' + e.message, 'error');
+        }
+    }
+
+    // ── Goal Assistant ────────────────────────────────────────────────────────
+    let _ciGoalMessages = [];    // local conversation history
+    let _ciGoalThinking = false;
+
+    async function ciOpenGoalAssistant() {
+        _ciGoalMessages = [];
+        document.getElementById('ci-goal-input').value = '';
+        document.getElementById('ci-goal-messages').innerHTML = '';
+        document.getElementById('ci-goal-modal').style.display = 'flex';
+        // Send an empty first turn so the AI greets with context
+        await ciGoalSend('');
+    }
+
+    function ciCloseGoalAssistant() {
+        document.getElementById('ci-goal-modal').style.display = 'none';
+    }
+
+    function _ciGoalRole() { return document.getElementById('ci-role')?.value || 'neutral'; }
+    function _ciGoalJurisdiction() {
+        const sel = document.getElementById('ci-jurisdiction-select');
+        if (sel && sel.selectedIndex > 0) {
+            return sel.options[sel.selectedIndex].text;
+        }
+        return 'Not specified';
+    }
+
+    function _ciGoalAppendBubble(role, text, suggestedGoal) {
+        const wrap = document.getElementById('ci-goal-messages');
+        const isAI = role === 'assistant';
+        const div = document.createElement('div');
+        div.style.cssText = `display:flex; flex-direction:column; align-items:${isAI ? 'flex-start' : 'flex-end'};`;
+
+        // Bubble
+        const bubble = document.createElement('div');
+        bubble.style.cssText = `max-width:88%; padding:10px 13px; border-radius:${isAI ? '4px 12px 12px 12px' : '12px 4px 12px 12px'}; font-size:13px; line-height:1.5; white-space:pre-wrap; background:${isAI ? '#f4f0f9' : '#8e44ad'}; color:${isAI ? '#2c3e50' : '#fff'};`;
+        bubble.textContent = text;
+        div.appendChild(bubble);
+
+        // "Use this goal" button on AI messages that have a suggestion
+        if (isAI && suggestedGoal) {
+            const btn = document.createElement('button');
+            btn.textContent = '← Use this as my goal';
+            btn.style.cssText = 'margin-top:5px; background:#8e44ad; color:white; border:none; border-radius:5px; padding:4px 12px; font-size:12px; font-weight:600; cursor:pointer;';
+            btn.onclick = () => {
+                document.getElementById('ci-goal').value = suggestedGoal;
+                ciCloseGoalAssistant();
+                showToast('Goal updated!', 'success');
+            };
+            div.appendChild(btn);
+        }
+
+        wrap.appendChild(div);
+        wrap.scrollTop = wrap.scrollHeight;
+        return div;
+    }
+
+    async function ciGoalSend(overrideText) {
+        if (_ciGoalThinking) return;
+        const inputEl = document.getElementById('ci-goal-input');
+        const text = overrideText !== undefined ? overrideText : inputEl.value.trim();
+        // Don't add empty user message on first greeting call (overrideText === '')
+        if (text) {
+            _ciGoalMessages.push({role: 'user', content: text});
+            _ciGoalAppendBubble('user', text, null);
+            inputEl.value = '';
+        }
+
+        // Thinking indicator
+        _ciGoalThinking = true;
+        const thinkingDiv = _ciGoalAppendBubble('assistant', '…', null);
+
+        try {
+            const r = await apiFetch(apiUrl('/api/ci/goal-assistant'), {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    messages: _ciGoalMessages,
+                    context: {
+                        role: _ciGoalRole(),
+                        jurisdiction: _ciGoalJurisdiction(),
+                        draft_goal: document.getElementById('ci-goal')?.value?.trim() || '',
+                    },
+                }),
+            });
+            const d = await r.json();
+            thinkingDiv.remove();
+            if (!r.ok) {
+                _ciGoalAppendBubble('assistant', '⚠️ ' + (d.error || 'Error from AI'), null);
+                _ciGoalThinking = false;
+                return;
+            }
+            _ciGoalMessages.push({role: 'assistant', content: d.response});
+            _ciGoalAppendBubble('assistant', d.response, d.suggested_goal || null);
+        } catch(e) {
+            thinkingDiv.remove();
+            _ciGoalAppendBubble('assistant', '⚠️ ' + e.message, null);
+        }
+        _ciGoalThinking = false;
+    }
+
+    async function ciOpenShareModal() {
+        if (!ciSelectedRunId) return;
+        const selector = document.getElementById('ci-run-selector');
+        const label = selector?.options[selector.selectedIndex]?.text || ciSelectedRunId;
+        document.getElementById('ci-share-run-label').textContent = label;
+        document.getElementById('ci-share-username-input').value = '';
+        document.getElementById('ci-share-error').style.display = 'none';
+        document.getElementById('ci-share-modal').style.display = 'flex';
+        await ciRefreshShareList();
+    }
+
+    function ciCloseShareModal() {
+        document.getElementById('ci-share-modal').style.display = 'none';
+    }
+
+    async function ciRefreshShareList() {
+        const listEl = document.getElementById('ci-share-list');
+        try {
+            const r = await apiFetch(apiUrl('/api/ci/runs/' + ciSelectedRunId + '/shares'));
+            const d = await r.json();
+            if (!r.ok) { listEl.innerHTML = `<div style="color:#e74c3c;font-size:13px;">${escapeHtml(d.error||'Error')}</div>`; return; }
+            const shares = d.shares || [];
+            if (!shares.length) {
+                listEl.innerHTML = '<div style="color:#999;font-size:13px;">No one yet</div>';
+                return;
+            }
+            listEl.innerHTML = shares.map(s => `
+                <div style="display:flex; justify-content:space-between; align-items:center; padding:5px 2px; border-bottom:1px solid #f0f0f0;">
+                    <span style="font-size:13px;">👤 <strong>${escapeHtml(s.display_name)}</strong> <span style="color:#888;font-size:11px;">(${escapeHtml(s.username)})</span></span>
+                    <button onclick="ciRemoveShare(${s.user_id})" style="background:none; border:none; color:#e74c3c; cursor:pointer; font-size:16px; padding:0 4px;" title="Remove access">×</button>
+                </div>`).join('');
+        } catch(e) {
+            listEl.innerHTML = `<div style="color:#e74c3c;font-size:13px;">Failed to load</div>`;
+        }
+    }
+
+    async function ciAddShare() {
+        const username = document.getElementById('ci-share-username-input').value.trim();
+        const errEl = document.getElementById('ci-share-error');
+        errEl.style.display = 'none';
+        if (!username) { errEl.textContent = 'Enter a username.'; errEl.style.display = 'block'; return; }
+        try {
+            const r = await apiFetch(apiUrl('/api/ci/runs/' + ciSelectedRunId + '/shares'), {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({username}),
+            });
+            const d = await r.json();
+            if (!r.ok) { errEl.textContent = d.error || 'Failed'; errEl.style.display = 'block'; return; }
+            document.getElementById('ci-share-username-input').value = '';
+            showToast(`Run shared with ${d.shared_with}`, 'success');
+            await ciRefreshShareList();
+        } catch(e) {
+            errEl.textContent = e.message; errEl.style.display = 'block';
+        }
+    }
+
+    async function ciRemoveShare(uid) {
+        if (!confirm('Remove this user\'s access?')) return;
+        try {
+            const r = await apiFetch(apiUrl('/api/ci/runs/' + ciSelectedRunId + '/shares/' + uid), { method: 'DELETE' });
+            const d = await r.json();
+            if (!r.ok) { showToast(d.error || 'Failed', 'error'); return; }
+            showToast('Access removed', 'success');
+            await ciRefreshShareList();
+        } catch(e) {
+            showToast(e.message, 'error');
+        }
+    }
+
     function ciRenderFindings(d, runId) {
         document.getElementById('ci-no-findings').style.display = 'none';
         document.getElementById('ci-findings-status').style.display = 'none';
         document.getElementById('ci-key-findings-section').style.display = 'block';
         if (IS_ADVANCED && document.getElementById('ci-report-builder')) {
             document.getElementById('ci-report-builder').style.display = 'block';
+        }
+
+        // ── Run metadata header ───────────────────────────────────────────
+        const meta = d.run_meta || {};
+        if (meta && Object.keys(meta).length) {
+            document.getElementById('ci-run-meta-header').style.display = 'block';
+            document.getElementById('ci-meta-run-by').textContent  = meta.run_by || '—';
+            document.getElementById('ci-meta-role').textContent    = meta.role || '—';
+            document.getElementById('ci-meta-duration').textContent = meta.duration || '—';
+            document.getElementById('ci-meta-goal').textContent    = meta.goal_text || '—';
+            document.getElementById('ci-meta-docs').textContent    =
+                meta.docs_total ? `${meta.docs_total} documents` : '—';
+            document.getElementById('ci-meta-cost').textContent    =
+                meta.cost_usd != null ? `$${parseFloat(meta.cost_usd).toFixed(4)}` : '—';
+            const started = meta.created_at ? meta.created_at.substring(0,16).replace('T',' ') : '—';
+            document.getElementById('ci-meta-started').textContent = started;
         }
 
         // Key findings from summary
@@ -7399,7 +7970,12 @@
             `).join('');
             document.getElementById('ci-key-findings-count').textContent = '(' + (summary.key_findings.length) + ')';
         } else {
-            kf.innerHTML = '<p style="color:#888; font-size:13px;">No key findings summary available.</p>';
+            kf.innerHTML = `<div style="background:#fff8f0; border:1px solid #f0d090; border-radius:6px; padding:12px 16px; font-size:12px; color:#666;">
+                <strong style="color:#b8860b;">Key findings summary was not generated for this run.</strong>
+                This section is synthesized by the Director LLM from entities, contradictions, and theories.
+                If this run completed but shows nothing here, the Director synthesis step may have failed or been skipped.
+                <br><br>Try running again with a more specific <em>Goal</em> — e.g.: <em>"Identify all financial transactions made by the receiver and whether they were authorized by the court order."</em>
+            </div>`;
         }
 
         // Timeline
@@ -7439,7 +8015,12 @@
                     <div><span style="color:#2980b9; font-weight:600;">${escapeHtml(f.position_b_label || 'Position B')}:</span><br>${escapeHtml(f.position_b_text || '—')}</div>
                 </div>
             </div>
-        `).join('') : '<p style="color:#888; font-size:13px;">No disputed facts identified.</p>';
+        `).join('') : `<div style="background:#f8f8ff; border:1px solid #c8d0e8; border-radius:6px; padding:12px 16px; font-size:12px; color:#666;">
+            <strong style="color:#555;">No disputed facts were identified in this run.</strong>
+            The Disputed Facts Matrix requires at least two documents with conflicting positions on the same fact.
+            <br><br><em>Suggestions for next run:</em> Try a goal focused on a specific dispute — e.g.:
+            <em>"What is each party's position on the amount owed under the mortgage and what documents support each position?"</em>
+        </div>`;
 
         // Contradictions
         const cl = document.getElementById('ci-contradictions-list');
@@ -7457,14 +8038,78 @@
         // Theories
         const thList = document.getElementById('ci-theories-list');
         const theories = d.theories || [];
+        const docMap = d.doc_map || {};
         document.getElementById('ci-theories-count').textContent = '(' + theories.length + ')';
-        thList.innerHTML = theories.length ? theories.map(t => `
-            <div class="ci-finding-item">
-                <span class="severity-badge ${t.status === 'supported' ? 'high' : (t.status === 'refuted' ? 'critical' : 'medium')}">${(t.status || 'proposed').toUpperCase()} ${Math.round((t.confidence || 0.5)*100)}%</span>
-                <strong>[${escapeHtml(t.theory_type || '')}]</strong> ${escapeHtml(t.theory_text || '')}
-                ${t.falsification_report ? '<p style="font-size:11px; color:#e67e22; margin:4px 0 0 0;">⚔️ ' + escapeHtml(t.falsification_report.substring(0,200)) + '</p>' : ''}
-            </div>
-        `).join('') : '<p style="color:#888; font-size:13px;">No theories generated.</p>';
+
+        function ciEvidenceCards(jsonStr, docMap, isCounter) {
+            let items = [];
+            try { items = JSON.parse(jsonStr || '[]'); } catch(e) { return ''; }
+            if (!items || !items.length) return '';
+            const color  = isCounter ? '#c0392b' : '#27ae60';
+            const icon   = isCounter ? '🔴' : '🟢';
+            const label  = isCounter ? 'Counter Evidence' : 'Supporting Evidence';
+            const cards  = items.map(ev => {
+                const did  = ev.paperless_doc_id;
+                const info = did ? (docMap[did] || {}) : {};
+                const titleTxt = info.title || (did ? `Document #${did}` : 'Unspecified document');
+                const titleEl  = did
+                    ? `<a href="https://www.voipguru.org/paperless/documents/${did}" target="_blank"
+                          style="color:#2980b9; text-decoration:none; font-weight:600;"
+                          title="Open in Paperless">📄 ${escapeHtml(titleTxt)}</a> <span style="color:#aaa; font-size:10px;">#${did}</span>`
+                    : `<span style="font-weight:600; color:#555;">📄 ${escapeHtml(titleTxt)}</span>`;
+                const summaryEl = info.summary
+                    ? `<div style="font-size:10px; color:#777; margin:2px 0 4px 0; font-style:italic;">${escapeHtml(info.summary.substring(0,200))}…</div>`
+                    : '';
+                const excerptEl = ev.excerpt
+                    ? `<div style="font-size:11px; background:#f9f9f9; border-left:3px solid ${color}; padding:4px 8px; margin:4px 0; color:#333;">"${escapeHtml(ev.excerpt)}"</div>`
+                    : '';
+                const reasonKey = isCounter ? 'how_it_undermines' : 'how_it_supports';
+                const reasonEl  = ev[reasonKey]
+                    ? `<div style="font-size:11px; color:#555; margin:2px 0;">${escapeHtml(ev[reasonKey])}</div>`
+                    : '';
+                const pageEl = ev.page_number ? `<span style="font-size:10px; color:#aaa;"> — p.${ev.page_number}</span>` : '';
+                return `<div style="border:1px solid #e8e8e8; border-radius:5px; padding:8px 10px; margin:5px 0; background:#fff;">
+                    ${titleEl}${pageEl}${summaryEl}${excerptEl}${reasonEl}
+                </div>`;
+            }).join('');
+            return `<div style="margin-top:10px;">
+                <div style="font-size:11px; font-weight:700; color:${color}; margin-bottom:4px;">${icon} ${label}</div>
+                ${cards}
+            </div>`;
+        }
+
+        thList.innerHTML = theories.length ? theories.map((t, idx) => {
+            const statusColor = t.status === 'supported' ? '#27ae60' : t.status === 'refuted' ? '#c0392b' : '#e67e22';
+            const confPct = Math.round((t.confidence || 0.5) * 100);
+            const suppHtml    = ciEvidenceCards(t.supporting_evidence, docMap, false);
+            const counterHtml = ciEvidenceCards(t.counter_evidence,    docMap, true);
+            const panelId = `ci-theory-body-${idx}`;
+            return `
+            <div style="border:1px solid #dde3ec; border-radius:8px; margin-bottom:10px; overflow:hidden;">
+                <div onclick="document.getElementById('${panelId}').style.display = document.getElementById('${panelId}').style.display==='none'?'block':'none'"
+                     style="display:flex; align-items:flex-start; gap:10px; padding:12px 14px; cursor:pointer; background:#fafbfc;">
+                    <div style="flex-shrink:0; min-width:80px; text-align:center;">
+                        <div style="font-weight:700; font-size:13px; color:${statusColor};">${(t.status || 'pending').toUpperCase()}</div>
+                        <div style="font-size:20px; font-weight:800; color:${statusColor};">${confPct}%</div>
+                        <div style="font-size:10px; color:#888; text-transform:uppercase;">${escapeHtml(t.theory_type || '')}</div>
+                    </div>
+                    <div style="flex:1; font-size:13px; color:#1a2535; line-height:1.5;">${escapeHtml(t.theory_text || '')}</div>
+                    <div style="flex-shrink:0; font-size:18px; color:#aaa;">›</div>
+                </div>
+                <div id="${panelId}" style="display:none; padding:12px 14px; border-top:1px solid #eee; background:#fff;">
+                    ${suppHtml}
+                    ${counterHtml}
+                    ${t.falsification_report ? `<div style="margin-top:10px;">
+                        <div style="font-size:11px; font-weight:700; color:#e67e22; margin-bottom:4px;">⚔️ Adversarial Test</div>
+                        <div style="font-size:12px; color:#555; line-height:1.5;">${escapeHtml(t.falsification_report)}</div>
+                    </div>` : ''}
+                    ${t.what_would_change ? `<div style="margin-top:10px; padding:8px 10px; background:#fffbf0; border:1px solid #f0d060; border-radius:5px;">
+                        <div style="font-size:11px; font-weight:700; color:#b8860b; margin-bottom:3px;">💡 What Would Strengthen This Theory</div>
+                        <div style="font-size:12px; color:#555; line-height:1.5;">${escapeHtml(t.what_would_change)}</div>
+                    </div>` : ''}
+                </div>
+            </div>`;
+        }).join('') : '<p style="color:#888; font-size:13px;">No theories generated.</p>';
 
         // Authorities
         const authList = document.getElementById('ci-authorities-list');
@@ -7477,7 +8122,11 @@
                 <td style="padding:4px 8px;">${escapeHtml(a.authority_type || '')}</td>
                 <td style="padding:4px 8px; color:#666; font-size:11px;">${escapeHtml(a.relevance_note || '')}</td>
             </tr>`).join('')}
-        </table>` : '<p style="color:#888; font-size:13px;">No authorities cited.</p>';
+        </table>` : `<div style="background:#f8f8ff; border:1px solid #c8d0e8; border-radius:6px; padding:12px 16px; font-size:12px; color:#666;">
+            <strong style="color:#555;">No legal authorities were retrieved for this run.</strong>
+            Legal authority retrieval requires a Cohere API key to be configured and an authority corpus to be indexed.
+            <br><br>If Cohere is not configured, authorities will always be empty. To enable: add <code>COHERE_API_KEY</code> to the container environment and ingest an authority corpus via the authority ingester.
+        </div>`;
     }
 
     // ── Report builder ───────────────────────────────────────────────
@@ -7585,6 +8234,51 @@
             </div>
             <div style="margin-top: 20px; text-align: right;">
                 <button class="btn" onclick="closeShareModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── CI Goal Assistant Modal ─────────────────── -->
+    <div id="ci-goal-modal" onclick="if(event.target===this)ciCloseGoalAssistant()" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.55); z-index:9999; align-items:flex-end; justify-content:center;">
+        <div style="background:#fff; border-radius:12px 12px 0 0; width:100%; max-width:640px; height:72vh; display:flex; flex-direction:column; box-shadow:0 -8px 40px rgba(0,0,0,0.25);">
+            <!-- Header -->
+            <div style="padding:14px 18px 10px; border-bottom:1px solid #e5e7eb; display:flex; align-items:center; justify-content:space-between; flex-shrink:0;">
+                <div>
+                    <div style="font-weight:700; font-size:15px; color:#2c3e50;">✨ Goal Assistant</div>
+                    <div style="font-size:11px; color:#888; margin-top:1px;">Chat with AI to craft a precise Case Intelligence goal</div>
+                </div>
+                <button onclick="ciCloseGoalAssistant()" style="background:none; border:none; font-size:20px; color:#888; cursor:pointer; padding:0 4px;">×</button>
+            </div>
+            <!-- Messages -->
+            <div id="ci-goal-messages" style="flex:1; overflow-y:auto; padding:14px 18px; display:flex; flex-direction:column; gap:12px;"></div>
+            <!-- Input row -->
+            <div style="padding:10px 18px 14px; border-top:1px solid #e5e7eb; display:flex; gap:8px; flex-shrink:0;">
+                <textarea id="ci-goal-input" rows="2" placeholder="Describe your case or ask for adjustments…"
+                    style="flex:1; padding:8px 10px; border:1px solid #ddd; border-radius:6px; font-size:13px; resize:none; font-family:inherit;"
+                    onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();ciGoalSend();}"></textarea>
+                <button onclick="ciGoalSend()" style="background:#8e44ad; color:white; border:none; border-radius:6px; padding:0 16px; font-size:13px; font-weight:600; cursor:pointer; white-space:nowrap;">Send</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── CI Run Share Modal ──────────────────────── -->
+    <div id="ci-share-modal" onclick="if(event.target===this)ciCloseShareModal()" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.55); z-index:9999; align-items:center; justify-content:center;">
+        <div style="background:#fff; border-radius:10px; padding:28px; width:100%; max-width:460px; box-shadow:0 10px 40px rgba(0,0,0,0.3);">
+            <h3 style="margin:0 0 6px; font-size:17px; color:#2c3e50;">👥 Share Run</h3>
+            <p style="margin:0 0 16px; font-size:13px; color:#666;" id="ci-share-run-label"></p>
+            <div style="display:flex; gap:8px; margin-bottom:8px;">
+                <input type="text" id="ci-share-username-input" placeholder="Username to share with…"
+                       style="flex:1; padding:8px 10px; border:1px solid #ddd; border-radius:5px; font-size:13px;"
+                       onkeydown="if(event.key==='Enter')ciAddShare()">
+                <button class="btn" onclick="ciAddShare()" style="background:#8e44ad; color:white; white-space:nowrap;">Add</button>
+            </div>
+            <div id="ci-share-error" style="color:#e74c3c; font-size:12px; margin-bottom:8px; display:none;"></div>
+            <div style="font-size:12px; font-weight:600; color:#888; text-transform:uppercase; letter-spacing:.05em; margin-bottom:6px;">Shared with</div>
+            <div id="ci-share-list" style="min-height:36px; max-height:200px; overflow-y:auto; border:1px solid #e5e7eb; border-radius:6px; padding:6px 8px; margin-bottom:16px;">
+                <div style="color:#999; font-size:13px;">No one yet</div>
+            </div>
+            <div style="text-align:right;">
+                <button class="btn" onclick="ciCloseShareModal()">Close</button>
             </div>
         </div>
     </div>

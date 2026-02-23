@@ -273,8 +273,19 @@ class ContradictionEngine:
             else:
                 return None
 
-            return json.loads(text)
-        except json.JSONDecodeError:
+            # Strip markdown fences before parsing (Anthropic wraps JSON in ```json...```)
+            if '```json' in text:
+                text = text.split('```json')[1].split('```')[0].strip()
+            elif '```' in text:
+                text = text.split('```')[1].split('```')[0].strip()
+            parsed = json.loads(text)
+            logger.info(f"ContradictionEngine: {provider}/{model} returned "
+                        f"{len(parsed.get('contradictions', []))} contradictions, "
+                        f"{len(parsed.get('disputed_facts', []))} disputed facts")
+            return parsed
+        except json.JSONDecodeError as e:
+            logger.warning(f"ContradictionEngine: JSON parse error ({provider}/{model}): {e} | "
+                           f"text[:200]={text[:200]!r}")
             return None
         except Exception as e:
             logger.error(f"ContradictionEngine LLM call failed: {e}")

@@ -196,6 +196,24 @@ def _ci_gate():
     return True, None
 
 
+def _ci_can_read(run) -> bool:
+    """True if current_user may read this run (owner, admin, or shared-with)."""
+    if current_user.is_admin:
+        return True
+    if run['user_id'] == current_user.id:
+        return True
+    try:
+        from analyzer.case_intelligence.db import is_run_shared_with
+        return is_run_shared_with(run['id'], current_user.id)
+    except Exception:
+        return False
+
+
+def _ci_can_write(run) -> bool:
+    """True if current_user may mutate this run (owner or admin only)."""
+    return run['user_id'] == current_user.id or current_user.is_admin
+
+
 @app.context_processor
 def inject_user():
     is_admin = current_user.is_authenticated and current_user.is_admin
@@ -1413,10 +1431,27 @@ Only include a docs link when it is genuinely relevant to the user's question.""
         if vision_ai_used:
             system_prompt += f"\n\n[Note: Vision AI was used during this query to extract content from {len(vision_ai_used)} document(s) with poor OCR: {', '.join(vision_ai_used[:3])}. Their embeddings have been updated for future queries.]"
 
-        # Load AI configuration and try providers/models in order
-        ai_config = load_ai_config()
-        chat_config = ai_config.get('chat', {})
-        providers = chat_config.get('providers', [])
+        # Load AI configuration — v2 format: per-project primary/fallback, global keys as fallback
+        project_slug = session.get('current_project', 'default')
+        chat_cfg = get_project_ai_config(project_slug, 'chat')
+        _full_cfg = load_ai_config()
+
+        def _global_key(provider_name):
+            return _full_cfg.get('global', {}).get(provider_name, {}).get('api_key', '').strip()
+
+        providers = []
+        prov = chat_cfg.get('provider', 'openai')
+        pkey = (chat_cfg.get('api_key') or '').strip() or _global_key(prov)
+        if pkey:
+            providers.append({'name': prov, 'enabled': True, 'api_key': pkey,
+                              'models': [chat_cfg.get('model', 'gpt-4o')]})
+        fb_prov = chat_cfg.get('fallback_provider')
+        fb_model = chat_cfg.get('fallback_model')
+        if fb_prov and fb_model and fb_prov != prov:
+            fb_key = _global_key(fb_prov)
+            if fb_key:
+                providers.append({'name': fb_prov, 'enabled': True, 'api_key': fb_key,
+                                  'models': [fb_model]})
 
         ai_response = None
         last_error = None
@@ -1969,15 +2004,26 @@ def save_ai_config(config: dict) -> bool:
 
 
 def get_project_ai_config(project_slug: str, use_case: str) -> dict:
-    """Return {provider, model, fallback_provider, fallback_model} for a project/use-case.
+    """Return {provider, model, fallback_provider, fallback_model, api_key} for a project/use-case.
     Falls back to system defaults if the project or use_case is not configured.
+    api_key resolves: project-level override → global key → env var.
     use_case: 'document_analysis' | 'chat' | 'case_intelligence'
     """
     cfg = load_ai_config()
-    use_case_cfg = cfg.get('projects', {}).get(project_slug, {}).get(use_case)
+    proj_cfg = cfg.get('projects', {}).get(project_slug, {})
+    use_case_cfg = proj_cfg.get(use_case)
     if use_case_cfg and use_case_cfg.get('provider'):
-        return dict(use_case_cfg)
-    return dict(_AI_DEFAULTS.get(use_case, _AI_DEFAULTS['document_analysis']))
+        result = dict(use_case_cfg)
+    else:
+        result = dict(_AI_DEFAULTS.get(use_case, _AI_DEFAULTS['document_analysis']))
+    # Resolve API key: project override → global
+    provider = result.get('provider', 'openai')
+    project_key = proj_cfg.get(f'{provider}_api_key', '').strip()
+    if project_key:
+        result['api_key'] = project_key
+    else:
+        result['api_key'] = cfg.get('global', {}).get(provider, {}).get('api_key', '')
+    return result
 
 
 @app.route('/api/ai-config', methods=['GET'])
@@ -2027,27 +2073,17 @@ def api_ai_config_test():
             import openai
             client = openai.OpenAI(api_key=api_key)
 
-            # Try the specified model or default
-            test_model = model if model else 'gpt-3.5-turbo'
-            try:
-                response = client.chat.completions.create(
-                    model=test_model,
-                    messages=[{"role": "user", "content": "Say 'test successful'"}],
-                    max_tokens=10
-                )
-                return jsonify({
-                    'success': True,
-                    'message': f'✓ OpenAI API key is valid! Using model: {test_model}',
-                    'model': test_model
-                })
-            except Exception as e:
-                error_msg = str(e)
-                if '404' in error_msg or 'model_not_found' in error_msg:
-                    return jsonify({
-                        'success': False,
-                        'error': f'Model {test_model} not available with this API key'
-                    }), 400
-                raise
+            # Validate by listing models — no dependency on a specific model
+            models_list = client.models.list()
+            model_ids = {m.id for m in models_list.data}
+            preferred = ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-4', 'gpt-3.5-turbo']
+            available = [m for m in preferred if m in model_ids]
+            display = ', '.join(available[:4]) if available else (next(iter(model_ids), 'unknown'))
+            return jsonify({
+                'success': True,
+                'message': f'✓ OpenAI key is valid. Available models include: {display}',
+                'model': available[0] if available else ''
+            })
 
         elif provider == 'anthropic':
             import anthropic
@@ -2148,7 +2184,14 @@ def api_ai_config_project_get(slug):
         return jsonify({'error': 'Access denied'}), 403
     cfg = load_ai_config()
     project_cfg = cfg.get('projects', {}).get(slug, {})
-    return jsonify({'success': True, 'slug': slug, 'config': project_cfg,
+    # Return config with API keys masked (never expose raw keys)
+    safe_cfg = {k: v for k, v in project_cfg.items()}
+    has_openai    = bool(project_cfg.get('openai_api_key', '').strip())
+    has_anthropic = bool(project_cfg.get('anthropic_api_key', '').strip())
+    if has_openai:    safe_cfg['openai_api_key']    = '••••••••'
+    if has_anthropic: safe_cfg['anthropic_api_key'] = '••••••••'
+    return jsonify({'success': True, 'slug': slug, 'config': safe_cfg,
+                    'has_openai_key': has_openai, 'has_anthropic_key': has_anthropic,
                     'defaults': _AI_DEFAULTS, 'models': _AI_PROVIDER_MODELS})
 
 
@@ -2162,6 +2205,12 @@ def api_ai_config_project_save(slug):
         data = request.json or {}
         new_proj_cfg = data.get('config', {})
         cfg = load_ai_config()
+        existing = cfg.get('projects', {}).get(slug, {})
+        # Preserve real keys when the UI submits the masked placeholder or empty string
+        for key_field in ('openai_api_key', 'anthropic_api_key'):
+            submitted = new_proj_cfg.get(key_field, '').strip()
+            if not submitted or submitted == '••••••••':
+                new_proj_cfg[key_field] = existing.get(key_field, '')
         cfg.setdefault('projects', {})[slug] = new_proj_cfg
         save_ai_config(cfg)
         return jsonify({'success': True, 'message': f'AI config saved for project "{slug}".'})
@@ -2506,6 +2555,47 @@ def api_reconcile():
 
     except Exception as e:
         logger.error(f"Reconcile error: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/me', methods=['GET'])
+@login_required
+def api_me_get():
+    """Return the current user's own profile data."""
+    row = get_user_by_id(current_user.id)
+    if not row:
+        return jsonify({'error': 'User not found'}), 404
+    return jsonify({
+        'id': row['id'],
+        'username': row['username'],
+        'display_name': row['display_name'] or '',
+        'email': row['email'] or '',
+        'phone': row['phone'] or '',
+        'address': row['address'] or '',
+        'job_title': row['job_title'] or '',
+        'role': row['role'],
+    })
+
+
+@app.route('/api/me', methods=['PATCH'])
+@login_required
+def api_me_update():
+    """Update current user's own editable profile fields. Role and username are not changeable here."""
+    data = request.json or {}
+    allowed = {k: v for k, v in data.items()
+               if k in ('display_name', 'email', 'phone', 'address', 'job_title')}
+    if not allowed:
+        return jsonify({'error': 'No valid fields provided'}), 400
+    if 'display_name' in allowed and not str(allowed['display_name']).strip():
+        return jsonify({'error': 'Display name cannot be empty'}), 400
+    try:
+        db_update_user(current_user.id, **allowed)
+        if 'display_name' in allowed:
+            current_user.display_name = allowed['display_name'].strip()
+        logger.info(f"Profile updated for user {current_user.username}: {list(allowed.keys())}")
+        return jsonify({'success': True})
+    except Exception as e:
+        logger.error(f"Profile update error: {e}")
         return jsonify({'error': str(e)}), 500
 
 
@@ -4652,7 +4742,7 @@ def _check_analyzer_loop():
         now = datetime.now(timezone.utc)
         age_s = int((now - last_run).total_seconds())
         poll_interval = int(os.environ.get('POLL_INTERVAL_SECONDS', '30'))
-        threshold = poll_interval * 3
+        threshold = poll_interval * 10  # 10× gives headroom for long LLM processing cycles
         if age_s > threshold:
             return {'status': 'warning', 'latency_ms': 0, 'detail': f'Last run {age_s}s ago (threshold {threshold}s)'}
         return {'status': 'ok', 'latency_ms': 0, 'detail': f'Last run {age_s}s ago'}
@@ -5086,8 +5176,8 @@ def api_users_create():
         job_title = data.get('job_title', '').strip()
         if not username or not password:
             return jsonify({'error': 'username and password required'}), 400
-        if role not in ('basic', 'admin'):
-            return jsonify({'error': 'role must be basic or admin'}), 400
+        if role not in ('basic', 'advanced', 'admin'):
+            return jsonify({'error': 'role must be basic, advanced, or admin'}), 400
         if get_user_by_username(username):
             return jsonify({'error': f"User '{username}' already exists"}), 409
         db_create_user(username, password, role=role, display_name=display_name, email=email)
@@ -5115,8 +5205,8 @@ def api_users_update(uid):
             'phone', 'address', 'github', 'linkedin', 'facebook',
             'instagram', 'other_handles', 'timezone', 'job_title',
         )}
-        if 'role' in allowed and allowed['role'] not in ('basic', 'admin'):
-            return jsonify({'error': 'role must be basic or admin'}), 400
+        if 'role' in allowed and allowed['role'] not in ('basic', 'advanced', 'admin'):
+            return jsonify({'error': 'role must be basic, advanced, or admin'}), 400
         db_update_user(uid, **allowed)
         return jsonify({'success': True})
     except Exception as e:
@@ -5392,16 +5482,147 @@ def ci_detect_jurisdiction():
 @app.route('/api/ci/runs', methods=['GET'])
 @login_required
 def ci_list_runs():
-    """List CI runs for current project."""
+    """List CI runs for current project.
+    Admins see all runs; others see own runs + runs shared with them.
+    """
     ok, err = _ci_gate()
     if not ok:
         return err
     try:
-        from analyzer.case_intelligence.db import list_ci_runs
+        from analyzer.case_intelligence.db import (
+            list_ci_runs, get_run_ids_shared_with, get_ci_run,
+        )
         project_slug = session.get('current_project', 'default')
-        runs = list_ci_runs(project_slug, user_id=current_user.id)
-        return jsonify({'runs': [dict(r) for r in runs]})
+
+        if current_user.is_admin:
+            runs = [dict(r) for r in list_ci_runs(project_slug)]
+        else:
+            own = [dict(r) for r in list_ci_runs(project_slug, user_id=current_user.id)]
+            shared_ids = get_run_ids_shared_with(current_user.id)
+            shared = []
+            for rid in shared_ids:
+                r = get_ci_run(rid)
+                if r and r['project_slug'] == project_slug:
+                    d = dict(r)
+                    d['_shared'] = True
+                    shared.append(d)
+            own_ids = {r['id'] for r in own}
+            runs = own + [r for r in shared if r['id'] not in own_ids]
+            runs.sort(key=lambda r: r.get('created_at', ''), reverse=True)
+
+        # Annotate with owner display_name
+        for r in runs:
+            u = get_user_by_id(r['user_id'])
+            r['owner_name'] = u['display_name'] if u else f"user#{r['user_id']}"
+
+        return jsonify({'runs': runs})
     except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/ci/goal-assistant', methods=['POST'])
+@login_required
+@advanced_required
+def ci_goal_assistant():
+    """Lightweight AI chat that helps the user write a focused CI goal statement.
+    Stateless — caller maintains conversation history in the browser.
+    """
+    ok, err = _ci_gate()
+    if not ok:
+        return err
+    try:
+        data = request.json or {}
+        messages = data.get('messages', [])          # [{role, content}, ...]
+        ctx = data.get('context', {})
+        role = ctx.get('role', 'neutral')
+        jurisdiction = ctx.get('jurisdiction', 'Not specified')
+        draft_goal = ctx.get('draft_goal', '').strip()
+
+        system_prompt = (
+            "You are a legal case strategy advisor helping an attorney write a clear, focused "
+            "goal statement for a document-analysis AI called Case Intelligence.\n\n"
+            "Case Intelligence will analyze legal documents to:\n"
+            "- Extract people, organizations, accounts, and key properties\n"
+            "- Build a chronological timeline of events\n"
+            "- Detect financial flows and amounts\n"
+            "- Find contradictions between documents\n"
+            "- Generate factual and legal theories\n"
+            "- Identify relevant legal authorities\n\n"
+            "A great goal statement tells Case Intelligence EXACTLY what to find:\n"
+            "  • Who the client represents and the core legal dispute\n"
+            "  • What specific evidence or patterns to surface\n"
+            "  • What outcome the attorney needs (support damages, build defense, find smoking-gun)\n\n"
+            f"CURRENT SETUP:\n"
+            f"  Role: {role}\n"
+            f"  Jurisdiction: {jurisdiction}\n"
+        )
+        if draft_goal:
+            system_prompt += f"  Draft goal: \"{draft_goal}\"\n"
+        system_prompt += (
+            "\nINSTRUCTIONS:\n"
+            "1. On the first turn, briefly acknowledge the context and ask 2-3 targeted "
+            "questions to understand the case better. Be concise.\n"
+            "2. After you have enough information, produce a polished goal statement.\n"
+            "3. When you are ready to suggest a goal, end your message with exactly:\n"
+            "📋 Suggested Goal:\n[goal text — 2-4 sentences, specific and actionable]\n"
+            "4. Only produce ONE suggested goal block per message. Keep the rest of your "
+            "message brief.\n"
+            "5. If the user wants changes, revise the suggested goal in the same format."
+        )
+
+        project_slug = session.get('current_project', 'default')
+        chat_cfg = get_project_ai_config(project_slug, 'chat')
+        _full_cfg = load_ai_config()
+
+        def _global_key(p):
+            return _full_cfg.get('global', {}).get(p, {}).get('api_key', '').strip()
+
+        provider = chat_cfg.get('provider', 'openai')
+        api_key = (chat_cfg.get('api_key') or '').strip() or _global_key(provider)
+        model = chat_cfg.get('model', 'gpt-4o')
+
+        # Fallback if primary has no key
+        if not api_key:
+            fb_prov = chat_cfg.get('fallback_provider')
+            api_key = _global_key(fb_prov) if fb_prov else ''
+            if api_key:
+                provider = fb_prov
+                model = chat_cfg.get('fallback_model', model)
+
+        if not api_key:
+            return jsonify({'error': 'No AI API key configured.'}), 503
+
+        if provider == 'openai':
+            import openai as _oai
+            client = _oai.OpenAI(api_key=api_key)
+            resp = client.chat.completions.create(
+                model=model,
+                max_tokens=600,
+                messages=[{'role': 'system', 'content': system_prompt}] + messages,
+            )
+            reply = resp.choices[0].message.content
+        elif provider == 'anthropic':
+            import anthropic as _ant
+            client = _ant.Anthropic(api_key=api_key)
+            resp = client.messages.create(
+                model=model,
+                max_tokens=600,
+                system=system_prompt,
+                messages=messages,
+            )
+            reply = resp.content[0].text
+        else:
+            return jsonify({'error': f'Unsupported provider: {provider}'}), 400
+
+        # Extract suggested goal if present
+        suggested_goal = None
+        marker = '📋 Suggested Goal:'
+        if marker in reply:
+            suggested_goal = reply.split(marker, 1)[1].strip()
+
+        return jsonify({'response': reply, 'suggested_goal': suggested_goal})
+    except Exception as e:
+        logger.error(f"CI goal assistant error: {e}")
         return jsonify({'error': str(e)}), 500
 
 
@@ -5450,7 +5671,7 @@ def ci_get_run(run_id):
         run = get_ci_run(run_id)
         if not run:
             return jsonify({'error': 'Run not found'}), 404
-        if run['user_id'] != current_user.id and not current_user.is_admin:
+        if not _ci_can_read(run):
             return jsonify({'error': 'Not authorized'}), 403
         return jsonify(dict(run))
     except Exception as e:
@@ -5473,7 +5694,7 @@ def ci_update_run(run_id):
             return jsonify({'error': 'Run not found'}), 404
         if run['status'] not in ('draft',):
             return jsonify({'error': 'Can only edit draft runs'}), 400
-        if run['user_id'] != current_user.id and not current_user.is_admin:
+        if not _ci_can_write(run):
             return jsonify({'error': 'Not authorized'}), 403
 
         data = request.json or {}
@@ -5512,7 +5733,7 @@ def ci_start_run(run_id):
         run = get_ci_run(run_id)
         if not run:
             return jsonify({'error': 'Run not found'}), 404
-        if run['user_id'] != current_user.id and not current_user.is_admin:
+        if not _ci_can_write(run):
             return jsonify({'error': 'Not authorized'}), 403
         if run['status'] not in ('draft', 'failed', 'cancelled'):
             return jsonify({'error': f"Cannot start run in status '{run['status']}'"}), 400
@@ -5562,7 +5783,7 @@ def ci_cancel_run(run_id):
         run = get_ci_run(run_id)
         if not run:
             return jsonify({'error': 'Run not found'}), 404
-        if run['user_id'] != current_user.id and not current_user.is_admin:
+        if not _ci_can_write(run):
             return jsonify({'error': 'Not authorized'}), 403
 
         sent = get_job_manager().cancel_run(run_id)
@@ -5616,6 +5837,8 @@ def ci_run_findings(run_id):
         run = get_ci_run(run_id)
         if not run:
             return jsonify({'error': 'Run not found'}), 404
+        if not _ci_can_read(run):
+            return jsonify({'error': 'Not authorized'}), 403
 
         findings_summary = None
         if run['findings_summary']:
@@ -5624,17 +5847,222 @@ def ci_run_findings(run_id):
             except Exception:
                 findings_summary = {'raw': run['findings_summary']}
 
+        # ── Run metadata ──────────────────────────────────────────────────────
+        # Compute duration
+        duration_str = None
+        try:
+            if run.get('started_at') and run.get('completed_at'):
+                from datetime import datetime as _dt
+                fmt = '%Y-%m-%dT%H:%M:%S'
+                t0 = _dt.fromisoformat(run['started_at'].split('.')[0].replace('Z', ''))
+                t1 = _dt.fromisoformat(run['completed_at'].split('.')[0].replace('Z', ''))
+                secs = int((t1 - t0).total_seconds())
+                if secs >= 3600:
+                    duration_str = f"{secs//3600}h {(secs%3600)//60}m"
+                elif secs >= 60:
+                    duration_str = f"{secs//60}m {secs%60}s"
+                else:
+                    duration_str = f"{secs}s"
+        except Exception:
+            pass
+
+        # Look up user display name
+        run_user = None
+        try:
+            import sqlite3 as _sq3
+            with _sq3.connect('/app/data/app.db') as _uc:
+                _uc.row_factory = _sq3.Row
+                _ur = _uc.execute(
+                    'SELECT display_name, username FROM users WHERE id=?',
+                    (run.get('user_id'),)
+                ).fetchone()
+                if _ur:
+                    run_user = _ur['display_name'] or _ur['username']
+        except Exception:
+            pass
+
+        run_meta = {
+            'created_at':      run.get('created_at'),
+            'completed_at':    run.get('completed_at'),
+            'duration':        duration_str,
+            'run_by':          run_user,
+            'role':            run.get('role'),
+            'goal_text':       run.get('goal_text'),
+            'project_slug':    run.get('project_slug'),
+            'docs_total':      run.get('docs_total'),
+            'docs_processed':  run.get('docs_processed'),
+            'cost_usd':        run.get('cost_so_far_usd'),
+            'budget_usd':      run.get('budget_per_run_usd'),
+            'status':          run.get('status'),
+        }
+
+        # ── Build doc_map from theory evidence fields ─────────────────────────
+        theories_raw = [dict(t) for t in get_ci_theories(run_id)]
+        doc_ids_needed = set()
+        for t in theories_raw:
+            for field in ('supporting_evidence', 'counter_evidence'):
+                val = t.get(field)
+                if not val:
+                    continue
+                try:
+                    items = _json.loads(val) if isinstance(val, str) else val
+                    for item in (items or []):
+                        did = item.get('paperless_doc_id')
+                        if did:
+                            doc_ids_needed.add(int(did))
+                except Exception:
+                    pass
+
+        doc_map = {}
+        if doc_ids_needed and hasattr(app, 'paperless_client'):
+            for did in doc_ids_needed:
+                try:
+                    doc = app.paperless_client.get_document(did)
+                    if doc:
+                        doc_map[did] = {
+                            'id':      did,
+                            'title':   doc.get('title', f'Document {did}'),
+                            'summary': (doc.get('content') or '')[:300].strip(),
+                        }
+                except Exception:
+                    doc_map[did] = {'id': did, 'title': f'Document {did}', 'summary': ''}
+
         return jsonify({
-            'run_id': run_id,
-            'status': run['status'],
+            'run_id':           run_id,
+            'status':           run['status'],
+            'run_meta':         run_meta,
+            'doc_map':          doc_map,
             'findings_summary': findings_summary,
-            'entities': [dict(e) for e in get_ci_entities(run_id)],
-            'timeline': [dict(ev) for ev in get_ci_timeline(run_id)],
-            'contradictions': [dict(c) for c in get_ci_contradictions(run_id)],
-            'disputed_facts': [dict(f) for f in get_ci_disputed_facts(run_id)],
-            'theories': [dict(t) for t in get_ci_theories(run_id)],
-            'authorities': [dict(a) for a in get_ci_authorities(run_id)],
+            'entities':         [dict(e) for e in get_ci_entities(run_id)],
+            'timeline':         [dict(ev) for ev in get_ci_timeline(run_id)],
+            'contradictions':   [dict(c) for c in get_ci_contradictions(run_id)],
+            'disputed_facts':   [dict(f) for f in get_ci_disputed_facts(run_id)],
+            'theories':         theories_raw,
+            'authorities':      [dict(a) for a in get_ci_authorities(run_id)],
         })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/ci/runs/<run_id>', methods=['DELETE'])
+@login_required
+@advanced_required
+def ci_delete_run(run_id):
+    """Delete a CI run and all its associated findings."""
+    ok, err = _ci_gate()
+    if not ok:
+        return err
+    try:
+        import sqlite3 as _sq3
+        from analyzer.case_intelligence.db import get_ci_run as _get_run
+        run = _get_run(run_id)
+        if not run:
+            return jsonify({'error': 'Run not found'}), 404
+        if not _ci_can_write(run):
+            return jsonify({'error': 'Not authorized'}), 403
+        with _sq3.connect('/app/data/case_intelligence.db') as conn:
+            row = conn.execute('SELECT id, status FROM ci_runs WHERE id=?', (run_id,)).fetchone()
+            if not row:
+                return jsonify({'error': 'Run not found'}), 404
+            if row[1] == 'running':
+                return jsonify({'error': 'Cannot delete a run that is currently running. Cancel it first.'}), 409
+            # Cascade delete (FK ON DELETE CASCADE covers child tables if enabled,
+            # but delete explicitly to be safe)
+            for tbl in ('ci_entities', 'ci_timeline_events', 'ci_contradictions',
+                        'ci_disputed_facts', 'ci_theory_ledger', 'ci_authorities',
+                        'ci_reports', 'ci_manager_reports', 'ci_run_questions'):
+                conn.execute(f'DELETE FROM {tbl} WHERE run_id=?', (run_id,))
+            conn.execute('DELETE FROM ci_runs WHERE id=?', (run_id,))
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/ci/runs/<run_id>/shares', methods=['GET'])
+@login_required
+@advanced_required
+def ci_get_run_shares(run_id):
+    """List users this run is shared with. Owner or admin only."""
+    ok, err = _ci_gate()
+    if not ok:
+        return err
+    try:
+        from analyzer.case_intelligence.db import get_ci_run, list_ci_run_shares
+        run = get_ci_run(run_id)
+        if not run:
+            return jsonify({'error': 'Run not found'}), 404
+        if not _ci_can_write(run):
+            return jsonify({'error': 'Not authorized'}), 403
+        shares = list_ci_run_shares(run_id)
+        result = []
+        for s in shares:
+            u = get_user_by_id(s['shared_with'])
+            result.append({
+                'user_id': s['shared_with'],
+                'display_name': u['display_name'] if u else f"user#{s['shared_with']}",
+                'username': u['username'] if u else '',
+                'shared_by': s['shared_by'],
+                'shared_at': s['shared_at'],
+            })
+        return jsonify({'shares': result})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/ci/runs/<run_id>/shares', methods=['POST'])
+@login_required
+@advanced_required
+def ci_add_run_share(run_id):
+    """Share a run with another user by username or user_id. Owner or admin only."""
+    ok, err = _ci_gate()
+    if not ok:
+        return err
+    try:
+        from analyzer.case_intelligence.db import get_ci_run, add_ci_run_share
+        run = get_ci_run(run_id)
+        if not run:
+            return jsonify({'error': 'Run not found'}), 404
+        if not _ci_can_write(run):
+            return jsonify({'error': 'Not authorized'}), 403
+
+        data = request.json or {}
+        target = None
+        if 'username' in data:
+            target = get_user_by_username(data['username'])
+        elif 'user_id' in data:
+            target = get_user_by_id(int(data['user_id']))
+        if not target:
+            return jsonify({'error': 'User not found'}), 404
+        if not target['is_active']:
+            return jsonify({'error': 'Cannot share with an inactive user'}), 400
+        if target['role'] not in ('advanced', 'admin'):
+            return jsonify({'error': 'Target user must have Advanced or Admin role to access CI runs'}), 400
+        if target['id'] == run['user_id']:
+            return jsonify({'error': 'Run already belongs to this user'}), 400
+
+        add_ci_run_share(run_id, shared_with=target['id'], shared_by=current_user.id)
+        return jsonify({'ok': True, 'shared_with': target['display_name']})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/ci/runs/<run_id>/shares/<int:uid>', methods=['DELETE'])
+@login_required
+@advanced_required
+def ci_remove_run_share(run_id, uid):
+    """Remove a user's access to a shared run. Owner or admin only."""
+    ok, err = _ci_gate()
+    if not ok:
+        return err
+    try:
+        from analyzer.case_intelligence.db import get_ci_run, remove_ci_run_share
+        run = get_ci_run(run_id)
+        if not run:
+            return jsonify({'error': 'Run not found'}), 404
+        if not _ci_can_write(run):
+            return jsonify({'error': 'Not authorized'}), 403
+        remove_ci_run_share(run_id, uid)
+        return jsonify({'ok': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -5667,7 +6095,7 @@ def ci_submit_answers(run_id):
         run = get_ci_run(run_id)
         if not run:
             return jsonify({'error': 'Run not found'}), 404
-        if run['user_id'] != current_user.id and not current_user.is_admin:
+        if not _ci_can_write(run):
             return jsonify({'error': 'Not authorized'}), 403
 
         data = request.json or {}
@@ -5867,11 +6295,17 @@ def _build_ci_llm_clients() -> dict:
     if hasattr(app, 'document_analyzer') and hasattr(app.document_analyzer, 'usage_tracker'):
         _usage_tracker = app.document_analyzer.usage_tracker
 
-    openai_key = _os.environ.get('OPENAI_API_KEY') or _os.environ.get('LLM_API_KEY')
-    anthropic_key = _os.environ.get('LLM_API_KEY') or _os.environ.get('ANTHROPIC_API_KEY')
-
     # Check provider from env
     lm_provider = _os.environ.get('LLM_PROVIDER', 'anthropic').lower()
+
+    # LLM_API_KEY belongs to the configured provider only — never cross-assign
+    _generic_key = _os.environ.get('LLM_API_KEY', '')
+    openai_key = _os.environ.get('OPENAI_API_KEY') or (
+        _generic_key if lm_provider == 'openai' else ''
+    )
+    anthropic_key = _os.environ.get('ANTHROPIC_API_KEY') or (
+        _generic_key if lm_provider == 'anthropic' else ''
+    )
 
     # Try to reuse the existing app llm_client
     existing_client = getattr(app, 'llm_client', None)

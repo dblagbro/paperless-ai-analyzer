@@ -181,6 +181,10 @@ class EntityExtractor:
             else:
                 return None
 
+            if '```json' in text:
+                text = text.split('```json')[1].split('```')[0].strip()
+            elif '```' in text:
+                text = text.split('```')[1].split('```')[0].strip()
             return json.loads(text)
         except json.JSONDecodeError as e:
             logger.warning(f"EntityExtractor: JSON parse error: {e}")

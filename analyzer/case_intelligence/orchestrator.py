@@ -26,7 +26,7 @@ from analyzer.case_intelligence.db import (
     get_ci_contradictions, get_ci_theories, get_ci_authorities,
     upsert_ci_entity, add_ci_event, add_ci_contradiction,
     add_ci_disputed_fact, add_ci_theory, update_ci_theory,
-    add_ci_authority, increment_ci_run_cost,
+    add_ci_authority, increment_ci_run_cost, increment_ci_run_docs,
     upsert_manager_report, get_manager_reports,
 )
 from analyzer.case_intelligence.budget_manager import BudgetManager
@@ -360,15 +360,25 @@ class CIOrchestrator:
                            all_docs: list, workers_per_mgr: int,
                            cancel_event: threading.Event) -> List[Dict]:
         """
-        Run all managers in parallel. Returns list of manager_report dicts
-        (with 'domain', 'findings', 'cost_usd') ready for report_generator.
+        Run managers in two sequential phases so cross-document analysis has data:
+
+        Phase 1 (parallel): entities, timeline, financial — per-document extraction
+        Phase 2 (parallel): contradictions, theories, authorities — reads Phase 1 results
         """
         doc_map: Dict[int, Dict] = {d.get('id', 0): d for d in all_docs}
         manager_reports: List[Dict] = []
         lock = threading.Lock()
 
-        total_managers = len(manager_plan)
-        completed = [0]
+        # Split plan into the two phases
+        phase1_specs = [s for s in manager_plan
+                        if s.get('domain') in ('entities', 'timeline', 'financial')]
+        phase2_specs = [s for s in manager_plan
+                        if s.get('domain') in ('contradictions', 'theories', 'authorities')]
+
+        total_p1 = len(phase1_specs)
+        total_p2 = len(phase2_specs)
+        completed_p1 = [0]
+        completed_p2 = [0]
 
         def run_manager_task(manager_spec):
             domain = manager_spec.get('domain', 'unknown')
@@ -404,26 +414,71 @@ class CIOrchestrator:
                 upsert_manager_report(run_id, domain, status='failed')
                 return {'domain': domain, 'findings': [], 'cost_usd': 0}
 
-        max_workers = min(total_managers, 6)  # cap parallel managers
-        with ThreadPoolExecutor(max_workers=max_workers,
-                                 thread_name_prefix='ci-manager') as executor:
-            futures = {
-                executor.submit(run_manager_task, spec): spec
-                for spec in manager_plan
-            }
-            for future in as_completed(futures):
-                if cancel_event.is_set():
-                    break
-                result = future.result()
-                if result:
-                    with lock:
-                        manager_reports.append(result)
-                        completed[0] += 1
-                        pct = 20 + int(completed[0] / max(total_managers, 1) * 65)
-                        self._set_status(run_id, 'running',
-                                         stage=f'Managers: {completed[0]}/{total_managers} done',
-                                         progress=pct)
-                        self._check_budget_checkpoint(run_id, pct)
+        # ── Phase 1: extraction (parallel) ─────────────────────────────────
+        if phase1_specs:
+            self._set_status(run_id, 'running',
+                             stage='Phase 1: Extracting entities, timeline, financial',
+                             progress=20)
+            with ThreadPoolExecutor(max_workers=min(total_p1, 3),
+                                     thread_name_prefix='ci-manager-p1') as executor:
+                futures = {
+                    executor.submit(run_manager_task, spec): spec
+                    for spec in phase1_specs
+                }
+                for future in as_completed(futures):
+                    if cancel_event.is_set():
+                        break
+                    result = future.result()
+                    if result:
+                        with lock:
+                            manager_reports.append(result)
+                            completed_p1[0] += 1
+                            pct = 20 + int(completed_p1[0] / max(total_p1, 1) * 40)
+                            self._set_status(
+                                run_id, 'running',
+                                stage=(f'Phase 1: {completed_p1[0]}/{total_p1} '
+                                       f'extraction managers done'),
+                                progress=pct,
+                            )
+                            self._check_budget_checkpoint(run_id, pct)
+
+        if cancel_event.is_set():
+            return manager_reports
+
+        # ── Phase 2: cross-document analysis (parallel, after extraction) ──
+        if phase2_specs:
+            entities_count = len(get_ci_entities(run_id))
+            events_count = len(get_ci_timeline(run_id))
+            logger.info(
+                f"CI run {run_id}: Phase 1 complete — "
+                f"{entities_count} entities, {events_count} events in DB. "
+                f"Starting Phase 2 (contradictions/theories/authorities)."
+            )
+            self._set_status(run_id, 'running',
+                             stage='Phase 2: Contradictions, theories, authorities',
+                             progress=62)
+            with ThreadPoolExecutor(max_workers=min(total_p2, 3),
+                                     thread_name_prefix='ci-manager-p2') as executor:
+                futures = {
+                    executor.submit(run_manager_task, spec): spec
+                    for spec in phase2_specs
+                }
+                for future in as_completed(futures):
+                    if cancel_event.is_set():
+                        break
+                    result = future.result()
+                    if result:
+                        with lock:
+                            manager_reports.append(result)
+                            completed_p2[0] += 1
+                            pct = 62 + int(completed_p2[0] / max(total_p2, 1) * 23)
+                            self._set_status(
+                                run_id, 'running',
+                                stage=(f'Phase 2: {completed_p2[0]}/{total_p2} '
+                                       f'analysis managers done'),
+                                progress=pct,
+                            )
+                            self._check_budget_checkpoint(run_id, pct)
 
         return manager_reports
 
@@ -489,6 +544,107 @@ class CIOrchestrator:
             'cost_usd': total_cost,
             'worker_count': worker_count,
         }
+
+    def _run_worker(self, run_id: str, run, domain: str,
+                    doc_ids: List[int], instructions: str,
+                    doc_map: Dict[int, Dict]) -> Dict:
+        """
+        Process a batch of documents for a single domain.
+        Returns {'findings': [...], 'cost_usd': float}.
+        """
+        findings: List[Dict] = []
+        cost = 0.0
+
+        for doc_id in doc_ids:
+            doc = doc_map.get(doc_id)
+            if not doc:
+                continue
+
+            title = doc.get('title', f'Document {doc_id}')
+            content = (doc.get('content', '') or '').strip()
+
+            if len(content) < 50:
+                increment_ci_run_docs(run_id, 1)
+                continue
+
+            try:
+                if domain == 'entities':
+                    entities = self.entity_extractor.extract(
+                        doc_id, title, content, run_id
+                    )
+                    if entities:
+                        cost += self.entity_extractor.task_def.estimated_cost_per_doc
+                    for ent in entities:
+                        upsert_ci_entity(
+                            run_id=run_id,
+                            entity_type=ent.get('entity_type', 'person'),
+                            name=ent.get('name', ''),
+                            aliases=json.dumps(ent.get('aliases', [])),
+                            role_in_case=ent.get('role_in_case', ''),
+                            attributes=json.dumps(ent.get('attributes', {})),
+                            notes=ent.get('notes', ''),
+                            provenance=json.dumps(ent.get('provenance', [])),
+                        )
+                        findings.append({
+                            'content': f"{ent.get('entity_type','entity')}: {ent.get('name','')}",
+                            'source': f'doc_id={doc_id}',
+                            'confidence': 'high',
+                        })
+
+                elif domain == 'timeline':
+                    events = self.timeline_builder.extract(
+                        doc_id, title, content, run_id
+                    )
+                    if events:
+                        cost += self.timeline_builder.task_def.estimated_cost_per_doc
+                    for ev in events:
+                        add_ci_event(
+                            run_id=run_id,
+                            description=ev.get('description', ''),
+                            event_date=ev.get('event_date'),
+                            date_approx=bool(ev.get('date_approx', False)),
+                            event_type=ev.get('event_type', 'other'),
+                            significance=ev.get('significance', 'medium'),
+                            parties=json.dumps(ev.get('parties', [])),
+                            provenance=json.dumps(ev.get('provenance', [])),
+                        )
+                        findings.append({
+                            'content': (
+                                f"{ev.get('event_date','unknown')}: "
+                                f"{ev.get('description','')[:120]}"
+                            ),
+                            'source': f'doc_id={doc_id}',
+                            'confidence': (
+                                'high' if ev.get('significance') in ('critical', 'high')
+                                else 'medium'
+                            ),
+                        })
+
+                elif domain == 'financial':
+                    result = self.financial_extractor.extract(
+                        doc_id, title, content, run_id
+                    )
+                    facts = result.get('financial_facts', [])
+                    if facts:
+                        cost += self.financial_extractor.task_def.estimated_cost_per_doc
+                    for fact in facts:
+                        amt = fact.get('amount_usd') or fact.get('amount')
+                        label = fact.get('description') or fact.get('label', '')
+                        findings.append({
+                            'content': f"{label}: {amt}" if amt else str(label),
+                            'source': f'doc_id={doc_id}',
+                            'confidence': 'medium',
+                        })
+
+            except Exception as e:
+                logger.warning(f"Worker [{domain}] error on doc {doc_id}: {e}")
+
+            increment_ci_run_docs(run_id, 1)
+            if cost > 0:
+                increment_ci_run_cost(run_id, cost)
+                cost = 0.0
+
+        return {'findings': findings, 'cost_usd': cost}
 
     def _manager_contradictions(self, run_id: str, run, doc_ids: List[int],
                                   doc_map: Dict[int, Dict],
@@ -916,10 +1072,27 @@ Write a concise JSON summary of the 5 most actionable findings:
             return []
         try:
             project_slug = run['project_slug']
-            docs = self.paperless_client.get_documents_by_project(project_slug)
-            if not docs:
-                result = self.paperless_client.get_documents(page_size=50)
+
+            # For the default project, skip tag filtering — all Paperless docs belong here.
+            # For named projects, filter by project: tag so CI only sees that project's docs.
+            if project_slug and project_slug != 'default':
+                result = self.paperless_client.get_documents_by_project(
+                    project_slug, page_size=10000
+                )
                 docs = result.get('results', []) if isinstance(result, dict) else result
+                # If very few docs found via tag (tag may not be applied yet), fall back to all
+                if len(docs) < 5:
+                    logger.warning(
+                        f"Only {len(docs)} tagged docs for project '{project_slug}', "
+                        f"falling back to all documents"
+                    )
+                    result = self.paperless_client.get_documents(page_size=10000)
+                    docs = result.get('results', []) if isinstance(result, dict) else result
+            else:
+                # Default project: get all documents in Paperless
+                result = self.paperless_client.get_documents(page_size=10000)
+                docs = result.get('results', []) if isinstance(result, dict) else result
+
             logger.info(f"CI run {run['id']}: fetched {len(docs)} documents")
             return docs
         except Exception as e:
