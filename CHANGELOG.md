@@ -4,6 +4,15 @@ All notable changes to Paperless AI Analyzer are documented here.
 
 ---
 
+## v3.0.1 — 2026-02-23
+
+### Fixed
+- **Search & Analysis tab** — "Failed to load documents" error caused by `anomalies` field
+  being returned as a raw comma-separated string instead of a list. The JS `.join()` call
+  threw a TypeError on any document with anomalies, aborting the entire load.
+
+---
+
 ## v3.0.0 — 2026-02-23
 
 ### Added
