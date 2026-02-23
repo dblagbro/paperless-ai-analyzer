@@ -10,6 +10,30 @@ Advanced AI-powered anomaly detection and risk analysis microservice for [Paperl
 
 ---
 
+## What's New in v3.1
+
+### Case Intelligence AI *(Advanced/Admin role required)*
+- **Director → Manager → Worker orchestrator** analyzes all project documents as a coordinated group across six domains: Entities, Timeline, Financial, Contradictions, Theories, Authorities
+- **Goal Assistant** — "✨ Refine with AI" chat in the Setup tab helps you write a precise, targeted goal statement before starting a run
+- **CI run sharing** — share any run with specific users; shared runs appear in their dropdown annotated with the owner's name
+- **Scientific paper report** — Director synthesizes a 12-section report (Executive Summary through Appendices A–C); PDF export via Report Builder
+- **Budget checkpoints** — email alerts fire at every 10% completion with projected cost vs. budget (under/on/over status)
+
+### Per-Project AI Configuration
+- Each project independently sets provider + model for Document Analysis, AI Chat, and Case Intelligence
+- Primary + fallback per use-case; fallback chain: per-project → global key → system default
+- Admin: copy a project's full config to another project with one click
+
+### User Roles & Profile
+- **Advanced role** — between Basic and Admin; enables Case Intelligence and power-user features. Set via Configuration → Users
+- **👤 My Profile** — header button replaces "Change Password"; opens a full profile form for name, email, phone, address, job title, and password management
+
+### Bug Fixes
+- Fixed spurious "No AI API key configured" warning in AI Chat when global keys are configured
+- Fixed Search & Analysis "Failed to load documents" crash caused by anomalies field type mismatch
+
+---
+
 ## What's New in v2.1
 
 ### Complete Project Isolation
