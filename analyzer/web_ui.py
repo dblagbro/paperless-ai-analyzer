@@ -5604,11 +5604,16 @@ def ci_goal_assistant():
         elif provider == 'anthropic':
             import anthropic as _ant
             client = _ant.Anthropic(api_key=api_key)
+            # Anthropic requires at least one message; on the first greeting call
+            # the browser sends an empty list, so inject a synthetic opener.
+            ant_messages = messages if messages else [
+                {'role': 'user', 'content': 'Hello, I need help writing a focused goal statement for my Case Intelligence analysis.'}
+            ]
             resp = client.messages.create(
                 model=model,
                 max_tokens=600,
                 system=system_prompt,
-                messages=messages,
+                messages=ant_messages,
             )
             reply = resp.content[0].text
         else:
