@@ -126,6 +126,17 @@ TASK_REGISTRY: Dict[str, TaskDefinition] = {
         description="Attempt to falsify generated theories",
         max_output_tokens=8000,
     ),
+    "opposing_theory_generation": TaskDefinition(
+        task_type="opposing_theory_generation",
+        tier=3,
+        primary_model="gpt-4o",
+        primary_provider="openai",
+        escalate_model="claude-sonnet-4-6",
+        escalate_provider="anthropic",
+        estimated_cost_per_doc=0.05,
+        description="Generate opposing-perspective theories for counter-argument awareness",
+        max_output_tokens=8000,
+    ),
     "report_generation": TaskDefinition(
         task_type="report_generation",
         tier=2,
@@ -167,7 +178,8 @@ def estimate_run_cost(num_docs: int, max_tier: int = 3) -> float:
     for task_def in TASK_REGISTRY.values():
         if task_def.tier > max_tier:
             continue
-        if task_def.task_type in ('generate_questions', 'findings_summary', 'report_generation'):
+        if task_def.task_type in ('generate_questions', 'findings_summary', 'report_generation',
+                                  'theory_generation', 'opposing_theory_generation'):
             # Fixed-cost tasks (done once per run, not per doc)
             total += task_def.estimated_cost_per_doc
         else:
