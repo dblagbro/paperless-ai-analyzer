@@ -2754,11 +2754,12 @@
         <div class="tab-help-panel" id="help-ci-setup" style="display:none;">
             <strong>🔧 CI Setup</strong> — Configure and launch an analysis run.
             <ul style="margin:8px 0 0 0; padding-left:18px;">
-                <li><strong>Role</strong> — Plaintiff / Defendant / Neutral — shapes how the Director frames analysis and theories.</li>
+                <li><strong>Role</strong> — Plaintiff / Defendant / Neutral — shapes how the Director frames analysis and theories. CI also generates <em>opposing-side</em> theories automatically so you see what you're up against.</li>
                 <li><strong>Jurisdiction</strong> — choose a template or leave blank for auto-detect from documents.</li>
                 <li><strong>Goal / Case Description</strong> — what to find. Click <strong>✨ Refine with AI</strong> to chat with an assistant that helps craft a precise, effective goal.</li>
-                <li><strong>Budget (USD)</strong> — per-run spending cap. Run pauses if exceeded; override button shown.</li>
+                <li><strong>Budget (USD)</strong> — per-run spending cap. Run pauses if exceeded; override button shown. More documents = proportionally more spend; budget is a ceiling, not a target.</li>
                 <li><strong>Orchestration Tiers</strong>: Director = 1 (fixed, plans all work); Managers = Auto (min(6, docs÷20)) or 1–10; Workers/Manager = Auto (budget-scaled) or 1–20.</li>
+                <li><strong>Progress bar</strong>: shows stage · docs processed · active managers/workers · tokens used · elapsed time · ETA (after 10% complete).</li>
                 <li><strong>Notifications</strong>: Email on run complete + every 10% budget checkpoint. Recipient pre-filled from your 👤 My Profile email.</li>
                 <li>Click <strong>▶ Start Analysis</strong> → Director generates clarifying questions → answer or check "Proceed with assumptions".</li>
             </ul>
@@ -2770,7 +2771,8 @@
             <ul style="margin:8px 0 0 0; padding-left:18px;">
                 <li>Select a run from the dropdown; live progress shows while running (Cancel button available).</li>
                 <li><strong>Run metadata header</strong> — who ran it, when, duration, role, document count, and AI cost.</li>
-                <li><strong>6 finding domains</strong>: Entities · Timeline · Financial · Contradictions · Theories · Authorities. Every finding cites source document + page.</li>
+                <li><strong>6 finding domains</strong>: Entities · Timeline · Financial · Contradictions · Theories · Authorities. Every finding cites source document + page. Theories include both your role's perspective and the opposing side's strongest arguments.</li>
+                <li><strong>AI Chat integration</strong>: CI findings are embedded into the project's vector store after each run — ask AI Chat questions and it will cite CI findings alongside document excerpts.</li>
                 <li><strong>👥 Share</strong> — share a run with another Advanced or Admin user by username. Shared users can view all findings and download the report.</li>
                 <li><strong>🗑 Delete Run</strong> — permanently removes a completed run and all its findings.</li>
                 <li><strong>Report Builder</strong>: Director synthesizes a 12-section scientific paper (Executive Summary → Discovery Gaps + Appendices A–C) → PDF download.</li>
@@ -2793,9 +2795,12 @@
                     <span id="ci-cost-label" style="font-size:12px; color:#666;">$0.00 / $10.00</span>
                 </div>
                 <div class="ci-progress-bar"><div class="ci-progress-fill" id="ci-progress-fill" style="width:0%"></div></div>
-                <div style="font-size:11px; color:#888; margin-top:3px;">
+                <div style="font-size:11px; color:#888; margin-top:3px; display:flex; flex-wrap:wrap; gap:8px;">
                     <span id="ci-docs-label">0 / 0 docs</span>
-                    &nbsp;·&nbsp;
+                    <span id="ci-workers-label" style="display:none">&nbsp;·&nbsp;<span id="ci-workers-val"></span></span>
+                    <span id="ci-tokens-label" style="display:none">&nbsp;·&nbsp;<span id="ci-tokens-val"></span> tok</span>
+                    <span id="ci-elapsed-label" style="display:none">&nbsp;·&nbsp;<span id="ci-elapsed-val"></span></span>
+                    <span id="ci-eta-label"    style="display:none">&nbsp;·&nbsp;~<span id="ci-eta-val"></span> left</span>
                     <span id="ci-status-label">—</span>
                 </div>
             </div>
@@ -7458,6 +7463,9 @@
             budget_per_run_usd: parseFloat(document.getElementById('ci-budget').value) || 10.0,
             max_tier: parseInt(document.getElementById('ci-max-tier').value) || 3,
             jurisdiction,
+            notification_email: (document.getElementById('ci-notification-email')?.value || '').trim(),
+            notify_on_complete: document.getElementById('ci-notify-complete')?.checked ? 1 : 0,
+            notify_on_budget:   document.getElementById('ci-notify-budget')?.checked   ? 1 : 0,
         };
     }
 
@@ -7564,6 +7572,41 @@
         if (docs) docs.textContent = (d.docs_processed || 0) + ' / ' + (d.docs_total || 0) + ' docs';
         const st = document.getElementById('ci-status-label');
         if (st) st.textContent = d.status || '—';
+
+        // Workers + managers
+        const wkLabel = document.getElementById('ci-workers-label');
+        if (wkLabel) {
+            const mgr = d.active_managers || 0, wkr = d.active_workers || 0;
+            if (mgr > 0 || wkr > 0) {
+                document.getElementById('ci-workers-val').textContent = mgr + 'mgr · ' + wkr + 'wkr';
+                wkLabel.style.display = 'inline';
+            } else { wkLabel.style.display = 'none'; }
+        }
+        // Tokens
+        const tokLabel = document.getElementById('ci-tokens-label');
+        if (tokLabel) {
+            const total = (d.tokens_in || 0) + (d.tokens_out || 0);
+            if (total > 0) {
+                document.getElementById('ci-tokens-val').textContent =
+                    total >= 1000 ? (total / 1000).toFixed(1) + 'k' : total;
+                tokLabel.style.display = 'inline';
+            } else { tokLabel.style.display = 'none'; }
+        }
+        // Elapsed + ETA
+        const elapsed = d.elapsed_seconds || 0;
+        const elLabel = document.getElementById('ci-elapsed-label');
+        if (elLabel && elapsed > 0) {
+            document.getElementById('ci-elapsed-val').textContent =
+                elapsed < 60 ? elapsed + 's' : Math.floor(elapsed / 60) + 'm ' + Math.floor(elapsed % 60) + 's';
+            elLabel.style.display = 'inline';
+        } else if (elLabel) { elLabel.style.display = 'none'; }
+        const etaLabel = document.getElementById('ci-eta-label');
+        if (etaLabel && elapsed > 0 && pct >= 10 && pct < 100) {
+            const remaining = Math.max(0, (elapsed / (pct / 100)) - elapsed);
+            document.getElementById('ci-eta-val').textContent =
+                remaining < 60 ? Math.round(remaining) + 's' : Math.round(remaining / 60) + 'm';
+            etaLabel.style.display = 'inline';
+        } else if (etaLabel) { etaLabel.style.display = 'none'; }
     }
 
     async function ciLoadQuestions(runId) {

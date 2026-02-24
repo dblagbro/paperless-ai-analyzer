@@ -1063,8 +1063,17 @@
             <tr><td><strong>Workers</strong></td><td>Auto (1–20 per manager)</td><td>Each worker processes 1–3 documents with targeted extraction instructions. Returns structured JSON with mandatory provenance citations.</td></tr>
         </table>
         <p><strong>Six analysis domains:</strong> Entities · Timeline · Financial · Contradictions · Theories · Authorities</p>
-        <p>Phase 1 (Entities, Timeline, Financial) runs first so that the phase-2 managers (Contradictions, Theories, Authorities) can cross-reference established facts.</p>
+        <p><strong>Two-phase execution with war room briefing:</strong> Phase 1 (Entities, Timeline, Financial) runs first. Before Phase 2 starts, the orchestrator builds a <em>war room briefing</em> — a compact summary of all Phase 1 findings — and injects it into every Phase 2 manager's context. This means the Contradictions, Theories, and Authorities managers all start with full awareness of what Phase 1 extracted, rather than having to re-derive facts from raw documents.</p>
+        <p><strong>Opposing theory pass:</strong> After generating theories for your configured role, CI automatically generates theories from the opposing perspective (e.g. defense theories if your role is plaintiff). This lets you see the strongest counter-arguments before they are raised in proceedings.</p>
         <p><strong>Auto scaling:</strong> Managers = min(6, ceil(doc_count ÷ 20)). Workers = budget-scaled. Both are adjustable in Setup.</p>
+
+        <h2 id="ci-rag">AI Chat integration</h2>
+        <p>When a CI run completes, all findings — entities, timeline events, contradictions, theories, authorities, and disputed facts — are automatically embedded into the project's vector store. This means:</p>
+        <ul>
+            <li>AI Chat queries will surface CI findings alongside document excerpts when relevant.</li>
+            <li>On subsequent CI runs on the same project, the Director is aware of prior CI findings and focuses analysis on new angles rather than re-extracting already-known facts.</li>
+        </ul>
+        <p>No configuration needed — embedding happens automatically if vector search is enabled for the project.</p>
 
         <h2 id="ci-setup">Setup tab walkthrough</h2>
 
