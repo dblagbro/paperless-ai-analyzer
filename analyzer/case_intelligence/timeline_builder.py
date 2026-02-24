@@ -76,7 +76,7 @@ class TimelineBuilder:
             return []
 
         extraction_ts = datetime.now(timezone.utc).isoformat()
-        content_truncated = content[:6000]
+        content_truncated = content[:15000]  # Includes ~2-3K AI summary + ~12K raw OCR
 
         prompt = TIMELINE_EXTRACTION_PROMPT.format(
             doc_id=doc_id,

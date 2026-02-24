@@ -545,8 +545,8 @@ class CIOrchestrator:
         This is the 'war room briefing' — all Phase 2 agents receive this before starting,
         giving them full awareness of what Phase 1 workers found without context exhaustion.
         """
-        entities = get_ci_entities(run_id)
-        events   = get_ci_timeline(run_id)
+        entities = [dict(e) for e in get_ci_entities(run_id)]
+        events   = [dict(ev) for ev in get_ci_timeline(run_id)]
         financial_lines: List[str] = []
         try:
             mgr_reports = get_manager_reports(run_id)
@@ -657,6 +657,28 @@ class CIOrchestrator:
                 increment_ci_run_docs(run_id, 1)
                 continue
 
+            # Prepend vector store AI analysis context if available.
+            # The standard analysis pipeline produces full-document summaries
+            # (not truncated) — prepending them means extractors see the whole
+            # document's key facts even when the raw OCR is thousands of chars long.
+            vs_type  = doc.get('vs_document_type', '') or ''
+            vs_brief = doc.get('vs_brief_summary',  '') or ''
+            vs_full  = doc.get('vs_full_summary',   '') or ''
+            enrichment_parts = []
+            if vs_type and vs_type not in ('unknown', 'other'):
+                enrichment_parts.append(f"Document Type: {vs_type}")
+            if vs_brief:
+                enrichment_parts.append(f"AI Summary: {vs_brief}")
+            if vs_full and vs_full != vs_brief:
+                enrichment_parts.append(f"Detailed Analysis: {vs_full}")
+            if enrichment_parts:
+                content = (
+                    '[PRIOR AI ANALYSIS — use as additional context for extraction]\n'
+                    + '\n'.join(enrichment_parts)
+                    + '\n\n[RAW DOCUMENT TEXT]\n'
+                    + content
+                )
+
             try:
                 if domain == 'entities':
                     entities = self.entity_extractor.extract(
@@ -746,8 +768,8 @@ class CIOrchestrator:
         cost = 0.0
 
         # Load Phase 1 entities and events from DB, grouped by doc
-        all_entities_db = get_ci_entities(run_id)
-        all_events_db   = get_ci_timeline(run_id)
+        all_entities_db = [dict(e) for e in get_ci_entities(run_id)]
+        all_events_db   = [dict(ev) for ev in get_ci_timeline(run_id)]
         ents_by_doc: Dict[int, list] = defaultdict(list)
         evts_by_doc: Dict[int, list] = defaultdict(list)
         for e in all_entities_db:
@@ -1139,7 +1161,7 @@ Write a concise JSON summary of the 5 most actionable findings:
         docs_to_tag: Dict[int, set] = {}
 
         # Tag docs cited in critical contradictions
-        for c in get_ci_contradictions(run_id):
+        for c in [dict(r) for r in get_ci_contradictions(run_id)]:
             for prov_json in [c.get('doc_a_provenance', '[]'),
                                c.get('doc_b_provenance', '[]')]:
                 try:
@@ -1153,7 +1175,7 @@ Write a concise JSON summary of the 5 most actionable findings:
                     pass
 
         # Tag docs cited in high-confidence theories
-        for t in get_ci_theories(run_id):
+        for t in [dict(r) for r in get_ci_theories(run_id)]:
             if t['status'] == 'supported' and (t['confidence'] or 0) >= 0.7:
                 try:
                     for ev in json.loads(t.get('supporting_evidence', '[]') or '[]'):
@@ -1369,6 +1391,31 @@ Write a concise JSON summary of the 5 most actionable findings:
                 docs = result.get('results', []) if isinstance(result, dict) else result
 
             logger.info(f"CI run {run['id']}: fetched {len(docs)} documents")
+
+            # Enrich each doc with pre-computed AI analysis from the vector store.
+            # The standard analysis pipeline stores brief_summary, full_summary, and
+            # document_type for every processed document. CI workers use this to give
+            # extractors the full-document context even when the raw OCR is very long.
+            if docs:
+                try:
+                    from analyzer.vector_store import VectorStore
+                    vs = VectorStore(project_slug=run.get('project_slug', 'default'))
+                    if vs.enabled:
+                        doc_ids = [d.get('id') for d in docs if d.get('id') is not None]
+                        enrichment = vs.get_documents_metadata(doc_ids)
+                        for doc in docs:
+                            meta = enrichment.get(doc.get('id'), {})
+                            doc['vs_brief_summary'] = meta.get('brief_summary', '') or ''
+                            doc['vs_full_summary']  = meta.get('full_summary', '') or ''
+                            doc['vs_document_type'] = meta.get('document_type', '') or ''
+                        enriched = sum(1 for d in docs if d.get('vs_brief_summary'))
+                        logger.info(
+                            f"CI run {run['id']}: enriched {enriched}/{len(docs)} docs "
+                            f"with vector store AI analysis"
+                        )
+                except Exception as vs_err:
+                    logger.warning(f"CI vector store enrichment failed (non-fatal): {vs_err}")
+
             return docs
         except Exception as e:
             logger.error(f"Failed to fetch case documents: {e}")
