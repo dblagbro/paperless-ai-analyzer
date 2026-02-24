@@ -2291,7 +2291,7 @@ def _send_ci_budget_notification(run_id: str, pct_complete: float,
         goal_text = run['goal_text'] if 'goal_text' in run.keys() else 'Unknown Case'
         status_label = {'under_budget': 'Under Budget', 'on_track': 'On Track',
                         'over_budget': 'OVER BUDGET'}.get(status, status)
-        pct_int = int(round(pct_complete * 100))
+        pct_int = int(round(pct_complete))
 
         from_addr = smtp_cfg.get('from') or smtp_cfg.get('user') or 'noreply@localhost'
         subject = f"CI Budget Update — {goal_text[:40]} — {pct_int}% complete — {status_label}"
@@ -5649,6 +5649,10 @@ def ci_create_run():
         if 'jurisdiction' in data:
             jurisdiction_json = _json.dumps(data['jurisdiction'])
 
+        notification_email = data.get('notification_email', '') or ''
+        notify_on_complete = 1 if data.get('notify_on_complete', True) else 0
+        notify_on_budget   = 1 if data.get('notify_on_budget',   True) else 0
+
         run_id = create_ci_run(
             project_slug=project_slug,
             user_id=current_user.id,
@@ -5658,6 +5662,9 @@ def ci_create_run():
             jurisdiction_json=jurisdiction_json,
             objectives=_json.dumps(data.get('objectives', [])),
             max_tier=int(data.get('max_tier', 3)),
+            notification_email=notification_email,
+            notify_on_complete=notify_on_complete,
+            notify_on_budget=notify_on_budget,
         )
         return jsonify({'run_id': run_id}), 201
     except Exception as e:
@@ -5797,6 +5804,18 @@ def ci_cancel_run(run_id):
         return jsonify({'error': str(e)}), 500
 
 
+def _ci_elapsed_seconds(run):
+    """Return seconds since run started_at, or 0."""
+    if not run.get('started_at'):
+        return 0
+    try:
+        from datetime import datetime, timezone
+        start = datetime.fromisoformat(run['started_at'].replace('Z', '+00:00'))
+        return int((datetime.now(timezone.utc) - start).total_seconds())
+    except Exception:
+        return 0
+
+
 @app.route('/api/ci/runs/<run_id>/status')
 @login_required
 def ci_run_status(run_id):
@@ -5821,6 +5840,11 @@ def ci_run_status(run_id):
             'error_message': run['error_message'],
             'budget_blocked': bool(run['budget_blocked']),
             'budget_blocked_note': run['budget_blocked_note'],
+            'tokens_in':       run.get('tokens_in', 0) or 0,
+            'tokens_out':      run.get('tokens_out', 0) or 0,
+            'active_managers': run.get('active_managers', 0) or 0,
+            'active_workers':  run.get('active_workers', 0) or 0,
+            'elapsed_seconds': _ci_elapsed_seconds(run),
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500

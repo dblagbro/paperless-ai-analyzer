@@ -232,6 +232,11 @@ def init_ci_db():
             "notify_on_complete INTEGER DEFAULT 1",
             "notify_on_budget INTEGER DEFAULT 1",
             "last_budget_checkpoint_pct REAL DEFAULT 0",
+            # Enhanced progress bar columns
+            "tokens_in INTEGER DEFAULT 0",
+            "tokens_out INTEGER DEFAULT 0",
+            "active_managers INTEGER DEFAULT 0",
+            "active_workers INTEGER DEFAULT 0",
         ):
             try:
                 conn.execute(f"ALTER TABLE ci_runs ADD COLUMN {col}")
@@ -249,15 +254,18 @@ def init_ci_db():
 def create_ci_run(project_slug: str, user_id: int, role: str = 'neutral',
                   goal_text: str = '', budget_per_run_usd: float = 10.0,
                   jurisdiction_json: str = '{}', objectives: str = '[]',
-                  max_tier: int = 3) -> str:
+                  max_tier: int = 3, notification_email: str = '',
+                  notify_on_complete: int = 1, notify_on_budget: int = 1) -> str:
     run_id = str(uuid.uuid4())
     with _get_conn() as conn:
         conn.execute("""
             INSERT INTO ci_runs (id, project_slug, user_id, role, goal_text,
-                budget_per_run_usd, jurisdiction_json, objectives, max_tier)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                budget_per_run_usd, jurisdiction_json, objectives, max_tier,
+                notification_email, notify_on_complete, notify_on_budget)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (run_id, project_slug, user_id, role, goal_text,
-              budget_per_run_usd, jurisdiction_json, objectives, max_tier))
+              budget_per_run_usd, jurisdiction_json, objectives, max_tier,
+              notification_email, notify_on_complete, notify_on_budget))
     return run_id
 
 
@@ -292,6 +300,8 @@ def update_ci_run(run_id: str, **kwargs):
         'director_count', 'manager_count', 'workers_per_manager',
         'notification_email', 'notify_on_complete', 'notify_on_budget',
         'last_budget_checkpoint_pct',
+        # Enhanced progress bar columns
+        'tokens_in', 'tokens_out', 'active_managers', 'active_workers',
     }
     updates = {k: v for k, v in kwargs.items() if k in allowed}
     if not updates:

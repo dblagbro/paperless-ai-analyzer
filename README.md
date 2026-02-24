@@ -10,6 +10,23 @@ Advanced AI-powered anomaly detection and risk analysis microservice for [Paperl
 
 ---
 
+## What's New in v3.2
+
+### Case Intelligence — Analysis Quality
+- **War room briefing** — Phase 1 findings (entities, timeline, financial) are compiled into a compact briefing and injected into every Phase 2 manager before it starts. Contradiction, theory, and authority agents now have full situational awareness instead of deriving facts from scratch.
+- **Opposing theory pass** — CI automatically generates theories from the opposing perspective (e.g. defense theories when your role is plaintiff), so you see the strongest counter-arguments before proceedings.
+- **Contradiction engine fixed** — entities and events extracted in Phase 1 are now correctly passed to the contradiction and disputed-facts analysis (previously hardcoded to empty lists).
+- **Richer disputed facts matrix** — the LLM now receives document content excerpts and key party names per document rather than just entity/event counts, producing substantive factual disputes.
+
+### Case Intelligence — Notifications & Progress
+- **Email notifications fixed** — notification email, completion alert, and budget alerts are now correctly saved and sent. Budget notification percentage corrected (was showing "1000%" instead of "10%").
+- **Enhanced progress bar** — live status now shows active manager/worker counts, cumulative token usage, elapsed time, and estimated time remaining.
+
+### Case Intelligence — AI Chat Integration
+- **Findings RAG-embedded** — all CI findings are automatically embedded into the project's vector store when a run completes. AI Chat cites CI findings alongside document excerpts; the Director skips re-extraction of already-known facts on re-runs.
+
+---
+
 ## What's New in v3.1
 
 ### Case Intelligence AI *(Advanced/Admin role required)*

@@ -4,6 +4,60 @@ All notable changes to Paperless AI Analyzer are documented here.
 
 ---
 
+## v3.2.0 — 2026-02-24
+
+### Added
+- **CI email notifications fixed** — `notification_email`, `notify_on_complete`, and
+  `notify_on_budget` are now correctly passed from the UI through the API and saved to the
+  DB on run creation. Budget checkpoint and completion emails now fire as configured.
+- **Enhanced CI progress bar** — live status line now shows active manager/worker counts,
+  cumulative token usage (in+out), elapsed time, and ETA (linear extrapolation shown after
+  ≥10% complete with a "~" prefix).
+- **CI findings RAG-embedded** — on run completion all findings (entities, timeline, financial,
+  contradictions, theories, authorities, disputed facts) are embedded into the project's Chroma
+  vector store. AI Chat will cite CI findings when relevant; the Director skips re-extraction
+  of already-known facts on subsequent runs of the same project.
+- **War room briefing (Phase 1 → Phase 2 knowledge handoff)** — after Phase 1 managers
+  (entities/timeline/financial) finish, the orchestrator builds a compact briefing of all
+  extracted facts and injects it into every Phase 2 manager's context (contradictions,
+  theories, authorities). Phase 2 agents now start with full situational awareness instead
+  of deriving facts from scratch.
+- **Opposing theory pass** — `_manager_theories()` generates a second set of theories from
+  the opposing role (e.g. defense theories when your role is plaintiff) to surface the
+  strongest counter-arguments. Saved with `role_perspective` set to the opposing role.
+- **`opposing_theory_generation` task** added to the task registry (Tier 3, gpt-4o primary,
+  Claude escalation, fixed-cost per run).
+
+### Fixed
+- **CI contradiction engine now receives Phase 1 entities/events** — `_manager_contradictions()`
+  previously passed hardcoded empty lists for `entities` and `events` on every document. Now
+  queries the DB post-Phase-1 and groups results by document ID, so the contradiction engine
+  receives real extracted data.
+- **`_build_docs_summary()` now emits rich content** — the disputed facts matrix prompt
+  previously received only entity/event counts per document (`"entities=3, events=2"`). It
+  now receives content snippets, key party names, and key event descriptions per document,
+  giving the LLM enough signal to identify genuine factual disputes.
+- **Financial data no longer re-extracted in `_manager_theories()`** — the theory manager
+  previously called `financial_extractor.extract()` again on up to 5 documents, duplicating
+  Phase 1 work. It now reads financial facts from the war room briefing if available,
+  falling back to re-extraction only for backward compatibility.
+- **Budget notification `pct_complete` bug** — `_send_ci_budget_notification()` was
+  computing `int(round(pct_complete * 100))` but `pct_complete` is already 0–100, producing
+  email subjects like "1000% complete". Fixed to `int(round(pct_complete))`.
+- **Duplicate `const pct` JS error** — `ciUpdateStatusBar()` declared `const pct` twice
+  in the same function scope, throwing a `SyntaxError` that silently prevented the entire
+  CI script block from executing (no jurisdiction auto-load, findings tab unresponsive).
+
+### Changed
+- `contradiction_engine._build_docs_context()`: `max_per_doc` increased 1500 → 3000 chars.
+- `theory_planner.generate_theories()`: truncation limits increased
+  (entities/timeline 2000 → 3500, financial/contradictions 1500 → 2500,
+  authorities 1500 → 2000). Maximum theories per run raised 10 → 15.
+- `estimate_run_cost()`: `theory_generation` and `opposing_theory_generation` now counted
+  as fixed-cost (per-run) tasks rather than per-doc, matching actual billing behavior.
+
+---
+
 ## v3.1.0 — 2026-02-23
 
 ### Added

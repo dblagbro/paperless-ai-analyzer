@@ -24,6 +24,7 @@ from analyzer.case_intelligence.db import (
     add_ci_question, get_ci_questions,
     get_ci_entities, get_ci_timeline,
     get_ci_contradictions, get_ci_theories, get_ci_authorities,
+    get_ci_disputed_facts,
     upsert_ci_entity, add_ci_event, add_ci_contradiction,
     add_ci_disputed_fact, add_ci_theory, update_ci_theory,
     add_ci_authority, increment_ci_run_cost, increment_ci_run_docs,
@@ -129,6 +130,11 @@ class CIOrchestrator:
         self.completion_notification_cb = completion_notification_cb
         self.budget_manager = BudgetManager()
 
+        # Per-run token accumulation (reset in execute_run)
+        self._token_lock = threading.Lock()
+        self._tokens_in = 0
+        self._tokens_out = 0
+
         # Extractors (used by workers)
         self.entity_extractor = EntityExtractor(llm_clients, usage_tracker)
         self.timeline_builder = TimelineBuilder(llm_clients, usage_tracker)
@@ -147,6 +153,9 @@ class CIOrchestrator:
             cancel_event = threading.Event()
 
         try:
+            with self._token_lock:
+                self._tokens_in = 0
+                self._tokens_out = 0
             self._set_status(run_id, 'running', stage='Starting', progress=1)
             logger.info(f"CI run {run_id} starting (hierarchical mode)")
 
@@ -220,11 +229,21 @@ class CIOrchestrator:
                 except Exception as e:
                     logger.warning(f"Paperless write-back failed: {e}")
 
+                with self._token_lock:
+                    ti, to = self._tokens_in, self._tokens_out
                 update_ci_run(run_id, status='completed',
                               completed_at=datetime.now(timezone.utc).isoformat(),
                               current_stage='Completed',
-                              progress_pct=100)
+                              progress_pct=100,
+                              active_managers=0, active_workers=0,
+                              tokens_in=ti, tokens_out=to)
                 logger.info(f"CI run {run_id} completed")
+
+                # Embed CI findings into vector store for AI Chat + Director awareness
+                try:
+                    self._embed_ci_run_findings(run_id, get_ci_run(run_id))
+                except Exception as _e:
+                    logger.warning(f"CI findings embedding failed (non-fatal): {_e}")
 
                 if self.completion_notification_cb:
                     try:
@@ -291,11 +310,29 @@ class CIOrchestrator:
         budget_remaining = (run_obj['budget_per_run_usd'] or 1.0) - (run_obj['cost_so_far_usd'] or 0)
         jurisdiction = self._load_jurisdiction(run)
 
+        # Check for prior CI findings on this project (Director D1 awareness)
+        prior_ci_note = ''
+        try:
+            from analyzer.vector_store import VectorStore
+            vs = VectorStore(project_slug=run.get('project_slug', 'default'))
+            if vs.enabled and run.get('goal_text'):
+                prior_hits = vs.search(query=run['goal_text'], n_results=15)
+                ci_prior = [h for h in prior_hits
+                            if h.get('document_type') == 'ci_finding']
+                if ci_prior:
+                    prior_ci_note = (
+                        f"\nNote: Prior CI analysis on this project found "
+                        f"{len(ci_prior)} relevant findings — "
+                        f"focus on new angles not already covered.\n"
+                    )
+        except Exception:
+            pass
+
         # Try LLM planning (best-effort)
         prompt = DIRECTOR_D1_PROMPT.format(
             case_name=run.get('case_name') or run.get('goal_text', 'Case')[:40],
             role=run['role'],
-            goal_text=run['goal_text'] or 'General analysis',
+            goal_text=(run['goal_text'] or 'General analysis') + prior_ci_note,
             jurisdiction=jurisdiction.display_name if jurisdiction else 'Not specified',
             doc_count=len(doc_ids),
             doc_ids_sample=str(doc_ids[:20]),
@@ -384,6 +421,7 @@ class CIOrchestrator:
             domain = manager_spec.get('domain', 'unknown')
             doc_ids_for_manager = manager_spec.get('doc_ids', [])
             instructions = manager_spec.get('instructions', '')
+            spec_case_context = manager_spec.get('case_context')
 
             if cancel_event.is_set():
                 return None
@@ -396,7 +434,8 @@ class CIOrchestrator:
             try:
                 report = self._run_manager(
                     run_id, run, domain, doc_ids_for_manager,
-                    instructions, doc_map, workers_per_mgr, cancel_event
+                    instructions, doc_map, workers_per_mgr, cancel_event,
+                    case_context=spec_case_context,
                 )
                 upsert_manager_report(
                     run_id, domain, status='completed',
@@ -418,7 +457,9 @@ class CIOrchestrator:
         if phase1_specs:
             self._set_status(run_id, 'running',
                              stage='Phase 1: Extracting entities, timeline, financial',
-                             progress=20)
+                             progress=20,
+                             active_managers=total_p1,
+                             active_workers=total_p1 * workers_per_mgr)
             with ThreadPoolExecutor(max_workers=min(total_p1, 3),
                                      thread_name_prefix='ci-manager-p1') as executor:
                 futures = {
@@ -434,11 +475,16 @@ class CIOrchestrator:
                             manager_reports.append(result)
                             completed_p1[0] += 1
                             pct = 20 + int(completed_p1[0] / max(total_p1, 1) * 40)
+                            remaining_p1 = total_p1 - completed_p1[0]
+                            with self._token_lock:
+                                ti, to = self._tokens_in, self._tokens_out
                             self._set_status(
                                 run_id, 'running',
                                 stage=(f'Phase 1: {completed_p1[0]}/{total_p1} '
                                        f'extraction managers done'),
                                 progress=pct,
+                                active_managers=remaining_p1,
+                                tokens_in=ti, tokens_out=to,
                             )
                             self._check_budget_checkpoint(run_id, pct)
 
@@ -447,16 +493,22 @@ class CIOrchestrator:
 
         # ── Phase 2: cross-document analysis (parallel, after extraction) ──
         if phase2_specs:
-            entities_count = len(get_ci_entities(run_id))
-            events_count = len(get_ci_timeline(run_id))
+            # Build war room briefing from Phase 1 results
+            case_context = self._build_case_context(run_id)
             logger.info(
-                f"CI run {run_id}: Phase 1 complete — "
-                f"{entities_count} entities, {events_count} events in DB. "
+                f"CI run {run_id}: war room briefing built — "
+                f"{case_context['entity_count']} entities, {case_context['event_count']} events, "
+                f"{len(case_context['financial'])} financial facts. "
                 f"Starting Phase 2 (contradictions/theories/authorities)."
             )
+            # Inject into Phase 2 specs so each manager gets the briefing
+            for spec in phase2_specs:
+                spec['case_context'] = case_context
             self._set_status(run_id, 'running',
                              stage='Phase 2: Contradictions, theories, authorities',
-                             progress=62)
+                             progress=62,
+                             active_managers=total_p2,
+                             active_workers=0)
             with ThreadPoolExecutor(max_workers=min(total_p2, 3),
                                      thread_name_prefix='ci-manager-p2') as executor:
                 futures = {
@@ -472,20 +524,58 @@ class CIOrchestrator:
                             manager_reports.append(result)
                             completed_p2[0] += 1
                             pct = 62 + int(completed_p2[0] / max(total_p2, 1) * 23)
+                            remaining_p2 = total_p2 - completed_p2[0]
+                            with self._token_lock:
+                                ti, to = self._tokens_in, self._tokens_out
                             self._set_status(
                                 run_id, 'running',
                                 stage=(f'Phase 2: {completed_p2[0]}/{total_p2} '
                                        f'analysis managers done'),
                                 progress=pct,
+                                active_managers=remaining_p2,
+                                tokens_in=ti, tokens_out=to,
                             )
                             self._check_budget_checkpoint(run_id, pct)
 
         return manager_reports
 
+    def _build_case_context(self, run_id: str) -> dict:
+        """
+        Build a compact Phase 1 findings brief for injection into Phase 2 agents.
+        This is the 'war room briefing' — all Phase 2 agents receive this before starting,
+        giving them full awareness of what Phase 1 workers found without context exhaustion.
+        """
+        entities = get_ci_entities(run_id)
+        events   = get_ci_timeline(run_id)
+        financial_lines: List[str] = []
+        try:
+            mgr_reports = get_manager_reports(run_id)
+            fin = next((r for r in mgr_reports
+                        if r.get('manager_id') == 'financial'
+                        or r.get('domain') == 'financial'), None)
+            if fin and fin.get('report_json'):
+                fin_findings = json.loads(fin['report_json'] or '[]')
+                financial_lines = [f['content'] for f in fin_findings[:20]
+                                   if isinstance(f, dict) and f.get('content')]
+        except Exception:
+            pass
+        return {
+            'entities':     [{'name': e['name'], 'type': e['entity_type'],
+                               'role': e.get('role_in_case', '') or ''}
+                              for e in entities[:40]],
+            'timeline':     [{'date': ev.get('event_date'), 'event': ev['description'],
+                               'sig': ev.get('significance', 'medium')}
+                              for ev in events[:40]],
+            'financial':    financial_lines,
+            'entity_count': len(entities),
+            'event_count':  len(events),
+        }
+
     def _run_manager(self, run_id: str, run, domain: str,
                       doc_ids: List[int], instructions: str,
                       doc_map: Dict[int, Dict], workers_per_mgr: int,
-                      cancel_event: threading.Event) -> Dict:
+                      cancel_event: threading.Event,
+                      case_context: dict = None) -> Dict:
         """
         Run one domain manager: split docs into worker batches (per-doc extraction),
         then handle cross-doc analysis (contradictions, theories, authorities).
@@ -522,13 +612,13 @@ class CIOrchestrator:
         # ── Cross-document analysis (contradictions/theories/authorities) ────
         elif domain == 'contradictions':
             findings, total_cost = self._manager_contradictions(
-                run_id, run, doc_ids, doc_map, cancel_event
+                run_id, run, doc_ids, doc_map, cancel_event, case_context=case_context
             )
             worker_count = max(1, len(doc_ids))
 
         elif domain == 'theories':
             findings, total_cost = self._manager_theories(
-                run_id, run, doc_ids, doc_map, cancel_event
+                run_id, run, doc_ids, doc_map, cancel_event, case_context=case_context
             )
             worker_count = 1
 
@@ -648,15 +738,40 @@ class CIOrchestrator:
 
     def _manager_contradictions(self, run_id: str, run, doc_ids: List[int],
                                   doc_map: Dict[int, Dict],
-                                  cancel_event: threading.Event) -> tuple:
+                                  cancel_event: threading.Event,
+                                  case_context: dict = None) -> tuple:
         """Contradiction and disputed-facts detection across docs."""
+        from collections import defaultdict
         findings: List[Dict] = []
         cost = 0.0
+
+        # Load Phase 1 entities and events from DB, grouped by doc
+        all_entities_db = get_ci_entities(run_id)
+        all_events_db   = get_ci_timeline(run_id)
+        ents_by_doc: Dict[int, list] = defaultdict(list)
+        evts_by_doc: Dict[int, list] = defaultdict(list)
+        for e in all_entities_db:
+            for p in (json.loads(e.get('provenance', '[]') or '[]'))[:1]:
+                doc_id_p = p.get('paperless_doc_id') or p.get('doc_id')
+                if doc_id_p is not None:
+                    ents_by_doc[int(doc_id_p)].append(
+                        {'name': e['name'], 'type': e['entity_type']}
+                    )
+        for ev in all_events_db:
+            for p in (json.loads(ev.get('provenance', '[]') or '[]'))[:1]:
+                doc_id_p = p.get('paperless_doc_id') or p.get('doc_id')
+                if doc_id_p is not None:
+                    evts_by_doc[int(doc_id_p)].append(
+                        {'date': ev.get('event_date'), 'desc': ev['description']}
+                    )
+
         documents = [
-            {'doc_id': doc_map[did].get('id', did),
-             'title': doc_map[did].get('title', f'Doc {did}'),
-             'content': doc_map[did].get('content', '') or '',
-             'entities': [], 'events': [], 'financial_facts': []}
+            {'doc_id':   doc_map[did].get('id', did),
+             'title':    doc_map[did].get('title', f'Doc {did}'),
+             'content':  doc_map[did].get('content', '') or '',
+             'entities': ents_by_doc.get(did, []),
+             'events':   evts_by_doc.get(did, []),
+             'financial_facts': []}
             for did in doc_ids if did in doc_map
         ]
         if len(documents) < 2:
@@ -713,7 +828,8 @@ class CIOrchestrator:
 
     def _manager_theories(self, run_id: str, run, doc_ids: List[int],
                             doc_map: Dict[int, Dict],
-                            cancel_event: threading.Event) -> tuple:
+                            cancel_event: threading.Event,
+                            case_context: dict = None) -> tuple:
         """Theory generation and adversarial testing."""
         findings: List[Dict] = []
         cost = 0.0
@@ -740,14 +856,27 @@ class CIOrchestrator:
         )
 
         documents = [doc_map[did] for did in doc_ids if did in doc_map]
+
+        # Use war room financial data if available (avoids LLM re-extraction)
         financial_lines = []
-        for doc in documents[:5]:
-            fin = self.financial_extractor.extract(
-                doc.get('id', 0), doc.get('title', ''),
-                (doc.get('content', '') or '')[:3000], run_id
-            ) if doc.get('content') else {}
-            for ff in fin.get('financial_facts', [])[:3]:
-                financial_lines.append(f"- {ff.get('description', '')}: {ff.get('amount_raw', '')}")
+        if case_context and case_context.get('financial'):
+            financial_lines = [f"- {f}" for f in case_context['financial']]
+            # Also override entities_summary with war room brief (always freshest data)
+            ctx_entities = '\n'.join(
+                f"- [{e['type']}] {e['name']}: {e['role']}"
+                for e in case_context['entities'][:40]
+            )
+            if ctx_entities:
+                entities_summary = ctx_entities
+        else:
+            # Fallback: re-extract financial from docs (legacy path)
+            for doc in documents[:5]:
+                fin = self.financial_extractor.extract(
+                    doc.get('id', 0), doc.get('title', ''),
+                    (doc.get('content', '') or '')[:3000], run_id
+                ) if doc.get('content') else {}
+                for ff in fin.get('financial_facts', [])[:3]:
+                    financial_lines.append(f"- {ff.get('description', '')}: {ff.get('amount_raw', '')}")
 
         jurisdiction_name = 'Not specified'
         try:
@@ -818,6 +947,50 @@ class CIOrchestrator:
                     cost += 0.05
                 except Exception as e:
                     logger.warning(f"Adversarial test error for theory {theory_id}: {e}")
+
+        # Second pass: opposing perspective (budget utilization + opposing-side awareness)
+        if not cancel_event.is_set():
+            opposing_role_map = {
+                'plaintiff': 'defense', 'defense': 'plaintiff',
+                'prosecution': 'defense', 'defendant': 'plaintiff',
+                'neutral': 'defense',
+            }
+            opposing_role = opposing_role_map.get(run['role'], 'defense')
+            if self.budget_manager.check_and_charge(run_id, 'opposing_theory_generation', 0.05):
+                try:
+                    opp_theories = self.theory_planner.generate_theories(
+                        role=opposing_role,
+                        goal_text=(f"Build the strongest case for {opposing_role} against: "
+                                   f"{run['goal_text'] or ''}"),
+                        jurisdiction=jurisdiction_name,
+                        entities_summary=entities_summary,
+                        timeline_summary=timeline_summary,
+                        financial_summary='\n'.join(financial_lines) or 'None',
+                        contradictions_summary=contradictions_summary,
+                        authorities_summary=authorities_summary,
+                        run_id=run_id,
+                    )
+                    cost += 0.05
+                    for opp_theory in opp_theories:
+                        if cancel_event.is_set():
+                            break
+                        opp_id = add_ci_theory(
+                            run_id=run_id,
+                            theory_text=opp_theory.get('theory_text', ''),
+                            theory_type=opp_theory.get('theory_type', 'factual'),
+                            role_perspective=opposing_role,
+                            confidence=opp_theory.get('confidence', 0.5),
+                            supporting_evidence=json.dumps(
+                                opp_theory.get('supporting_evidence', [])),
+                        )
+                        findings.append({
+                            'content': (f"[{opposing_role.upper()} THEORY] "
+                                        f"{opp_theory.get('theory_text', '')}"),
+                            'source':  f'theory_id={opp_id}',
+                            'confidence': 'medium',
+                        })
+                except Exception as e:
+                    logger.warning(f"Opposing theory pass error: {e}")
 
         return findings, cost
 
@@ -999,6 +1172,108 @@ Write a concise JSON summary of the 5 most actionable findings:
                 logger.warning(f"Write-back failed for doc {doc_id}: {e}")
 
     # -----------------------------------------------------------------------
+    # RAG embedding of CI findings
+    # -----------------------------------------------------------------------
+
+    def _embed_ci_run_findings(self, run_id: str, run):
+        """Embed CI findings into the project's Chroma collection for AI Chat + Director awareness."""
+        if not run:
+            return
+        try:
+            from analyzer.vector_store import VectorStore
+            vs = VectorStore(project_slug=run.get('project_slug', 'default'))
+            if not vs.enabled:
+                logger.info(f"CI embedding skipped — vector store not enabled")
+                return
+        except Exception as e:
+            logger.warning(f"CI embedding: VectorStore init failed: {e}")
+            return
+
+        embedded = 0
+        ci_meta = {'document_type': 'ci_finding', 'ci_run_id': run_id}
+
+        # entities
+        for row in get_ci_entities(run_id):
+            try:
+                content = (f"{row['name']} ({row['entity_type']}): "
+                           f"{row.get('role_in_case') or ''}.")
+                doc_id = f"ci:{run_id}:entities:{row['id']}"
+                vs.embed_document(doc_id, f"CI Entity: {row['name']}", content,
+                                  {**ci_meta, 'ci_domain': 'entities'})
+                embedded += 1
+            except Exception:
+                pass
+
+        # timeline events
+        for row in get_ci_timeline(run_id):
+            try:
+                content = (f"{row.get('event_date') or 'unknown date'}: "
+                           f"{row['description']}. "
+                           f"Significance: {row.get('significance') or 'medium'}.")
+                doc_id = f"ci:{run_id}:timeline:{row['id']}"
+                vs.embed_document(doc_id, f"CI Timeline: {row.get('event_date') or '?'}",
+                                  content, {**ci_meta, 'ci_domain': 'timeline'})
+                embedded += 1
+            except Exception:
+                pass
+
+        # contradictions
+        for row in get_ci_contradictions(run_id):
+            try:
+                content = (f"Contradiction [{row['severity']}]: {row['description']}. "
+                           f"{row.get('explanation') or ''}")
+                doc_id = f"ci:{run_id}:contradictions:{row['id']}"
+                vs.embed_document(doc_id, f"CI Contradiction", content,
+                                  {**ci_meta, 'ci_domain': 'contradictions'})
+                embedded += 1
+            except Exception:
+                pass
+
+        # theories
+        for row in get_ci_theories(run_id):
+            try:
+                content = (f"Theory [{row['theory_type']}]: {row['theory_text']}. "
+                           f"Status: {row['status']}. "
+                           f"Confidence: {int((row.get('confidence') or 0) * 100)}%.")
+                doc_id = f"ci:{run_id}:theories:{row['id']}"
+                vs.embed_document(doc_id, f"CI Theory: {row['theory_text'][:60]}",
+                                  content, {**ci_meta, 'ci_domain': 'theories'})
+                embedded += 1
+            except Exception:
+                pass
+
+        # authorities
+        for row in get_ci_authorities(run_id):
+            try:
+                content = (f"{row['citation']} ({row.get('jurisdiction') or 'unknown'}, "
+                           f"{row['authority_type']}): "
+                           f"{row.get('relevance_note') or ''}. "
+                           f"Reliability: {row.get('reliability') or 'official'}.")
+                doc_id = f"ci:{run_id}:authorities:{row['id']}"
+                vs.embed_document(doc_id, f"CI Authority: {row['citation'][:60]}",
+                                  content, {**ci_meta, 'ci_domain': 'authorities'})
+                embedded += 1
+            except Exception:
+                pass
+
+        # disputed facts
+        for row in get_ci_disputed_facts(run_id):
+            try:
+                content = (f"Disputed: {row['fact_description']}. "
+                           f"{row.get('position_a_label') or 'Party A'}: "
+                           f"{row.get('position_a_text') or ''}. "
+                           f"{row.get('position_b_label') or 'Party B'}: "
+                           f"{row.get('position_b_text') or ''}.")
+                doc_id = f"ci:{run_id}:disputed:{row['id']}"
+                vs.embed_document(doc_id, f"CI Disputed Fact", content,
+                                  {**ci_meta, 'ci_domain': 'disputed_facts'})
+                embedded += 1
+            except Exception:
+                pass
+
+        logger.info(f"CI run {run_id}: embedded {embedded} findings into vector store")
+
+    # -----------------------------------------------------------------------
     # Budget checkpoint
     # -----------------------------------------------------------------------
 
@@ -1128,7 +1403,9 @@ Write a concise JSON summary of the 5 most actionable findings:
                       progress_pct=100)
 
     def _set_status(self, run_id: str, status: str, stage: str = None,
-                    progress: float = None, docs_processed: int = None):
+                    progress: float = None, docs_processed: int = None,
+                    tokens_in: int = None, tokens_out: int = None,
+                    active_managers: int = None, active_workers: int = None):
         """Update run status in the database."""
         kwargs = {'status': status}
         if stage:
@@ -1137,6 +1414,14 @@ Write a concise JSON summary of the 5 most actionable findings:
             kwargs['progress_pct'] = progress
         if docs_processed is not None:
             kwargs['docs_processed'] = docs_processed
+        if tokens_in is not None:
+            kwargs['tokens_in'] = tokens_in
+        if tokens_out is not None:
+            kwargs['tokens_out'] = tokens_out
+        if active_managers is not None:
+            kwargs['active_managers'] = active_managers
+        if active_workers is not None:
+            kwargs['active_workers'] = active_workers
         update_ci_run(run_id, **kwargs)
 
     def _is_cancelled(self, cancel_event: Optional[threading.Event],
@@ -1170,6 +1455,9 @@ Write a concise JSON summary of the 5 most actionable findings:
                         input_tokens=response.usage.input_tokens,
                         output_tokens=response.usage.output_tokens,
                     )
+                with self._token_lock:
+                    self._tokens_in += response.usage.input_tokens
+                    self._tokens_out += response.usage.output_tokens
                 return text
             elif provider == 'openai':
                 response = client.client.chat.completions.create(
@@ -1183,6 +1471,9 @@ Write a concise JSON summary of the 5 most actionable findings:
                         input_tokens=response.usage.prompt_tokens,
                         output_tokens=response.usage.completion_tokens,
                     )
+                with self._token_lock:
+                    self._tokens_in += response.usage.prompt_tokens
+                    self._tokens_out += response.usage.completion_tokens
                 return text
         except Exception as e:
             logger.error(f"LLM call failed [{provider}/{model}]: {e}")

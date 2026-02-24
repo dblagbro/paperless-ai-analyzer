@@ -64,7 +64,7 @@ RULES:
 2. Be honest about confidence — use 0.4 if evidence is thin, 0.9 if overwhelming.
 3. Generate theories that the {role} can actually USE in proceedings.
 4. Include both strong and developing theories (the latter with lower confidence).
-5. Maximum 10 theories per run.
+5. Maximum 15 theories per run.
 """
 
 ADVERSARIAL_TESTING_PROMPT = """You are opposing counsel tasked with defeating the following theory.
@@ -123,11 +123,11 @@ class TheoryPlanner:
             role=role,
             goal_text=goal_text or f'Build strongest case for {role}',
             jurisdiction=jurisdiction,
-            entities_summary=entities_summary[:2000],
-            timeline_summary=timeline_summary[:2000],
-            financial_summary=financial_summary[:1500],
-            contradictions_summary=contradictions_summary[:1500],
-            authorities_summary=authorities_summary[:1500],
+            entities_summary=entities_summary[:3500],
+            timeline_summary=timeline_summary[:3500],
+            financial_summary=financial_summary[:2500],
+            contradictions_summary=contradictions_summary[:2500],
+            authorities_summary=authorities_summary[:2000],
         )
 
         result = self._call_llm_with_escalation(

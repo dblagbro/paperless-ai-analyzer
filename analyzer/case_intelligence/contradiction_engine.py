@@ -193,7 +193,7 @@ class ContradictionEngine:
         return result.get('disputed_facts', [])
 
     def _build_docs_context(self, documents: List[Dict[str, Any]],
-                             max_per_doc: int = 1500) -> str:
+                             max_per_doc: int = 3000) -> str:
         """Build a compact multi-document context for contradiction analysis."""
         parts = []
         for doc in documents[:20]:  # Limit to 20 docs per call
@@ -204,16 +204,27 @@ class ContradictionEngine:
         return '\n\n'.join(parts)
 
     def _build_docs_summary(self, documents: List[Dict[str, Any]]) -> str:
-        """Build a summary context for the disputed facts matrix."""
+        """Build a rich context for the disputed facts matrix prompt."""
         parts = []
         for doc in documents:
+            content = (doc.get('content', '') or '')[:600]
             entities = doc.get('entities', [])
-            events = doc.get('events', [])
-            parts.append(
-                f"Doc #{doc.get('doc_id')} ({doc.get('title', 'Untitled')}): "
-                f"entities={len(entities)}, events={len(events)}"
+            events   = doc.get('events', [])
+            entity_str = ', '.join(
+                e['name'] if isinstance(e, dict) else str(e)
+                for e in entities[:8]
             )
-        return '\n'.join(parts)
+            event_str = '; '.join(
+                (f"{e.get('date','')}: {e.get('desc','')}" if isinstance(e, dict) else str(e))
+                for e in events[:5]
+            )
+            parts.append(
+                f"Doc #{doc.get('doc_id')} — {doc.get('title', 'Untitled')}:\n"
+                f"  Content: {content}\n"
+                f"  Key parties: {entity_str or '(see content)'}\n"
+                f"  Key events: {event_str or '(see content)'}"
+            )
+        return '\n\n'.join(parts)
 
     def _call_with_escalation(self, prompt: str, task_def,
                                operation: str) -> Optional[dict]:
