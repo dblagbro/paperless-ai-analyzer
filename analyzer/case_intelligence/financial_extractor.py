@@ -88,7 +88,7 @@ class FinancialExtractor:
             return {'financial_facts': [], 'summary': {}}
 
         extraction_ts = datetime.now(timezone.utc).isoformat()
-        content_truncated = content[:7000]  # Financial docs can be dense
+        content_truncated = content[:20000]  # Financial docs dense; includes ~2-3K AI summary + ~17K raw OCR
 
         prompt = FINANCIAL_EXTRACTION_PROMPT.format(
             doc_id=doc_id,

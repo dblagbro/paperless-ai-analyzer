@@ -64,7 +64,7 @@ RULES:
 2. Be honest about confidence — use 0.4 if evidence is thin, 0.9 if overwhelming.
 3. Generate theories that the {role} can actually USE in proceedings.
 4. Include both strong and developing theories (the latter with lower confidence).
-5. Maximum 15 theories per run.
+5. Maximum 8 theories per run. Keep each theory_text concise (1-2 sentences).
 """
 
 ADVERSARIAL_TESTING_PROMPT = """You are opposing counsel tasked with defeating the following theory.

@@ -27,6 +27,14 @@ All notable changes to Paperless AI Analyzer are documented here.
   strongest counter-arguments. Saved with `role_perspective` set to the opposing role.
 - **`opposing_theory_generation` task** added to the task registry (Tier 3, gpt-4o primary,
   Claude escalation, fixed-cost per run).
+- **Vector store enrichment for CI workers (Lever 1)** — `_fetch_case_documents()` now
+  bulk-retrieves prior AI analysis (brief summary, full summary, document type) from the
+  project's Chroma vector store and attaches it to each document before extraction.
+  `_run_worker()` prepends this pre-computed analysis as `[PRIOR AI ANALYSIS]` context
+  ahead of the raw OCR text, dramatically improving extraction quality on large documents
+  where OCR alone is truncated. 745 of 748 docs enriched in live testing.
+- **`VectorStore.get_documents_metadata()`** — new bulk retrieval method that returns a
+  `{doc_id: metadata_dict}` map for a list of Paperless document IDs, used by Lever 1.
 
 ### Fixed
 - **CI contradiction engine now receives Phase 1 entities/events** — `_manager_contradictions()`
@@ -47,12 +55,24 @@ All notable changes to Paperless AI Analyzer are documented here.
 - **Duplicate `const pct` JS error** — `ciUpdateStatusBar()` declared `const pct` twice
   in the same function scope, throwing a `SyntaxError` that silently prevented the entire
   CI script block from executing (no jurisdiction auto-load, findings tab unresponsive).
+- **`sqlite3.Row.get()` errors in Phase 2** — `_build_case_context()`,
+  `_manager_contradictions()`, and `_paperless_writeback()` all called `.get()` on raw
+  `sqlite3.Row` objects returned by `get_ci_entities()`, `get_ci_timeline()`,
+  `get_ci_contradictions()`, and `get_ci_theories()`. Now converted to plain dicts at each
+  call site. This was causing Phase 2 to fail entirely after Phase 1 completed.
+- **Theory output truncated at token limit** — with 15 theories × rich supporting evidence,
+  JSON output exceeded the 8,192-token Anthropic output limit, producing an unterminated
+  JSON response and zero theories saved. Reduced to 8 theories with a conciseness instruction.
 
 ### Changed
 - `contradiction_engine._build_docs_context()`: `max_per_doc` increased 1500 → 3000 chars.
 - `theory_planner.generate_theories()`: truncation limits increased
   (entities/timeline 2000 → 3500, financial/contradictions 1500 → 2500,
-  authorities 1500 → 2000). Maximum theories per run raised 10 → 15.
+  authorities 1500 → 2000). Maximum theories per run set to 8 (up from 10, but
+  constrained by output token budget).
+- `entity_extractor.py` content truncation: 6,000 → 15,000 chars.
+- `timeline_builder.py` content truncation: 6,000 → 15,000 chars.
+- `financial_extractor.py` content truncation: 7,000 → 20,000 chars.
 - `estimate_run_cost()`: `theory_generation` and `opposing_theory_generation` now counted
   as fixed-cost (per-run) tasks rather than per-doc, matching actual billing behavior.
 

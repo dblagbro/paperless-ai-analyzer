@@ -306,6 +306,30 @@ class VectorStore:
             logger.error(f"Failed to get stats: {e}")
             return {'enabled': False, 'error': str(e)}
 
+    def get_documents_metadata(self, doc_ids: list) -> dict:
+        """
+        Bulk retrieve stored metadata for a list of Paperless document IDs.
+
+        Returns {doc_id (int): metadata_dict} for any IDs found in the collection.
+        Missing IDs are silently omitted (document not yet embedded).
+        """
+        if not self.enabled or not doc_ids:
+            return {}
+        try:
+            str_ids = [str(d) for d in doc_ids if d is not None]
+            result = self.collection.get(ids=str_ids, include=['metadatas'])
+            out = {}
+            for i, chroma_id in enumerate(result.get('ids') or []):
+                meta = (result.get('metadatas') or [])[i] if result.get('metadatas') else {}
+                try:
+                    out[int(chroma_id)] = meta
+                except (ValueError, TypeError):
+                    pass
+            return out
+        except Exception as e:
+            logger.warning(f"VectorStore.get_documents_metadata failed: {e}")
+            return {}
+
     def delete_document(self, document_id: int) -> bool:
         """
         Delete a specific document from vector store.
