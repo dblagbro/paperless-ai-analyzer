@@ -218,16 +218,15 @@ def _ci_can_write(run) -> bool:
 def inject_user():
     is_admin = current_user.is_authenticated and current_user.is_admin
     is_advanced = current_user.is_authenticated and current_user.role in ('advanced', 'admin')
-    # CI_ENABLED: feature flag for the template
     import os
     ci_enabled = os.environ.get('CASE_INTELLIGENCE_ENABLED', 'false').lower() == 'true'
-    url_prefix = os.environ.get('URL_PREFIX', '').strip('/')
-    ci_safe = ci_enabled
+    court_import_enabled = os.environ.get('COURT_IMPORT_ENABLED', 'false').lower() == 'true'
     return {
         'current_user': current_user,
         'is_admin': is_admin,
         'is_advanced': is_advanced,
-        'CI_ENABLED': ci_safe,
+        'CI_ENABLED': ci_enabled,
+        'COURT_IMPORT_ENABLED': court_import_enabled,
     }
 
 
@@ -385,6 +384,13 @@ def create_app(state_manager, profile_loader, paperless_client,
         init_case_intelligence()
     except Exception as _ci_err:
         logger.debug(f"Case Intelligence AI not initialized: {_ci_err}")
+
+    # Initialize Court Document Importer (idempotent)
+    try:
+        from analyzer.court_connectors import init_court_import
+        init_court_import()
+    except Exception as _court_err:
+        logger.debug(f"Court Document Importer not initialized: {_court_err}")
 
     # Initialize UI state from existing documents
     initialize_ui_state()
@@ -6371,6 +6377,812 @@ def _build_ci_llm_clients() -> dict:
 
 # =============================================================================
 # END CASE INTELLIGENCE AI ROUTES
+# =============================================================================
+
+
+# =============================================================================
+# COURT DOCUMENT IMPORTER ROUTES  (v3.5.0)
+# Gated by COURT_IMPORT_ENABLED=true environment variable.
+# =============================================================================
+
+def _court_gate():
+    """
+    Check Court Import feature flag. Returns (True, None) if allowed,
+    or (False, response) if the request should be rejected.
+    """
+    import os as _os
+    if _os.environ.get('COURT_IMPORT_ENABLED', 'false').lower() != 'true':
+        return False, (jsonify({'error': 'Court Document Importer is not enabled'}), 404)
+    return True, None
+
+
+def _get_current_project_slug() -> str:
+    """Return the active project slug for the current user session."""
+    project_slug = request.args.get('project') or request.json.get('project') \
+        if request.is_json else request.form.get('project', '')
+    if not project_slug:
+        project_slug = getattr(current_user, 'active_project', 'default') or 'default'
+    return project_slug
+
+
+def _build_court_connector(court_system: str, project_slug: str):
+    """
+    Build the appropriate court connector for the given court system.
+    Loads credentials from the DB and decrypts the password.
+
+    Returns connector or raises RuntimeError.
+    """
+    from analyzer.court_db import load_credentials
+    from analyzer.court_connectors.credential_store import decrypt_password
+
+    creds = load_credentials(project_slug, court_system)
+    password = ''
+    if creds and creds.get('password_encrypted'):
+        blob = creds['password_encrypted']
+        if isinstance(blob, str):
+            blob = blob.encode('latin-1')
+        password = decrypt_password(blob) or ''
+
+    if court_system == 'federal':
+        from analyzer.court_connectors.federal import FederalConnector
+        return FederalConnector(project_slug, creds or {}, pacer_password=password)
+    elif court_system == 'nyscef':
+        from analyzer.court_connectors.nyscef import NYSCEFConnector
+        return NYSCEFConnector(project_slug, creds or {}, password=password)
+    else:
+        raise RuntimeError(f"Unknown court system: {court_system}")
+
+
+def _run_court_import(job_id: str, project_slug: str, court_system: str,
+                      case_id: str, cancel_event=None):
+    """
+    Background worker: download all docket entries for a case and upload to Paperless.
+    Called from CourtImportJobManager in a daemon thread.
+    """
+    from analyzer.court_db import (
+        update_import_job, log_court_doc, load_credentials
+    )
+    from analyzer.court_connectors.credential_store import decrypt_password
+    from analyzer.court_connectors.deduplicator import CourtDeduplicator
+    import datetime as _dt
+
+    def _log(msg: str):
+        ts = _dt.datetime.utcnow().strftime('%H:%M:%S')
+        line = f"[{ts}] {msg}"
+        logger.info(f"Court import {job_id[:8]}: {msg}")
+        update_import_job(job_id, log_append=[line])
+
+    try:
+        update_import_job(job_id, status='running',
+                          started_at=_dt.datetime.utcnow().isoformat())
+        _log("Initializing connector…")
+
+        creds = load_credentials(project_slug, court_system) or {}
+        password = ''
+        if creds.get('password_encrypted'):
+            blob = creds['password_encrypted']
+            if isinstance(blob, str):
+                blob = blob.encode('latin-1')
+            password = decrypt_password(blob) or ''
+
+        if court_system == 'federal':
+            from analyzer.court_connectors.federal import FederalConnector
+            connector = FederalConnector(project_slug, creds, pacer_password=password)
+        elif court_system == 'nyscef':
+            from analyzer.court_connectors.nyscef import NYSCEFConnector
+            connector = NYSCEFConnector(project_slug, creds, password=password)
+        else:
+            raise RuntimeError(f"Unknown court system: {court_system}")
+
+        _log("Authenticating…")
+        connector.authenticate()
+
+        _log(f"Fetching docket for {case_id}…")
+        docket = connector.get_docket(case_id)
+        total = len(docket)
+        update_import_job(job_id, total_docs=total)
+        _log(f"Found {total} docket entries.")
+
+        paperless_client = getattr(app, 'paperless_client', None)
+        dedup = CourtDeduplicator(project_slug, paperless_client)
+
+        # Get or create court tag
+        court_tag_id = None
+        project_tag_id = None
+        try:
+            if paperless_client:
+                court_tag_id = paperless_client.get_or_create_tag(
+                    f"court:{court_system}"
+                )
+                project_tag_id = paperless_client.get_or_create_tag(
+                    f"project:{project_slug}"
+                )
+        except Exception as e:
+            _log(f"Warning: could not create tags: {e}")
+
+        imported = skipped = failed = 0
+
+        for entry in docket:
+            if cancel_event and cancel_event.is_set():
+                _log("Cancelled by user.")
+                update_import_job(job_id, status='cancelled',
+                                  imported_docs=imported, skipped_docs=skipped,
+                                  failed_docs=failed,
+                                  completed_at=_dt.datetime.utcnow().isoformat())
+                return
+
+            seq_label = f"seq {entry.seq}"
+
+            # Tier 1: URL dedup
+            skip, reason = dedup.check_url(entry.source_url)
+            if skip:
+                _log(f"{seq_label}: skipped (url_match)")
+                log_court_doc(job_id, project_slug, court_system, case_id,
+                              status='skipped', doc_sequence=entry.seq,
+                              source_url=entry.source_url, skip_reason='url_match')
+                skipped += 1
+                update_import_job(job_id, imported_docs=imported,
+                                  skipped_docs=skipped, failed_docs=failed)
+                continue
+
+            # Download
+            _log(f"{seq_label}: downloading ({entry.source or 'unknown'})…")
+            tmp_path = connector.download_document(entry)
+            if not tmp_path:
+                _log(f"{seq_label}: no source available, skipping")
+                log_court_doc(job_id, project_slug, court_system, case_id,
+                              status='failed', doc_sequence=entry.seq,
+                              source_url=entry.source_url,
+                              error_msg='No download source available')
+                failed += 1
+                update_import_job(job_id, imported_docs=imported,
+                                  skipped_docs=skipped, failed_docs=failed)
+                continue
+
+            # Tier 2: hash dedup
+            skip, reason, digest = dedup.check_hash(tmp_path)
+            if skip:
+                _log(f"{seq_label}: skipped (hash_match)")
+                tmp_path.unlink(missing_ok=True)
+                log_court_doc(job_id, project_slug, court_system, case_id,
+                              status='skipped', doc_sequence=entry.seq,
+                              source_url=entry.source_url, sha256_hash=digest,
+                              skip_reason='hash_match')
+                skipped += 1
+                update_import_job(job_id, imported_docs=imported,
+                                  skipped_docs=skipped, failed_docs=failed)
+                continue
+
+            # Build title
+            title = f"{case_id} \u2014 {entry.seq}: {entry.title[:80]}"
+
+            # Tier 3: title dedup
+            skip, reason = dedup.check_title(title)
+            if skip:
+                _log(f"{seq_label}: skipped (title_match)")
+                tmp_path.unlink(missing_ok=True)
+                log_court_doc(job_id, project_slug, court_system, case_id,
+                              status='skipped', doc_sequence=entry.seq,
+                              source_url=entry.source_url, sha256_hash=digest,
+                              filename=tmp_path.name, skip_reason='title_match')
+                skipped += 1
+                update_import_job(job_id, imported_docs=imported,
+                                  skipped_docs=skipped, failed_docs=failed)
+                continue
+
+            # Upload to Paperless
+            tag_ids = [t for t in [court_tag_id, project_tag_id] if t]
+            paperless_doc_id = None
+            try:
+                if paperless_client:
+                    result = paperless_client.upload_document(
+                        str(tmp_path),
+                        title=title,
+                        tags=tag_ids,
+                        created=entry.date or None,
+                    )
+                    if result and isinstance(result, dict):
+                        paperless_doc_id = result.get('id')
+                _log(f"{seq_label}: uploaded as \"{title[:60]}\"")
+                log_court_doc(job_id, project_slug, court_system, case_id,
+                              status='imported', doc_sequence=entry.seq,
+                              source_url=entry.source_url, sha256_hash=digest,
+                              filename=tmp_path.name,
+                              paperless_doc_id=paperless_doc_id)
+                imported += 1
+            except Exception as e:
+                _log(f"{seq_label}: upload failed — {e}")
+                log_court_doc(job_id, project_slug, court_system, case_id,
+                              status='failed', doc_sequence=entry.seq,
+                              source_url=entry.source_url, sha256_hash=digest,
+                              filename=tmp_path.name, error_msg=str(e)[:300])
+                failed += 1
+            finally:
+                try:
+                    tmp_path.unlink(missing_ok=True)
+                except Exception:
+                    pass
+
+            update_import_job(job_id, imported_docs=imported,
+                              skipped_docs=skipped, failed_docs=failed)
+
+        _log(f"Complete — {imported} imported, {skipped} skipped, {failed} failed.")
+        update_import_job(job_id, status='completed',
+                          imported_docs=imported, skipped_docs=skipped,
+                          failed_docs=failed,
+                          completed_at=_dt.datetime.utcnow().isoformat())
+
+    except Exception as e:
+        logger.error(f"Court import job {job_id} failed: {e}", exc_info=True)
+        try:
+            update_import_job(job_id, status='failed',
+                              error_message=str(e)[:500],
+                              completed_at=_dt.datetime.utcnow().isoformat(),
+                              log_append=[f"[ERROR] {str(e)[:300]}"])
+        except Exception:
+            pass
+
+
+# ── Credential routes ────────────────────────────────────────────────────────
+
+@app.route('/api/court/credentials', methods=['POST'])
+@login_required
+@advanced_required
+def court_save_credentials():
+    """Save (upsert) court credentials for the current project."""
+    ok, err = _court_gate()
+    if not ok:
+        return err
+    data = request.get_json(force=True) or {}
+    court_system = data.get('court_system', '')
+    username = data.get('username', '').strip()
+    password = data.get('password', '')
+    extra_config = data.get('extra_config', {})
+    project_slug = data.get('project_slug', '') or 'default'
+
+    if court_system not in ('federal', 'nyscef'):
+        return jsonify({'error': 'court_system must be "federal" or "nyscef"'}), 400
+    if not username:
+        return jsonify({'error': 'username is required'}), 400
+
+    try:
+        from analyzer.court_connectors.credential_store import encrypt_password, is_cryptography_available
+        from analyzer.court_db import save_credentials
+        if not is_cryptography_available():
+            return jsonify({'error': 'cryptography package not installed — cannot encrypt credentials'}), 500
+        encrypted = encrypt_password(password) if password else b''
+        save_credentials(project_slug, court_system, username, encrypted, extra_config)
+        return jsonify({'ok': True, 'message': f'{court_system} credentials saved'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/court/credentials', methods=['GET'])
+@login_required
+def court_list_credentials():
+    """List configured court systems for the current project (no passwords)."""
+    ok, err = _court_gate()
+    if not ok:
+        return err
+    project_slug = request.args.get('project_slug', 'default')
+    try:
+        from analyzer.court_db import list_credentials
+        creds = list_credentials(project_slug)
+        return jsonify({'credentials': creds})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/court/credentials/test', methods=['POST'])
+@login_required
+@advanced_required
+def court_test_credentials():
+    """Test court credentials and return account info."""
+    ok, err = _court_gate()
+    if not ok:
+        return err
+    data = request.get_json(force=True) or {}
+    court_system = data.get('court_system', '')
+    username = data.get('username', '').strip()
+    password = data.get('password', '')
+    extra_config = data.get('extra_config', {})
+    project_slug = data.get('project_slug', 'default')
+
+    if court_system not in ('federal', 'nyscef'):
+        return jsonify({'error': 'court_system must be "federal" or "nyscef"'}), 400
+
+    try:
+        # Build a temporary credential dict for testing (don't require DB save first)
+        import json as _json
+        temp_creds = {
+            'username': username,
+            'extra_config_json': _json.dumps(extra_config),
+        }
+        if court_system == 'federal':
+            from analyzer.court_connectors.federal import FederalConnector
+            connector = FederalConnector(project_slug, temp_creds, pacer_password=password)
+        else:
+            from analyzer.court_connectors.nyscef import NYSCEFConnector
+            connector = NYSCEFConnector(project_slug, temp_creds, password=password)
+
+        result = connector.test_connection()
+
+        # Update last_tested_at in DB if credentials already exist
+        try:
+            from analyzer.court_db import update_credential_test
+            update_credential_test(project_slug, court_system, result['ok'])
+        except Exception:
+            pass
+
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'ok': False, 'account_info': '', 'error': str(e)}), 500
+
+
+@app.route('/api/court/credentials/<court_system>', methods=['DELETE'])
+@login_required
+@advanced_required
+def court_delete_credentials(court_system):
+    """Remove court credentials for the current project."""
+    ok, err = _court_gate()
+    if not ok:
+        return err
+    project_slug = request.args.get('project_slug', 'default')
+    try:
+        from analyzer.court_db import delete_credentials
+        deleted = delete_credentials(project_slug, court_system)
+        return jsonify({'ok': deleted,
+                        'message': f'{court_system} credentials removed' if deleted
+                                   else 'No credentials found'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ── Search / docket routes ───────────────────────────────────────────────────
+
+@app.route('/api/court/search', methods=['POST'])
+@login_required
+def court_search():
+    """Search for cases by case number or party name."""
+    ok, err = _court_gate()
+    if not ok:
+        return err
+    data = request.get_json(force=True) or {}
+    court_system = data.get('court_system', 'federal')
+    case_number = data.get('case_number', '').strip()
+    party_name  = data.get('party_name', '').strip()
+    court       = data.get('court', '').strip()
+    project_slug = data.get('project_slug', 'default')
+
+    if not case_number and not party_name:
+        return jsonify({'error': 'Provide case_number or party_name'}), 400
+
+    try:
+        connector = _build_court_connector(court_system, project_slug)
+        results = connector.search_cases(case_number=case_number,
+                                         party_name=party_name,
+                                         court=court)
+        return jsonify({
+            'results': [
+                {
+                    'case_id':    r.case_id,
+                    'case_number': r.case_number,
+                    'case_title': r.case_title,
+                    'court':      r.court,
+                    'filing_date': r.filing_date,
+                    'source':     r.source,
+                }
+                for r in results
+            ]
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/court/docket/<court_system>/<path:case_id>', methods=['GET'])
+@login_required
+def court_get_docket(court_system, case_id):
+    """Return the full docket entry list for a case."""
+    ok, err = _court_gate()
+    if not ok:
+        return err
+    project_slug = request.args.get('project_slug', 'default')
+
+    try:
+        connector = _build_court_connector(court_system, project_slug)
+        docket = connector.get_docket(case_id)
+        return jsonify({
+            'case_id': case_id,
+            'court_system': court_system,
+            'total': len(docket),
+            'entries': [
+                {
+                    'seq':        e.seq,
+                    'title':      e.title,
+                    'date':       e.date,
+                    'source_url': e.source_url,
+                    'source':     e.source,
+                    'doc_type':   e.doc_type,
+                }
+                for e in docket
+            ],
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ── Import job routes ────────────────────────────────────────────────────────
+
+@app.route('/api/court/import/start', methods=['POST'])
+@login_required
+def court_import_start():
+    """Create and start a background import job."""
+    ok, err = _court_gate()
+    if not ok:
+        return err
+    data = request.get_json(force=True) or {}
+    court_system  = data.get('court_system', 'federal')
+    case_id       = data.get('case_id', '').strip()
+    case_number   = data.get('case_number', case_id).strip()
+    case_title    = data.get('case_title', '').strip()
+    project_slug  = data.get('project_slug', 'default')
+
+    if not case_id:
+        return jsonify({'error': 'case_id is required'}), 400
+
+    import uuid
+    job_id = str(uuid.uuid4())
+
+    try:
+        from analyzer.court_db import create_import_job
+        create_import_job(job_id, project_slug, current_user.id,
+                          court_system, case_number, case_title)
+
+        from analyzer.court_connectors.import_job import get_job_manager
+        jm = get_job_manager()
+        started = jm.start_job(
+            job_id, _run_court_import,
+            project_slug=project_slug,
+            court_system=court_system,
+            case_id=case_id,
+        )
+        if not started:
+            return jsonify({'error': 'Could not start job (already running?)'}), 409
+
+        return jsonify({'job_id': job_id, 'status': 'queued'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/court/import/status/<job_id>', methods=['GET'])
+@login_required
+def court_import_status(job_id):
+    """Poll import job progress and last N log lines."""
+    ok, err = _court_gate()
+    if not ok:
+        return err
+    try:
+        from analyzer.court_db import get_import_job
+        import json as _json
+        job = get_import_job(job_id)
+        if not job:
+            return jsonify({'error': 'Job not found'}), 404
+
+        log_lines = _json.loads(job.get('job_log_json') or '[]')
+        n = int(request.args.get('log_lines', 20))
+        return jsonify({
+            'job_id':       job['id'],
+            'status':       job['status'],
+            'total_docs':   job['total_docs'],
+            'imported_docs': job['imported_docs'],
+            'skipped_docs': job['skipped_docs'],
+            'failed_docs':  job['failed_docs'],
+            'error_message': job.get('error_message', ''),
+            'created_at':   job['created_at'],
+            'started_at':   job.get('started_at', ''),
+            'completed_at': job.get('completed_at', ''),
+            'log_tail':     log_lines[-n:] if log_lines else [],
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/court/import/cancel/<job_id>', methods=['POST'])
+@login_required
+def court_import_cancel(job_id):
+    """Signal a running import job to cancel."""
+    ok, err = _court_gate()
+    if not ok:
+        return err
+    try:
+        from analyzer.court_connectors.import_job import get_job_manager
+        jm = get_job_manager()
+        sent = jm.cancel_job(job_id)
+        return jsonify({'ok': sent,
+                        'message': 'Cancel signal sent' if sent else 'Job not active'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/court/import/history', methods=['GET'])
+@login_required
+def court_import_history():
+    """Return recent import jobs for the current project."""
+    ok, err = _court_gate()
+    if not ok:
+        return err
+    project_slug = request.args.get('project_slug', 'default')
+    limit = int(request.args.get('limit', 20))
+    try:
+        from analyzer.court_db import get_import_history
+        jobs = get_import_history(project_slug, limit=limit)
+        return jsonify({'jobs': jobs})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/court/credentials/parse', methods=['POST'])
+@login_required
+@advanced_required
+def court_parse_credentials():
+    """
+    Use AI to parse free-form text (email, Slack message, lawyer notes) into
+    structured court credential fields.
+
+    Request JSON:
+        raw_text   (str)  — optional on follow-up turns
+        conversation (list) — [{role, content}, ...] full history including
+                              the latest user message to send
+
+    Returns JSON:
+        court_system, username, password, pacer_client_code,
+        courtlistener_api_token, nyscef_county, public_only,
+        summary, follow_up, complete, notes
+    """
+    ok, err = _court_gate()
+    if not ok:
+        return err
+
+    data = request.get_json(force=True) or {}
+    raw_text     = (data.get('raw_text') or '').strip()
+    conversation = data.get('conversation') or []
+
+    if not raw_text and not conversation:
+        return jsonify({'error': 'raw_text or conversation required'}), 400
+
+    llm = getattr(app, 'llm_client', None)
+    if not llm or not llm.client:
+        return jsonify({
+            'error': 'AI not configured — set up an AI provider in Settings first'
+        }), 503
+
+    system_prompt = (
+        "You are an expert at extracting court system login credentials from "
+        "unstructured text (emails, Slack messages, attorney notes, etc.).\n\n"
+        "Supported court systems:\n"
+        "  - \"federal\": Uses PACER (username + password + optional billing "
+        "client code) and/or a free CourtListener API token.\n"
+        "  - \"nyscef\": New York state courts — NY Attorney Registration # + "
+        "NYSCEF e-Filing password + optional default county.\n\n"
+        "RULES:\n"
+        "  - Phrases like 'public access', 'no login required', or 'free access' "
+        "mean the user uses federal/CourtListener with no PACER credentials "
+        "— set public_only:true.\n"
+        "  - Extract usernames/passwords even if labelled differently "
+        "(e.g. 'login: X', 'user: X', 'pw: Y').\n"
+        "  - If court system is unclear, ask ONE clarifying question.\n"
+        "  - Ask follow-up questions ONE AT A TIME — never ask multiple at once.\n"
+        "  - Set complete:true when you have enough to configure the system "
+        "(public_only + court_system is sufficient; password not required for "
+        "public-only federal).\n\n"
+        "Respond with ONLY valid JSON — no markdown fences, no extra text:\n"
+        '{"court_system":"federal"|"nyscef"|null,'
+        '"username":null,"password":null,'
+        '"pacer_client_code":null,"courtlistener_api_token":null,'
+        '"nyscef_county":null,"public_only":false,'
+        '"summary":"plain English of what was found",'
+        '"follow_up":"single question or null",'
+        '"complete":false,'
+        '"notes":"any other important observations or null"}'
+    )
+
+    # Build message list — client sends the full conversation including the
+    # latest user turn, so we just pass it through.
+    if conversation:
+        messages = conversation
+    elif raw_text:
+        messages = [{'role': 'user',
+                     'content': f"Please parse these court credentials:\n\n{raw_text}"}]
+    else:
+        return jsonify({'error': 'No input to parse'}), 400
+
+    try:
+        import json as _json
+        raw_response = ''
+
+        if llm.provider == 'openai':
+            resp = llm.client.chat.completions.create(
+                model='gpt-4o-mini',
+                messages=[{'role': 'system', 'content': system_prompt}] + messages,
+                temperature=0,
+                max_tokens=600,
+            )
+            raw_response = resp.choices[0].message.content or ''
+        else:
+            # Anthropic — system param is separate
+            resp = llm.client.messages.create(
+                model='claude-haiku-4-5-20251001',
+                max_tokens=600,
+                system=system_prompt,
+                messages=messages,
+            )
+            raw_response = resp.content[0].text if resp.content else ''
+
+        # Strip markdown code fences if present
+        raw_stripped = raw_response.strip()
+        if raw_stripped.startswith('```'):
+            raw_stripped = raw_stripped.split('\n', 1)[1]
+            raw_stripped = raw_stripped.rsplit('```', 1)[0]
+
+        parsed = _json.loads(raw_stripped)
+        return jsonify(parsed)
+
+    except Exception as e:
+        logger.error(f"Court credential parse failed: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+# =============================================================================
+# END COURT DOCUMENT IMPORTER ROUTES
+# =============================================================================
+
+
+# =============================================================================
+# AI FORM FILLER ROUTES
+# =============================================================================
+
+@app.route('/api/ai-form/parse', methods=['POST'])
+@login_required
+def ai_form_parse():
+    """
+    Generic AI form-field extractor.  Accepts free-form text (or a multi-turn
+    conversation) plus a field schema, and returns structured field values.
+
+    Request JSON:
+        schema       (list)  — [{name, label, description, secret, required}]
+        conversation (list)  — [{role, content}, ...] full history including
+                               the latest user message to send
+        project_slug (str)   — optional, default 'default'
+
+    Response JSON:
+        fields       {fieldName: value|null, ...}
+        summary      str
+        follow_up    str|null
+        complete     bool
+        notes        str|null
+    """
+    import json as _json
+
+    data         = request.get_json(force=True) or {}
+    schema       = data.get('schema') or []
+    conversation = data.get('conversation') or []
+    project_slug = (data.get('project_slug') or
+                    session.get('current_project', 'default') or 'default')
+
+    if not conversation:
+        return jsonify({'error': 'conversation required'}), 400
+    if not schema:
+        return jsonify({'error': 'schema required'}), 400
+
+    # ── Build system prompt from schema ──────────────────────────────────────
+    field_lines = []
+    field_names = []
+    for f in schema:
+        name   = f.get('name', '')
+        label  = f.get('label', name)
+        desc   = f.get('description', '')
+        req    = f.get('required', False)
+        secret = f.get('secret', False)
+        line   = f'  - "{name}" ({label})'
+        if desc:   line += f': {desc}'
+        if req:    line += ' [REQUIRED]'
+        if secret: line += ' [sensitive]'
+        field_lines.append(line)
+        field_names.append(name)
+
+    fields_template  = ', '.join(f'"{n}": null' for n in field_names)
+    response_template = (
+        '{"fields": {' + fields_template + '}, '
+        '"summary": "plain English of what was found", '
+        '"follow_up": "single clarifying question or null", '
+        '"complete": false, '
+        '"notes": "any other important observations or null"}'
+    )
+
+    system_prompt = (
+        "You are an expert at extracting structured data from unstructured text "
+        "(emails, Slack messages, notes, etc.).\n\n"
+        "Fields to extract:\n"
+        + '\n'.join(field_lines) + "\n\n"
+        "RULES:\n"
+        "  - Extract as many fields as possible from the provided text.\n"
+        "  - If a required field is missing or ambiguous, ask ONE clarifying question.\n"
+        "  - Ask follow-up questions ONE AT A TIME — never ask multiple at once.\n"
+        "  - Set complete:true when you have enough information to fill the form "
+        "(all required fields are present or can be reasonably inferred).\n"
+        "  - Leave optional fields as null if not found.\n\n"
+        "Respond with ONLY valid JSON — no markdown fences, no extra text:\n"
+        + response_template
+    )
+
+    # ── Resolve LLM via project AI config ────────────────────────────────────
+    chat_cfg = get_project_ai_config(project_slug, 'chat')
+    full_cfg = load_ai_config()
+
+    def _global_key(p):
+        return full_cfg.get('global', {}).get(p, {}).get('api_key', '').strip()
+
+    provider = chat_cfg.get('provider', 'openai')
+    api_key  = (chat_cfg.get('api_key') or '').strip() or _global_key(provider)
+    model    = chat_cfg.get('model', 'gpt-4o-mini')
+
+    # Fallback provider
+    if not api_key:
+        fb_prov = chat_cfg.get('fallback_provider')
+        api_key  = _global_key(fb_prov) if fb_prov else ''
+        if api_key:
+            provider = fb_prov
+            model    = chat_cfg.get('fallback_model', model)
+
+    if not api_key:
+        return jsonify({
+            'error': 'No AI API key configured — set up an AI provider in Settings first.'
+        }), 503
+
+    try:
+        raw_response = ''
+
+        if provider == 'openai':
+            import openai as _oai
+            client = _oai.OpenAI(api_key=api_key)
+            resp = client.chat.completions.create(
+                model=model,
+                messages=[{'role': 'system', 'content': system_prompt}] + conversation,
+                temperature=0,
+                max_tokens=800,
+            )
+            raw_response = resp.choices[0].message.content or ''
+
+        elif provider == 'anthropic':
+            import anthropic as _ant
+            client = _ant.Anthropic(api_key=api_key)
+            resp = client.messages.create(
+                model=model,
+                max_tokens=800,
+                system=system_prompt,
+                messages=conversation,
+            )
+            raw_response = resp.content[0].text if resp.content else ''
+
+        else:
+            return jsonify({'error': f'Unsupported AI provider: {provider}'}), 400
+
+        # Strip markdown fences if present
+        stripped = raw_response.strip()
+        if stripped.startswith('```'):
+            stripped = stripped.split('\n', 1)[1]
+            stripped = stripped.rsplit('```', 1)[0]
+
+        parsed = _json.loads(stripped)
+        return jsonify(parsed)
+
+    except Exception as e:
+        logger.error(f'ai_form_parse error: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+# =============================================================================
+# END AI FORM FILLER ROUTES
 # =============================================================================
 
 

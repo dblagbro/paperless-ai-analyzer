@@ -4,6 +4,41 @@ All notable changes to Paperless AI Analyzer are documented here.
 
 ---
 
+## v3.5.1 — 2026-02-25
+
+### Added
+- **"📋 Paste credentials" shortcut button** — visible directly on the Court Import panel alongside the ⚙️ Manage button. Opens the credential wizard immediately in AI Paste mode, skipping step 1 entirely. Solves the discoverability problem where the AI paste feature was previously buried 4+ clicks deep.
+- **Generic `POST /api/ai-form/parse` route** — replaces the court-specific `/api/court/credentials/parse` for AI field extraction. Accepts a dynamic schema so any form can use it. Uses `get_project_ai_config()` for per-project model selection and provider fallback; supports OpenAI and Anthropic.
+- **`AIFormFiller` JS class** — reusable widget that renders a paste panel, manages multi-turn AI chat bubbles, and auto-fills form inputs from the AI response. Extracted as a standalone library at [github.com/dblagbro/ai-form-filler](https://github.com/dblagbro/ai-form-filler).
+
+### Changed
+- **Court wizard AI paste refactored** to use the new `AIFormFiller` class. Removed the one-off `_callCourtParse`, `_renderCourtChat`, `courtParseCredentials`, `courtPasteReply`, and `_courtPasteAutofill` functions and their state variables. The paste panel HTML simplifies to an empty container div; the widget injects its own UI.
+
+---
+
+## v3.5.0 — 2026-02-25
+
+### Added
+- **AI Paste credential entry** — "📋 AI Paste" tab in the court credential wizard step 2 lets users paste a raw email, Slack message, or attorney notes. AI extracts `court_system`, `username`, `password`, `pacer_client_code`, `courtlistener_api_token`, `nyscef_county` from free-form text, explains what it found in plain English, asks one follow-up question at a time if needed, and auto-fills the manual form when complete. New `POST /api/court/credentials/parse` route handles multi-turn conversation history; supports OpenAI and Anthropic providers.
+- **Court Document Importer** — pull entire case files directly from federal courts (PACER / CourtListener RECAP) and NYS NYSCEF into a Paperless-ngx project library without manual downloading. Gated by `COURT_IMPORT_ENABLED=true` env var.
+- **Free federal access via CourtListener RECAP** — the free CourtListener REST API (no auth required) is the primary source for federal documents; supports `COURTLISTENER_API_TOKEN` in `extra_config_json` to raise the 5K req/day anonymous limit.
+- **PACER direct fallback** — when a document is not in the RECAP archive and PACER credentials are configured, the `FederalConnector` falls back to PACER session-cookie auth for downloading; 1-second rate limit between downloads; realistic user-agent header.
+- **NYSCEF connector (Playwright)** — headless Chromium login → case search → docket scrape → cookie-replayed downloads. Requires `INCLUDE_PLAYWRIGHT=true` Docker build arg. All selectors centralised in `NYSCEF_SELECTORS` dict for easy one-line DOM-change fixes. Gracefully errors with a clear message when Playwright is not installed.
+- **AES-256-GCM credential encryption** — court passwords encrypted at rest in `projects.db` using a key derived from the Flask secret key file. API responses never return the raw password.
+- **3-tier deduplication** — Tier 1: source URL match in `court_imported_docs`; Tier 2: SHA-256 hash match; Tier 3: Paperless `title__icontains` search. Re-running an import on an existing case skips already-imported documents with a `skip_reason` logged.
+- **Background import jobs** — `CourtImportJobManager` mirrors the `CIJobManager` daemon-thread + `threading.Event` pattern. Cancel signal propagates within one document boundary.
+- **Setup wizard** — 3-step modal: select court → enter credentials + test connection → confirmation. "Test Connection" validates credentials before saving; PACER/NYSCEF test details shown inline.
+- **Docket viewer with filter bar** — date/title filter, source badge filter (RECAP / PACER / NYSCEF), checkbox selection for partial imports, "Import Selected" and "Import All" buttons.
+- **Live progress bar** — animated progress bar, imported/skipped/failed counters, last 20 log lines with auto-scroll, Cancel button.
+- **Import history table** — case number, court system, doc counts (imported/skipped/failed), date, status badge, "Sync Again" link that reloads the docket.
+- **11 new API routes**: `POST/GET/DELETE /api/court/credentials`, `POST /api/court/credentials/test`, `POST /api/court/search`, `GET /api/court/docket/<court>/<id>`, `POST /api/court/import/start`, `GET /api/court/import/status/<job_id>`, `POST /api/court/import/cancel/<job_id>`, `GET /api/court/import/history`.
+- **3 new DB tables** in `projects.db`: `court_credentials`, `court_import_jobs`, `court_imported_docs` (with URL/hash/project indexes). All created via `init_court_db()` with `CREATE TABLE IF NOT EXISTS` + WAL mode.
+- **`COURT_IMPORT_ENABLED`** injected into every Jinja2 template context to feature-flag the tab button and tab content.
+- **Optional Playwright Docker build arg** — `ARG INCLUDE_PLAYWRIGHT=false`; set to `true` in dev service `docker-compose.yml` to include Chromium (+350–500 MB). Federal-only users omit it; NYSCEF features show a clear "Playwright not available" error.
+- `cryptography>=42.0.0` and `playwright>=1.40.0` added to `requirements.txt`.
+
+---
+
 ## v3.2.0 — 2026-02-24
 
 ### Added
