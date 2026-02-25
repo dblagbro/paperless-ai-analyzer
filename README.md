@@ -10,6 +10,14 @@ Advanced AI-powered anomaly detection and risk analysis microservice for [Paperl
 
 ---
 
+## What's New in v3.5.1
+
+### Court Import — Credential Discoverability
+- **📋 Paste credentials button** — now visible directly on the Court Import panel. Paste any email, Slack message, or attorney notes; AI extracts all fields, asks one follow-up question if anything is missing, and auto-fills the form. Previously this feature was buried 4+ clicks deep.
+- **Generic AI form-fill widget** — reusable `AIFormFiller` JS class + Flask route extracted as a standalone library at [github.com/dblagbro/ai-form-filler](https://github.com/dblagbro/ai-form-filler). Drop two files into any Flask project to get the same AI paste behaviour on any form.
+
+---
+
 ## What's New in v3.2
 
 ### Case Intelligence — Analysis Quality

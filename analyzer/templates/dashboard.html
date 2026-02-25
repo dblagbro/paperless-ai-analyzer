@@ -1691,13 +1691,14 @@
             <!-- Smart Upload Tab -->
             <div id="tab-upload" class="tab-content">
                 <div class="tab-help-panel" id="help-upload">
-                    <strong>📤 Smart Upload</strong> — Upload documents to Paperless directly from this interface.
+                    <strong>📤 Smart Upload</strong> — Get documents into Paperless from any source.
                     <ul style="margin:8px 0 0 0; padding-left:18px;">
                         <li><strong>File</strong> — Drag and drop or browse for a PDF, image, or document file.</li>
-                        <li><strong>URL</strong> — Paste a direct file link <em>or a folder/directory URL</em>. If the URL points to an HTML directory listing, all compatible files (PDF, images, Word, etc.) are discovered automatically so you can pick which ones to upload. Add Basic Auth credentials if the link requires a login.</li>
+                        <li><strong>URL</strong> — Paste a direct file link <em>or a folder/directory URL</em>. If the URL points to an HTML directory listing, all compatible files are discovered automatically. Add Basic Auth credentials if the link requires a login.</li>
                         <li><strong>Cloud Share Link</strong> — Paste a Google Drive, Dropbox, or OneDrive share link; it will be converted automatically to a direct download URL.</li>
-                        <li>Enable <strong>Smart Metadata</strong> to let the AI suggest a title, tags, and project assignment before uploading.</li>
-                        <li>The <strong>Import History</strong> panel below tracks all uploads with their status and Paperless document IDs.</li>
+                        {% if COURT_IMPORT_ENABLED %}<li><strong>Court Import</strong> — Pull entire case files from federal courts (PACER / CourtListener RECAP) or NYS NYSCEF directly into your project library with 3-tier deduplication. Click <strong>⚙️ Manage</strong> to enter credentials manually, or <strong>📋 Paste credentials</strong> to let AI extract them from an email or Slack message in one step.</li>{% endif %}
+                        <li>Enable <strong>Smart Metadata</strong> (File / URL / Cloud modes) to let the AI suggest a title, tags, and project assignment before uploading.</li>
+                        <li>The <strong>Recent Imports</strong> panel below tracks all file/URL/cloud uploads with their status and Paperless document IDs.</li>
                     </ul>
                     <div style="margin-top:8px; font-size:12px;"><a href="{{ request.script_root }}/docs/upload" target="_blank" style="color:#5dade2;">📖 Full manual for this section →</a></div>
                 </div>
@@ -1721,6 +1722,12 @@
                             style="flex:1; padding: 12px 0; border: none; background: transparent; border-bottom: 3px solid transparent; font-weight: 500; color: #555; cursor: pointer; font-size: 14px;">
                             ☁️ Cloud Link
                         </button>
+                        {% if COURT_IMPORT_ENABLED %}
+                        <button id="umode-court" onclick="switchUploadMode('court')"
+                            style="flex:1; padding: 12px 0; border: none; background: transparent; border-bottom: 3px solid transparent; font-weight: 500; color: #555; cursor: pointer; font-size: 14px;">
+                            🏛️ Court Import
+                        </button>
+                        {% endif %}
                     </div>
 
                     <div style="padding: 24px;">
@@ -1778,74 +1785,273 @@
                             <div id="upload-cloud-detected" style="font-size:12px; color:#6b7280; min-height:18px;"></div>
                         </div>
 
-                        <!-- Project selector -->
-                        <div style="margin-top:14px;">
-                            <label style="display:block; font-weight:600; margin-bottom:6px; font-size:14px; color:#374151;">Project</label>
-                            <select id="upload-project-select" style="width:100%; box-sizing:border-box; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px; font-size:14px; color:#374151;">
-                                <option value="">None (auto-assign by analyzer)</option>
-                            </select>
+                        {% if COURT_IMPORT_ENABLED %}
+                        <!-- COURT IMPORT MODE -->
+                        <div id="uinput-court" style="display:none;">
+                            <!-- Credential status pills -->
+                            <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:16px; padding-bottom:14px; border-bottom:1px solid #e5e7eb;">
+                                <span style="font-size:12px; color:#6b7280; font-weight:500;">Court credentials:</span>
+                                <span style="border:1px solid #d1d5db; border-radius:12px; padding:3px 10px; font-size:12px; color:#6b7280;" id="court-cred-pill-federal">Federal — loading…</span>
+                                <span style="border:1px solid #d1d5db; border-radius:12px; padding:3px 10px; font-size:12px; color:#6b7280;" id="court-cred-pill-nyscef">NYSCEF — loading…</span>
+                                <div style="margin-left:auto; display:flex; gap:6px;">
+                                    <button class="btn" onclick="openCourtWizard()" style="padding:4px 12px; font-size:12px; background:#f3f4f6; color:#374151; border:1px solid #d1d5db; border-radius:5px; cursor:pointer;">⚙️ Manage</button>
+                                    <button class="btn" onclick="openCourtWizardAIPaste()" style="padding:4px 12px; font-size:12px; background:#eff6ff; color:#2563eb; border:1px solid #bfdbfe; border-radius:5px; cursor:pointer;">📋 Paste credentials</button>
+                                </div>
+                            </div>
+
+                            <!-- Case search -->
+                            <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; margin-bottom:14px;">
+                                <div style="flex:0 0 130px;">
+                                    <label style="display:block; font-size:12px; font-weight:600; color:#374151; margin-bottom:4px;">Court System</label>
+                                    <select id="court-system-select" style="width:100%; padding:7px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:13px; color:#374151;">
+                                        <option value="federal">Federal</option>
+                                        <option value="nyscef">NYSCEF (NYS)</option>
+                                    </select>
+                                </div>
+                                <div style="flex:1; min-width:140px;">
+                                    <label style="display:block; font-size:12px; font-weight:600; color:#374151; margin-bottom:4px;">Case Number</label>
+                                    <input type="text" id="court-case-number" placeholder="e.g. 1:23-cv-04567"
+                                           style="width:100%; box-sizing:border-box; padding:7px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:13px;">
+                                </div>
+                                <div style="flex:1; min-width:140px;">
+                                    <label style="display:block; font-size:12px; font-weight:600; color:#374151; margin-bottom:4px;">Party Name <span style="color:#9ca3af; font-weight:400;">(optional)</span></label>
+                                    <input type="text" id="court-party-name" placeholder="Plaintiff or defendant"
+                                           style="width:100%; box-sizing:border-box; padding:7px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:13px;">
+                                </div>
+                                <button class="btn btn-primary" onclick="searchCourt()" style="padding:7px 18px; font-size:13px;">Search</button>
+                            </div>
+                            <div id="court-search-results" style="margin-bottom:10px;"></div>
+
+                            <!-- Docket section (hidden until case selected) -->
+                            <div id="court-docket-section" style="display:none;">
+                                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
+                                    <div>
+                                        <div style="font-weight:600; color:#374151; font-size:14px;" id="court-docket-case-title">Case Documents</div>
+                                        <div style="font-size:12px; color:#6b7280;" id="court-docket-meta"></div>
+                                    </div>
+                                    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                                        <button class="btn" id="btn-court-import-selected" onclick="startCourtImport(false)" style="display:none; padding:6px 14px; font-size:13px; background:#f3f4f6; color:#374151; border:1px solid #d1d5db; border-radius:5px; cursor:pointer;">Import Selected</button>
+                                        <button class="btn btn-primary" id="btn-court-import-all" onclick="startCourtImport(true)" style="padding:6px 14px; font-size:13px;">Import All</button>
+                                    </div>
+                                </div>
+                                <!-- Filter bar -->
+                                <div style="display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap;">
+                                    <input type="text" id="court-docket-filter" placeholder="Filter by title…"
+                                           oninput="filterDocket()" style="flex:1; min-width:120px; padding:5px 9px; border:1px solid #d1d5db; border-radius:5px; font-size:12px; box-sizing:border-box;">
+                                    <select id="court-source-filter" onchange="filterDocket()" style="padding:5px 9px; border:1px solid #d1d5db; border-radius:5px; font-size:12px; color:#374151;">
+                                        <option value="">All sources</option>
+                                        <option value="recap">RECAP</option>
+                                        <option value="pacer">PACER</option>
+                                        <option value="nyscef">NYSCEF</option>
+                                    </select>
+                                </div>
+                                <!-- Docket table -->
+                                <div style="overflow-x:auto; max-height:260px; overflow-y:auto; border:1px solid #e5e7eb; border-radius:6px; margin-bottom:10px;">
+                                    <table style="width:100%; border-collapse:collapse; font-size:12px;" id="court-docket-table">
+                                        <thead>
+                                            <tr style="background:#f6f8fa; color:#6b7280; text-align:left; position:sticky; top:0;">
+                                                <th style="padding:7px 8px; width:28px; border-bottom:1px solid #e5e7eb;"><input type="checkbox" id="court-select-all" onchange="courtSelectAll(this)"></th>
+                                                <th style="padding:7px 8px; width:55px; border-bottom:1px solid #e5e7eb;">Seq #</th>
+                                                <th style="padding:7px 8px; width:85px; border-bottom:1px solid #e5e7eb;">Date</th>
+                                                <th style="padding:7px 8px; border-bottom:1px solid #e5e7eb;">Description</th>
+                                                <th style="padding:7px 8px; width:65px; border-bottom:1px solid #e5e7eb;">Source</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="court-docket-tbody"></tbody>
+                                    </table>
+                                </div>
+                                <!-- Import progress -->
+                                <div id="court-import-progress" style="display:none; margin-top:10px; padding:12px; background:#f9fafb; border:1px solid #e5e7eb; border-radius:8px;">
+                                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                                        <span style="font-weight:600; color:#374151; font-size:13px;">Import Progress</span>
+                                        <button class="btn" style="padding:3px 10px; font-size:11px; background:#f3f4f6; color:#374151; border:1px solid #d1d5db; border-radius:4px; cursor:pointer;" id="btn-court-cancel" onclick="cancelCourtImport()">Cancel</button>
+                                    </div>
+                                    <div style="background:#e5e7eb; border-radius:4px; height:8px; overflow:hidden; margin-bottom:6px;">
+                                        <div id="court-import-bar" style="height:100%; background:#2563eb; width:0%; transition:width .4s ease;"></div>
+                                    </div>
+                                    <div id="court-import-counters" style="font-size:12px; color:#6b7280; margin-bottom:8px;"></div>
+                                    <div id="court-import-log" style="font-family:monospace; font-size:11px; color:#374151; max-height:120px; overflow-y:auto; background:#fff; border:1px solid #e5e7eb; border-radius:4px; padding:6px;"></div>
+                                </div>
+                            </div>
+
+                            <!-- Court import history -->
+                            <div style="margin-top:14px; padding-top:14px; border-top:1px solid #e5e7eb;">
+                                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                                    <span style="font-weight:600; font-size:13px; color:#374151;">📋 Court Import History</span>
+                                    <button onclick="loadCourtHistory()" style="font-size:12px; border:none; background:none; color:#2563eb; cursor:pointer;">↻ Refresh</button>
+                                </div>
+                                <div id="court-history-table" style="font-size:12px; color:#6b7280;">Loading…</div>
+                            </div>
                         </div>
+                        {% endif %}
 
-                        <!-- Smart Metadata toggle -->
-                        <div style="margin-top:18px; display:flex; align-items:center; gap:10px;">
-                            <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:14px; color:#374151; font-weight:500;">
-                                <input type="checkbox" id="upload-smart-meta" style="width:16px; height:16px; accent-color:#2563eb;">
-                                Smart Metadata — AI analyzes before uploading (shows preview)
-                            </label>
-                        </div>
+                        <!-- Shared upload controls (hidden when court mode is active) -->
+                        <div id="upload-shared-controls">
+                            <!-- Project selector -->
+                            <div style="margin-top:14px;">
+                                <label style="display:block; font-weight:600; margin-bottom:6px; font-size:14px; color:#374151;">Project</label>
+                                <select id="upload-project-select" style="width:100%; box-sizing:border-box; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px; font-size:14px; color:#374151;">
+                                    <option value="">None (auto-assign by analyzer)</option>
+                                </select>
+                            </div>
 
-                        <!-- Upload button -->
-                        <div style="margin-top:20px;">
-                            <button class="btn btn-primary" onclick="doUpload()"
-                                id="upload-submit-btn"
-                                style="padding: 10px 28px; font-size: 15px;">
-                                📤 Upload to Paperless
-                            </button>
-                        </div>
-
-                        <!-- Status -->
-                        <div id="upload-status" style="margin-top: 16px;"></div>
-
-                        <!-- Directory file-list picker (shown when a folder URL is scanned) -->
-                        <div id="upload-filelist" style="display:none; margin-top:16px; background:#f9fafb; border:1px solid #e5e7eb; border-radius:8px; overflow:hidden;">
-                            <div style="padding:10px 14px; border-bottom:1px solid #e5e7eb; display:flex; align-items:center; gap:12px; background:#fff;">
-                                <span style="font-weight:600; font-size:13px; color:#374151;">📁 <span id="upload-filelist-count">0</span> compatible files found</span>
-                                <label style="font-size:12px; color:#6b7280; display:flex; align-items:center; gap:5px; cursor:pointer; margin-left:auto;">
-                                    <input type="checkbox" id="upload-filelist-selectall" checked
-                                        onchange="toggleSelectAllFiles(this.checked)"
-                                        style="width:13px; height:13px;">
-                                    Select all
+                            <!-- Smart Metadata toggle -->
+                            <div style="margin-top:18px; display:flex; align-items:center; gap:10px;">
+                                <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:14px; color:#374151; font-weight:500;">
+                                    <input type="checkbox" id="upload-smart-meta" style="width:16px; height:16px; accent-color:#2563eb;">
+                                    Smart Metadata — AI analyzes before uploading (shows preview)
                                 </label>
                             </div>
-                            <div id="upload-filelist-table"
-                                style="max-height:280px; overflow-y:auto;"
-                                onchange="if(event.target.classList.contains('flist-cb')) _updateFileListBtn()">
+
+                            <!-- Upload button -->
+                            <div style="margin-top:20px;">
+                                <button class="btn btn-primary" onclick="doUpload()"
+                                    id="upload-submit-btn"
+                                    style="padding: 10px 28px; font-size: 15px;">
+                                    📤 Upload to Paperless
+                                </button>
                             </div>
-                            <div style="padding:10px 14px; border-top:1px solid #e5e7eb; display:flex; gap:8px; align-items:center; background:#fff;">
-                                <button class="btn btn-primary" id="upload-filelist-btn"
-                                    onclick="uploadSelectedFiles()"
-                                    style="font-size:13px; padding:7px 18px;">Upload 0 files</button>
-                                <button class="btn" onclick="cancelFileList()"
-                                    style="font-size:13px; padding:7px 14px; background:#f3f4f6; color:#374151; border:1px solid #d1d5db; border-radius:5px;">Cancel</button>
-                                <span id="upload-filelist-progress" style="font-size:12px; color:#6b7280; margin-left:6px;"></span>
+
+                            <!-- Status -->
+                            <div id="upload-status" style="margin-top: 16px;"></div>
+
+                            <!-- Directory file-list picker (shown when a folder URL is scanned) -->
+                            <div id="upload-filelist" style="display:none; margin-top:16px; background:#f9fafb; border:1px solid #e5e7eb; border-radius:8px; overflow:hidden;">
+                                <div style="padding:10px 14px; border-bottom:1px solid #e5e7eb; display:flex; align-items:center; gap:12px; background:#fff;">
+                                    <span style="font-weight:600; font-size:13px; color:#374151;">📁 <span id="upload-filelist-count">0</span> compatible files found</span>
+                                    <label style="font-size:12px; color:#6b7280; display:flex; align-items:center; gap:5px; cursor:pointer; margin-left:auto;">
+                                        <input type="checkbox" id="upload-filelist-selectall" checked
+                                            onchange="toggleSelectAllFiles(this.checked)"
+                                            style="width:13px; height:13px;">
+                                        Select all
+                                    </label>
+                                </div>
+                                <div id="upload-filelist-table"
+                                    style="max-height:280px; overflow-y:auto;"
+                                    onchange="if(event.target.classList.contains('flist-cb')) _updateFileListBtn()">
+                                </div>
+                                <div style="padding:10px 14px; border-top:1px solid #e5e7eb; display:flex; gap:8px; align-items:center; background:#fff;">
+                                    <button class="btn btn-primary" id="upload-filelist-btn"
+                                        onclick="uploadSelectedFiles()"
+                                        style="font-size:13px; padding:7px 18px;">Upload 0 files</button>
+                                    <button class="btn" onclick="cancelFileList()"
+                                        style="font-size:13px; padding:7px 14px; background:#f3f4f6; color:#374151; border:1px solid #d1d5db; border-radius:5px;">Cancel</button>
+                                    <span id="upload-filelist-progress" style="font-size:12px; color:#6b7280; margin-left:6px;"></span>
+                                </div>
+                            </div>
+
+                            <!-- Smart metadata preview card -->
+                            <div id="upload-meta-preview" style="display:none; margin-top:16px; background:#f0f9ff; border:1px solid #bae6fd; border-radius:8px; padding:16px;">
+                                <div style="font-weight:600; color:#0c4a6e; margin-bottom:10px;">AI Metadata Preview — confirm before submitting</div>
+                                <div id="upload-meta-content" style="font-size:13px; color:#374151;"></div>
+                                <div style="margin-top:14px; display:flex; gap:10px;">
+                                    <button class="btn btn-primary" onclick="confirmSmartUpload()" style="padding:8px 20px;">
+                                        ✅ Confirm &amp; Upload
+                                    </button>
+                                    <button class="btn" onclick="cancelSmartPreview()" style="padding:8px 16px; background:#e5e7eb; color:#374151;">
+                                        Cancel
+                                    </button>
+                                </div>
+                            </div>
+                        </div><!-- /upload-shared-controls -->
+                    </div>
+                </div>
+
+                {% if COURT_IMPORT_ENABLED %}
+                <!-- Court credentials wizard modal (fixed overlay — works from anywhere in the DOM) -->
+                <div id="court-wizard-overlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:9000; align-items:center; justify-content:center;">
+                    <div style="background:#fff; border:1px solid #d1d5db; border-radius:12px; width:520px; max-width:95vw; padding:28px; box-shadow:0 8px 32px rgba(0,0,0,.2);">
+                        <h3 style="margin:0 0 20px 0; color:#111827;">⚙️ Court Credentials Setup</h3>
+
+                        <!-- Step 1: Select court -->
+                        <div id="court-wizard-step1">
+                            <p style="color:#6b7280; margin-bottom:14px;">Select which court system to configure:</p>
+                            <label style="display:flex; align-items:flex-start; gap:10px; margin-bottom:12px; cursor:pointer;">
+                                <input type="radio" name="court-wizard-system" value="federal" checked style="margin-top:3px;">
+                                <span>
+                                    <strong style="color:#111827;">Federal Courts (PACER + CourtListener)</strong><br>
+                                    <small style="color:#6b7280;">CourtListener RECAP is free and requires no credentials. PACER credentials are optional for documents not in the archive.</small>
+                                </span>
+                            </label>
+                            <label style="display:flex; align-items:flex-start; gap:10px; margin-bottom:20px; cursor:pointer;">
+                                <input type="radio" name="court-wizard-system" value="nyscef" style="margin-top:3px;">
+                                <span>
+                                    <strong style="color:#111827;">New York Courts (NYSCEF)</strong><br>
+                                    <small style="color:#6b7280;">Requires NY Attorney Registration # and Playwright/Chromium. Rebuild image with <code>INCLUDE_PLAYWRIGHT=true</code>.</small>
+                                </span>
+                            </label>
+                            <div style="display:flex; justify-content:flex-end; gap:8px;">
+                                <button class="btn" onclick="closeCourtWizard()" style="padding:7px 16px; background:#f3f4f6; color:#374151; border:1px solid #d1d5db; border-radius:5px; cursor:pointer;">Cancel</button>
+                                <button class="btn btn-primary" onclick="courtWizardStep(2)" style="padding:7px 16px;">Next →</button>
                             </div>
                         </div>
 
-                        <!-- Smart metadata preview card -->
-                        <div id="upload-meta-preview" style="display:none; margin-top:16px; background:#f0f9ff; border:1px solid #bae6fd; border-radius:8px; padding:16px;">
-                            <div style="font-weight:600; color:#0c4a6e; margin-bottom:10px;">AI Metadata Preview — confirm before submitting</div>
-                            <div id="upload-meta-content" style="font-size:13px; color:#374151;"></div>
-                            <div style="margin-top:14px; display:flex; gap:10px;">
-                                <button class="btn btn-primary" onclick="confirmSmartUpload()" style="padding:8px 20px;">
-                                    ✅ Confirm &amp; Upload
-                                </button>
-                                <button class="btn" onclick="cancelSmartPreview()" style="padding:8px 16px; background:#e5e7eb; color:#374151;">
-                                    Cancel
-                                </button>
+                        <!-- Step 2: Enter credentials + test -->
+                        <div id="court-wizard-step2" style="display:none;">
+
+                            <!-- Entry mode tab toggle -->
+                            <div style="display:flex; border-bottom:1px solid #e5e7eb; margin-bottom:14px;">
+                                <button id="court-wiz-tab-manual" onclick="courtWizEntryMode('manual')"
+                                        style="background:none; border:none; padding:7px 14px 6px; cursor:pointer; font-size:13px; color:#2563eb; font-weight:600; border-bottom:2px solid #2563eb;">✏️ Manual</button>
+                                <button id="court-wiz-tab-paste" onclick="courtWizEntryMode('paste')"
+                                        style="background:none; border:none; padding:7px 14px 6px; cursor:pointer; font-size:13px; color:#6b7280; font-weight:400; border-bottom:2px solid transparent;">📋 AI Paste</button>
+                            </div>
+
+                            <!-- Manual entry panel -->
+                            <div id="court-wiz-manual-panel">
+                                <div id="court-wizard-federal-fields">
+                                    <p style="color:#6b7280; margin-bottom:12px; font-size:14px;"><strong>Federal Courts</strong> — CourtListener is free (no credentials needed). Enter PACER credentials to access documents not in the RECAP archive.</p>
+                                    <label style="display:block; margin-bottom:5px; font-size:13px; font-weight:600; color:#374151;">PACER Username <span style="color:#9ca3af; font-weight:400;">(optional)</span></label>
+                                    <input type="text" id="court-wiz-federal-user" placeholder="PACER username"
+                                           style="width:100%; box-sizing:border-box; padding:8px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:13px; margin-bottom:10px;">
+                                    <label style="display:block; margin-bottom:5px; font-size:13px; font-weight:600; color:#374151;">PACER Password <span style="color:#9ca3af; font-weight:400;">(optional)</span></label>
+                                    <input type="password" id="court-wiz-federal-pass" placeholder="PACER password"
+                                           style="width:100%; box-sizing:border-box; padding:8px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:13px; margin-bottom:10px;">
+                                    <label style="display:block; margin-bottom:5px; font-size:13px; font-weight:600; color:#374151;">PACER Client Code <span style="color:#9ca3af; font-weight:400;">(optional)</span></label>
+                                    <input type="text" id="court-wiz-federal-client" placeholder="Billing client code"
+                                           style="width:100%; box-sizing:border-box; padding:8px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:13px; margin-bottom:10px;">
+                                    <label style="display:block; margin-bottom:5px; font-size:13px; font-weight:600; color:#374151;">CourtListener API Token <span style="color:#9ca3af; font-weight:400;">(optional — raises rate limit)</span></label>
+                                    <input type="text" id="court-wiz-cl-token" placeholder="Free token from courtlistener.com"
+                                           style="width:100%; box-sizing:border-box; padding:8px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:13px; margin-bottom:4px;">
+                                </div>
+                                <div id="court-wizard-nyscef-fields" style="display:none;">
+                                    <p style="color:#6b7280; margin-bottom:12px; font-size:14px;"><strong>NYSCEF</strong> — Enter your NY Attorney Registration number and e-Filing password.</p>
+                                    <label style="display:block; margin-bottom:5px; font-size:13px; font-weight:600; color:#374151;">NY Attorney Registration #</label>
+                                    <input type="text" id="court-wiz-nyscef-user" placeholder="e.g. 1234567"
+                                           style="width:100%; box-sizing:border-box; padding:8px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:13px; margin-bottom:10px;">
+                                    <label style="display:block; margin-bottom:5px; font-size:13px; font-weight:600; color:#374151;">NYSCEF Password</label>
+                                    <input type="password" id="court-wiz-nyscef-pass" placeholder="NYSCEF e-Filing password"
+                                           style="width:100%; box-sizing:border-box; padding:8px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:13px; margin-bottom:10px;">
+                                    <label style="display:block; margin-bottom:5px; font-size:13px; font-weight:600; color:#374151;">Default County</label>
+                                    <input type="text" id="court-wiz-nyscef-county" placeholder="e.g. new york"
+                                           style="width:100%; box-sizing:border-box; padding:8px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:13px; margin-bottom:4px;">
+                                </div>
+                            </div><!-- /court-wiz-manual-panel -->
+
+                            <!-- AI Paste panel — content injected by AIFormFiller widget -->
+                            <div id="court-wiz-paste-panel" style="display:none;"></div>
+
+                            <div id="court-wiz-test-result" style="margin:10px 0; font-size:13px; min-height:18px;"></div>
+                            <div style="display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap;">
+                                <button class="btn" onclick="courtWizardStep(1)" style="padding:7px 14px; background:#f3f4f6; color:#374151; border:1px solid #d1d5db; border-radius:5px; cursor:pointer;">← Back</button>
+                                <div style="display:flex; gap:8px;">
+                                    <button class="btn" onclick="testCourtCredentials()" style="padding:7px 14px; background:#f3f4f6; color:#374151; border:1px solid #d1d5db; border-radius:5px; cursor:pointer;">🔌 Test Connection</button>
+                                    <button class="btn btn-primary" onclick="saveCourtCredentials()" style="padding:7px 16px;">💾 Save</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Step 3: Confirmation -->
+                        <div id="court-wizard-step3" style="display:none;">
+                            <div id="court-wiz-confirm-msg" style="color:#16a34a; font-size:15px; margin-bottom:20px;"></div>
+                            <div style="display:flex; justify-content:flex-end; gap:8px;">
+                                <button class="btn" onclick="closeCourtWizard()" style="padding:7px 14px; background:#f3f4f6; color:#374151; border:1px solid #d1d5db; border-radius:5px; cursor:pointer;">Close</button>
+                                <button class="btn btn-primary" onclick="closeCourtWizard()" style="padding:7px 16px;">Done</button>
                             </div>
                         </div>
                     </div>
                 </div>
+                {% endif %}
 
                 <!-- Import History -->
                 <div style="background: white; border: 1px solid #e1e4e8; border-radius: 10px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,.06);">
@@ -3096,6 +3302,7 @@
         </div>
     </div>
 
+
     <script>
         // Base path injected by Flask from URL_PREFIX env var (set in docker-compose)
         const BASE_PATH = "{{ request.script_root }}";
@@ -4337,9 +4544,10 @@
 
         function switchUploadMode(mode) {
             _uploadMode = mode;
-            ['file', 'url', 'cloud'].forEach(m => {
+            ['file', 'url', 'cloud', 'court'].forEach(m => {
                 const btn = document.getElementById('umode-' + m);
                 const pnl = document.getElementById('uinput-' + m);
+                if (!btn || !pnl) return;   // court mode elements absent when feature disabled
                 const active = m === mode;
                 btn.style.background = active ? '#fff' : 'transparent';
                 btn.style.borderBottom = active ? '3px solid #2563eb' : '3px solid transparent';
@@ -4347,8 +4555,16 @@
                 btn.style.color = active ? '#2563eb' : '#555';
                 pnl.style.display = active ? '' : 'none';
             });
+            // Hide the shared upload controls (project/smart-meta/submit) in court mode
+            const shared = document.getElementById('upload-shared-controls');
+            if (shared) shared.style.display = mode === 'court' ? 'none' : '';
             document.getElementById('upload-status').innerHTML = '';
             cancelSmartPreview();
+            // Initialise court sub-tab on first switch
+            if (mode === 'court') {
+                if (typeof loadCourtCredStatus === 'function') loadCourtCredStatus();
+                if (typeof loadCourtHistory === 'function') loadCourtHistory();
+            }
         }
 
         function updateAuthFields() {
@@ -8244,6 +8460,643 @@
             .replace(/"/g,'&quot;');
     }
 
+    </script>
+    {% endif %}
+
+    {% if COURT_IMPORT_ENABLED %}
+    <!-- ════════════════════════════════════════════════════════════════════
+         COURT DOCUMENT IMPORTER — v3.5.0
+         ════════════════════════════════════════════════════════════════════ -->
+    <script>
+    // ── AIFormFiller widget ──────────────────────────────────────────────────
+    // Reusable class: auto-fills any form from free-form pasted text via AI.
+    // Drop this class + POST /api/ai-form/parse into any Flask project for the
+    // same behaviour on any form.
+    class AIFormFiller {
+        static _count = 0;
+
+        constructor({ schema, fields, container, endpoint, onComplete, projectSlug } = {}) {
+            this._id         = 'aff' + (++AIFormFiller._count);
+            this._schema     = schema || [];
+            this._fields     = fields || {};        // {apiFieldName: '#css-selector'}
+            this._container  = typeof container === 'string'
+                               ? document.querySelector(container) : container;
+            this._endpoint   = endpoint;
+            this._onComplete = onComplete || null;
+            this._slug       = projectSlug;         // string or function
+            this._conversation = [];
+            this._els        = {};
+        }
+
+        _pfx(s) { return `${this._id}-${s}`; }
+
+        _currentSlug() {
+            if (typeof this._slug === 'function') return this._slug();
+            return this._slug || (typeof CURRENT_PROJECT !== 'undefined' ? CURRENT_PROJECT : 'default');
+        }
+
+        render() {
+            if (!this._container) return;
+            this._container.innerHTML = `
+                <p style="color:#6b7280; margin-bottom:10px; font-size:13px;">
+                    Paste an email, Slack message, or any notes that contain the credentials.
+                    AI will extract the fields and ask follow-up questions if needed.
+                </p>
+                <textarea id="${this._pfx('paste')}"
+                          placeholder="Paste text here — e.g. a Slack message, email, or attorney notes\u2026"
+                          style="width:100%; box-sizing:border-box; height:90px; padding:8px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:13px; resize:vertical; margin-bottom:8px;"></textarea>
+                <button id="${this._pfx('parse-btn')}"
+                        style="padding:7px 14px; background:#2563eb; color:#fff; border:none; border-radius:5px; cursor:pointer; font-size:13px; margin-bottom:10px;">\uD83E\uDD16 Parse with AI</button>
+                <div id="${this._pfx('chat')}" style="display:none; max-height:240px; overflow-y:auto; margin-bottom:8px; padding:2px;">
+                    <div id="${this._pfx('msgs')}"></div>
+                </div>
+                <div id="${this._pfx('reply-row')}" style="display:none; gap:6px; align-items:center; margin-bottom:4px;">
+                    <input type="text" id="${this._pfx('reply')}" placeholder="Type your answer\u2026"
+                           style="flex:1; padding:7px 10px; border:1px solid #d1d5db; border-radius:5px; font-size:13px;">
+                    <button id="${this._pfx('send-btn')}"
+                            style="padding:7px 12px; background:#2563eb; color:#fff; border:none; border-radius:5px; cursor:pointer; font-size:13px; white-space:nowrap;">Send \u2192</button>
+                </div>
+            `;
+            this._els.paste    = document.getElementById(this._pfx('paste'));
+            this._els.parseBtn = document.getElementById(this._pfx('parse-btn'));
+            this._els.chat     = document.getElementById(this._pfx('chat'));
+            this._els.msgs     = document.getElementById(this._pfx('msgs'));
+            this._els.replyRow = document.getElementById(this._pfx('reply-row'));
+            this._els.reply    = document.getElementById(this._pfx('reply'));
+            this._els.sendBtn  = document.getElementById(this._pfx('send-btn'));
+
+            this._els.parseBtn.addEventListener('click', () => this._parse());
+            this._els.sendBtn.addEventListener('click', () => this._sendReply());
+            this._els.reply.addEventListener('keydown', e => { if (e.key === 'Enter') this._sendReply(); });
+        }
+
+        reset() {
+            this._conversation = [];
+            if (!this._els.paste) return;
+            this._els.paste.value            = '';
+            this._els.chat.style.display     = 'none';
+            this._els.msgs.innerHTML         = '';
+            this._els.replyRow.style.display = 'none';
+            this._els.reply.value            = '';
+        }
+
+        async _parse() {
+            const rawText = (this._els.paste?.value || '').trim();
+            if (!rawText) { showToast('Paste some text first', 'error'); return; }
+            this._conversation = [{
+                role: 'user',
+                content: `Please extract the required fields from this text:\n\n${rawText}`
+            }];
+            this._renderBubbles();
+            this._els.replyRow.style.display = 'none';
+            await this._call();
+        }
+
+        async _sendReply() {
+            const text = (this._els.reply?.value || '').trim();
+            if (!text) return;
+            this._conversation.push({ role: 'user', content: text });
+            this._els.reply.value            = '';
+            this._els.replyRow.style.display = 'none';
+            this._renderBubbles();
+            await this._call();
+        }
+
+        async _call() {
+            this._els.chat.style.display = 'block';
+            const thinking = document.createElement('div');
+            thinking.id = this._pfx('thinking');
+            thinking.innerHTML = '<em style="font-size:12px; color:#9ca3af;">\uD83E\uDD16 Thinking\u2026</em>';
+            this._els.msgs.appendChild(thinking);
+            try {
+                const r = await apiFetch(apiUrl(this._endpoint), {
+                    method:  'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body:    JSON.stringify({
+                        schema:       this._schema,
+                        conversation: this._conversation,
+                        project_slug: this._currentSlug(),
+                    })
+                });
+                const d = await r.json();
+                document.getElementById(this._pfx('thinking'))?.remove();
+                if (d.error) { showToast('AI: ' + d.error, 'error'); return; }
+                this._conversation.push({ role: 'assistant', content: JSON.stringify(d) });
+                this._renderBubbles();
+                if (d.complete) {
+                    this.autofill(d.fields || d);
+                } else if (d.follow_up) {
+                    this._els.replyRow.style.display = 'flex';
+                    this._els.reply.focus();
+                }
+            } catch(e) {
+                document.getElementById(this._pfx('thinking'))?.remove();
+                showToast('Parse error: ' + e.message, 'error');
+            }
+        }
+
+        _renderBubbles() {
+            const el = this._els.msgs;
+            if (!el) return;
+            el.innerHTML = '';
+            const PREFIX = 'Please extract the required fields from this text:\n\n';
+            this._conversation.forEach(turn => {
+                const div = document.createElement('div');
+                div.style.cssText = 'margin-bottom:8px;';
+                if (turn.role === 'user') {
+                    let preview = turn.content;
+                    if (preview.startsWith(PREFIX)) {
+                        preview = '\uD83D\uDCCB ' + preview.replace(PREFIX, '').slice(0, 80) + (preview.length > 130 ? '\u2026' : '');
+                    } else {
+                        preview = '\uD83D\uDC64 ' + preview;
+                    }
+                    div.innerHTML = `<div style="background:#f3f4f6; padding:7px 10px; border-radius:6px; font-size:12px; color:#374151;">${escapeHtml(preview)}</div>`;
+                } else {
+                    try {
+                        const p = JSON.parse(turn.content);
+                        let html = `<div style="background:#eff6ff; border:1px solid #bfdbfe; padding:9px 11px; border-radius:6px; font-size:12px; color:#1e40af;">`;
+                        html += `<div style="font-weight:600; margin-bottom:4px;">\uD83E\uDD16 ${escapeHtml(p.summary || 'Parsed')}</div>`;
+                        if (p.notes) html += `<div style="color:#3b82f6; margin-bottom:4px;">${escapeHtml(p.notes)}</div>`;
+                        if (p.complete) {
+                            html += `<div style="color:#16a34a; font-weight:600;">\u2713 Fields ready \u2014 review the form below.</div>`;
+                        } else if (p.follow_up) {
+                            html += `<div style="margin-top:4px; font-style:italic;">${escapeHtml(p.follow_up)}</div>`;
+                        }
+                        html += '</div>';
+                        div.innerHTML = html;
+                    } catch {
+                        div.innerHTML = `<div style="font-size:12px; color:#6b7280;">${escapeHtml(turn.content)}</div>`;
+                    }
+                }
+                el.appendChild(div);
+            });
+            el.scrollTop = el.scrollHeight;
+        }
+
+        autofill(extractedFields) {
+            if (!extractedFields) return;
+            Object.entries(this._fields).forEach(([fieldName, selector]) => {
+                const val = extractedFields[fieldName];
+                if (val == null) return;
+                const el = document.querySelector(selector);
+                if (el) el.value = String(val);
+            });
+            if (this._onComplete) this._onComplete(extractedFields);
+        }
+    }
+    // ── end AIFormFiller ─────────────────────────────────────────────────────
+
+    // ── Court Import: state ──────────────────────────────────────────────────
+    let _courtCurrentSystem = 'federal';
+    let _courtCurrentCaseId = null;
+    let _courtCurrentCaseNumber = '';
+    let _courtCurrentCaseTitle = '';
+    let _courtDocketEntries = [];
+    let _courtImportJobId = null;
+    let _courtPollTimer = null;
+    let _courtAIFiller = null;             // AIFormFiller instance for the wizard
+    const _courtProjectSlug = () => {
+        // Prefer the upload tab's project selector (same context), fall back to global
+        const sel = document.getElementById('upload-project-select');
+        return (sel && sel.value) || CURRENT_PROJECT || 'default';
+    };
+
+    // ── Wizard ───────────────────────────────────────────────────────────────
+    function openCourtWizard() {
+        document.getElementById('court-wizard-overlay').style.display = 'flex';
+        courtWizardStep(1);
+        loadCourtCredStatus();
+    }
+    function closeCourtWizard() {
+        document.getElementById('court-wizard-overlay').style.display = 'none';
+    }
+    function courtWizardStep(n) {
+        [1,2,3].forEach(i => {
+            document.getElementById('court-wizard-step'+i).style.display = (i===n) ? 'block' : 'none';
+        });
+        if (n === 2) {
+            const system = document.querySelector('input[name="court-wizard-system"]:checked')?.value || 'federal';
+            _courtCurrentSystem = system;
+            document.getElementById('court-wiz-test-result').innerHTML = '';
+            // Lazily init and always reset the AI filler on each entry to step 2
+            if (!_courtAIFiller) { _courtAIFiller = _initCourtAIFiller(); }
+            _courtAIFiller.reset();
+            courtWizEntryMode('manual');
+        }
+    }
+
+    function courtWizEntryMode(mode) {
+        const manBtn  = document.getElementById('court-wiz-tab-manual');
+        const pasBtn  = document.getElementById('court-wiz-tab-paste');
+        const manPanel = document.getElementById('court-wiz-manual-panel');
+        const pasPanel = document.getElementById('court-wiz-paste-panel');
+        if (!manBtn || !manPanel) return;
+
+        [['manual', manBtn], ['paste', pasBtn]].forEach(([m, btn]) => {
+            const active = m === mode;
+            btn.style.color       = active ? '#2563eb' : '#6b7280';
+            btn.style.fontWeight  = active ? '600'     : '400';
+            btn.style.borderBottom = active ? '2px solid #2563eb' : '2px solid transparent';
+        });
+        manPanel.style.display = mode === 'manual' ? '' : 'none';
+        if (pasPanel) pasPanel.style.display = mode === 'paste' ? '' : 'none';
+
+        if (mode === 'manual') {
+            // Re-apply system field visibility
+            const fedEl = document.getElementById('court-wizard-federal-fields');
+            const nycEl = document.getElementById('court-wizard-nyscef-fields');
+            if (fedEl) fedEl.style.display = _courtCurrentSystem === 'federal' ? '' : 'none';
+            if (nycEl) nycEl.style.display = _courtCurrentSystem === 'nyscef'  ? '' : 'none';
+        }
+    }
+
+    async function testCourtCredentials() {
+        const system = _courtCurrentSystem;
+        const resultEl = document.getElementById('court-wiz-test-result');
+        resultEl.innerHTML = '<span style="color:#aaa;">Testing…</span>';
+        const body = _buildCredBody(system);
+        try {
+            const r = await apiFetch(apiUrl('/api/court/credentials/test'), {
+                method:'POST', headers:{'Content-Type':'application/json'},
+                body: JSON.stringify(body)
+            });
+            const d = await r.json();
+            if (d.ok) {
+                resultEl.innerHTML = `<span style="color:#4caf50;">✓ ${escapeHtml(d.account_info)}</span>`;
+            } else {
+                resultEl.innerHTML = `<span style="color:#e74c3c;">✗ ${escapeHtml(d.error)}</span>`;
+            }
+        } catch(e) {
+            resultEl.innerHTML = `<span style="color:#e74c3c;">Error: ${escapeHtml(e.message)}</span>`;
+        }
+    }
+
+    async function saveCourtCredentials() {
+        const system = _courtCurrentSystem;
+        const body = _buildCredBody(system);
+        try {
+            const r = await apiFetch(apiUrl('/api/court/credentials'), {
+                method:'POST', headers:{'Content-Type':'application/json'},
+                body: JSON.stringify(body)
+            });
+            const d = await r.json();
+            if (d.ok) {
+                courtWizardStep(3);
+                document.getElementById('court-wiz-confirm-msg').innerHTML =
+                    `✓ ${escapeHtml(system.charAt(0).toUpperCase()+system.slice(1))} credentials saved.`;
+                loadCourtCredStatus();
+            } else {
+                showToast(d.error || 'Save failed', 'error');
+            }
+        } catch(e) {
+            showToast('Error: '+e.message, 'error');
+        }
+    }
+
+    function _buildCredBody(system) {
+        const slug = _courtProjectSlug();
+        if (system === 'federal') {
+            return {
+                court_system: 'federal',
+                project_slug: slug,
+                username: document.getElementById('court-wiz-federal-user').value.trim(),
+                password: document.getElementById('court-wiz-federal-pass').value,
+                extra_config: {
+                    pacer_client_code: document.getElementById('court-wiz-federal-client').value.trim(),
+                    courtlistener_api_token: document.getElementById('court-wiz-cl-token').value.trim(),
+                }
+            };
+        } else {
+            return {
+                court_system: 'nyscef',
+                project_slug: slug,
+                username: document.getElementById('court-wiz-nyscef-user').value.trim(),
+                password: document.getElementById('court-wiz-nyscef-pass').value,
+                extra_config: {
+                    nyscef_county: document.getElementById('court-wiz-nyscef-county').value.trim(),
+                }
+            };
+        }
+    }
+
+    // ── AI Paste credential parsing (via AIFormFiller) ───────────────────────
+
+    function _initCourtAIFiller() {
+        const filler = new AIFormFiller({
+            schema: [
+                { name: 'court_system', label: 'Court System',
+                  description: 'Either "federal" (PACER/CourtListener) or "nyscef" (NY state courts)', required: true },
+                { name: 'username', label: 'Username',
+                  description: 'PACER username (federal) or NY Attorney Registration number (nyscef)' },
+                { name: 'password', label: 'Password', description: 'Login password', secret: true },
+                { name: 'pacer_client_code', label: 'PACER Client Code',
+                  description: 'Optional PACER billing client code (federal only)' },
+                { name: 'courtlistener_api_token', label: 'CourtListener API Token',
+                  description: 'Optional free token from courtlistener.com for higher rate limits', secret: true },
+                { name: 'nyscef_county', label: 'Default NYSCEF County',
+                  description: 'Default NY county for NYSCEF filings' },
+                { name: 'public_only', label: 'Public Access Only',
+                  description: 'Set true if user only needs free public federal access without PACER credentials' },
+            ],
+            fields: {
+                pacer_client_code:       '#court-wiz-federal-client',
+                courtlistener_api_token: '#court-wiz-cl-token',
+                nyscef_county:           '#court-wiz-nyscef-county',
+            },
+            container:   '#court-wiz-paste-panel',
+            endpoint:    '/api/ai-form/parse',
+            projectSlug: _courtProjectSlug,
+            onComplete(fields) {
+                // Set court system radio
+                if (fields.court_system) {
+                    const radio = document.querySelector(`input[name="court-wizard-system"][value="${fields.court_system}"]`);
+                    if (radio) radio.checked = true;
+                    _courtCurrentSystem = fields.court_system;
+                }
+                // Route username/password to the correct system's inputs
+                if (_courtCurrentSystem === 'federal' || fields.court_system === 'federal') {
+                    const u = document.getElementById('court-wiz-federal-user');
+                    const p = document.getElementById('court-wiz-federal-pass');
+                    if (u && fields.username) u.value = fields.username;
+                    if (p && fields.password) p.value = fields.password;
+                }
+                if (_courtCurrentSystem === 'nyscef' || fields.court_system === 'nyscef') {
+                    const u = document.getElementById('court-wiz-nyscef-user');
+                    const p = document.getElementById('court-wiz-nyscef-pass');
+                    if (u && fields.username) u.value = fields.username;
+                    if (p && fields.password) p.value = fields.password;
+                }
+                setTimeout(() => {
+                    courtWizEntryMode('manual');
+                    showToast('Fields auto-filled \u2014 review and click Test Connection', 'info');
+                }, 400);
+            }
+        });
+        filler.render();
+        return filler;
+    }
+
+    function openCourtWizardAIPaste() {
+        document.getElementById('court-wizard-overlay').style.display = 'flex';
+        // Default to federal; user can change by going back to step 1
+        const fedRadio = document.querySelector('input[name="court-wizard-system"][value="federal"]');
+        if (fedRadio) fedRadio.checked = true;
+        courtWizardStep(2);       // inits/resets filler, shows step 2
+        courtWizEntryMode('paste'); // open on the AI Paste tab immediately
+        loadCourtCredStatus();
+    }
+
+    // ── Credential status pills ───────────────────────────────────────────────
+
+    async function loadCourtCredStatus() {
+        const slug = _courtProjectSlug();
+        try {
+            const r = await apiFetch(apiUrl('/api/court/credentials?project_slug='+encodeURIComponent(slug)));
+            const d = await r.json();
+            const creds = d.credentials || [];
+            ['federal','nyscef'].forEach(sys => {
+                const el = document.getElementById('court-cred-pill-'+sys);
+                if (!el) return;
+                const c = creds.find(x=>x.court_system===sys);
+                if (c) {
+                    const tested = c.last_tested_at ? (c.last_test_success ? ' ✓' : ' ✗') : '';
+                    el.style.color = c.last_test_success ? '#4caf50' : '#f39c12';
+                    el.style.borderColor = c.last_test_success ? '#4caf50' : '#f39c12';
+                    el.textContent = `${sys.charAt(0).toUpperCase()+sys.slice(1)}: ${escapeHtml(c.username||'configured')}${tested}`;
+                } else {
+                    el.style.color = '#888';
+                    el.style.borderColor = '#333';
+                    el.textContent = `${sys.charAt(0).toUpperCase()+sys.slice(1)} — not configured`;
+                }
+            });
+        } catch(e) { /* silently fail */ }
+    }
+
+    // ── Case Search ──────────────────────────────────────────────────────────
+    async function searchCourt() {
+        const system = document.getElementById('court-system-select').value;
+        const caseNum = document.getElementById('court-case-number').value.trim();
+        const party   = document.getElementById('court-party-name').value.trim();
+        const slug    = _courtProjectSlug();
+        if (!caseNum && !party) { showToast('Enter a case number or party name','error'); return; }
+        const resultsEl = document.getElementById('court-search-results');
+        resultsEl.innerHTML = '<span style="color:#aaa;">Searching…</span>';
+        try {
+            const r = await apiFetch(apiUrl('/api/court/search'), {
+                method:'POST', headers:{'Content-Type':'application/json'},
+                body: JSON.stringify({court_system:system, case_number:caseNum, party_name:party, project_slug:slug})
+            });
+            const d = await r.json();
+            if (d.error) { resultsEl.innerHTML = `<span style="color:#e74c3c;">${escapeHtml(d.error)}</span>`; return; }
+            const cases = d.results || [];
+            if (!cases.length) { resultsEl.innerHTML = '<span style="color:#aaa;">No results found.</span>'; return; }
+            resultsEl.innerHTML = cases.map(c=>`
+                <div onclick="loadDocket('${escapeHtml(system)}','${escapeHtml(c.case_id)}','${escapeHtml(c.case_number)}','${escapeHtml(c.case_title.replace(/'/g,"\\'"))}')"
+                     style="padding:9px 12px; margin:4px 0; background:#f9fafb; border:1px solid #e5e7eb; border-radius:6px; cursor:pointer; transition:border-color .15s;"
+                     onmouseover="this.style.borderColor='#2563eb'; this.style.background='#eff6ff';" onmouseout="this.style.borderColor='#e5e7eb'; this.style.background='#f9fafb';">
+                    <strong style="color:#1d4ed8; font-size:13px;">${escapeHtml(c.case_number)}</strong>
+                    <span style="color:#374151; margin-left:8px; font-size:13px;">${escapeHtml(c.case_title)}</span>
+                    <span style="float:right; font-size:11px; color:#9ca3af;">${escapeHtml(c.court)} · ${escapeHtml(c.source)}</span>
+                </div>
+            `).join('');
+        } catch(e) { resultsEl.innerHTML = `<span style="color:#e74c3c;">Error: ${escapeHtml(e.message)}</span>`; }
+    }
+
+    // ── Docket ───────────────────────────────────────────────────────────────
+    async function loadDocket(system, caseId, caseNumber, caseTitle) {
+        _courtCurrentSystem   = system;
+        _courtCurrentCaseId   = caseId;
+        _courtCurrentCaseNumber = caseNumber;
+        _courtCurrentCaseTitle  = caseTitle;
+        const slug = _courtProjectSlug();
+        const section = document.getElementById('court-docket-section');
+        document.getElementById('court-docket-case-title').textContent = caseTitle || caseNumber;
+        document.getElementById('court-docket-meta').textContent = 'Loading docket…';
+        document.getElementById('court-docket-tbody').innerHTML = '<tr><td colspan="5" style="padding:12px; color:#aaa;">Loading…</td></tr>';
+        document.getElementById('court-import-progress').style.display = 'none';
+        section.style.display = 'block';
+
+        try {
+            const r = await apiFetch(apiUrl(`/api/court/docket/${encodeURIComponent(system)}/${encodeURIComponent(caseId)}?project_slug=${encodeURIComponent(slug)}`));
+            const d = await r.json();
+            if (d.error) { document.getElementById('court-docket-meta').textContent = 'Error: '+d.error; return; }
+            _courtDocketEntries = d.entries || [];
+            document.getElementById('court-docket-meta').textContent =
+                `${_courtDocketEntries.length} documents · ${system} · ${caseNumber}`;
+            document.getElementById('btn-court-import-all').textContent =
+                `Import All (${_courtDocketEntries.length} docs)`;
+            renderDocket(_courtDocketEntries);
+        } catch(e) {
+            document.getElementById('court-docket-meta').textContent = 'Error: '+e.message;
+        }
+    }
+
+    function renderDocket(entries) {
+        const tbody = document.getElementById('court-docket-tbody');
+        if (!entries.length) {
+            tbody.innerHTML = '<tr><td colspan="5" style="padding:12px; color:#aaa;">No docket entries found.</td></tr>';
+            return;
+        }
+        tbody.innerHTML = entries.map(e=>`
+            <tr style="border-bottom:1px solid #f3f4f6;">
+                <td style="padding:5px 8px;"><input type="checkbox" class="court-doc-check" data-seq="${escapeHtml(e.seq)}"></td>
+                <td style="padding:5px 8px; color:#6b7280; white-space:nowrap; font-size:11px;">${escapeHtml(e.seq)}</td>
+                <td style="padding:5px 8px; color:#6b7280; white-space:nowrap; font-size:11px;">${escapeHtml(e.date||'')}</td>
+                <td style="padding:5px 8px; color:#374151; font-size:12px;">${escapeHtml(e.title||'—')}</td>
+                <td style="padding:5px 8px;">
+                    <span style="background:${e.source==='recap'?'#dcfce7':e.source==='pacer'?'#fee2e2':'#dbeafe'}; color:${e.source==='recap'?'#15803d':e.source==='pacer'?'#dc2626':'#1d4ed8'}; border-radius:4px; padding:2px 7px; font-size:11px; font-weight:500;">${escapeHtml(e.source)}</span>
+                </td>
+            </tr>
+        `).join('');
+        // Update "Import Selected" button visibility
+        document.getElementById('court-docket-tbody').querySelectorAll('.court-doc-check').forEach(cb=>{
+            cb.addEventListener('change', _updateImportSelected);
+        });
+    }
+
+    function filterDocket() {
+        const q = document.getElementById('court-docket-filter').value.toLowerCase();
+        const src = document.getElementById('court-source-filter').value;
+        const filtered = _courtDocketEntries.filter(e=>{
+            if (q && !e.title?.toLowerCase().includes(q) && !e.seq?.toLowerCase().includes(q)) return false;
+            if (src && e.source !== src) return false;
+            return true;
+        });
+        renderDocket(filtered);
+    }
+
+    function courtSelectAll(cb) {
+        document.querySelectorAll('.court-doc-check').forEach(c=>{ c.checked = cb.checked; });
+        _updateImportSelected();
+    }
+
+    function _updateImportSelected() {
+        const checked = document.querySelectorAll('.court-doc-check:checked').length;
+        const btn = document.getElementById('btn-court-import-selected');
+        if (btn) {
+            btn.style.display = checked > 0 ? 'inline-flex' : 'none';
+            btn.textContent = `Import Selected (${checked})`;
+        }
+    }
+
+    // ── Import ───────────────────────────────────────────────────────────────
+    async function startCourtImport(importAll) {
+        if (!_courtCurrentCaseId) { showToast('No case selected', 'error'); return; }
+        const slug = _courtProjectSlug();
+        const progressEl = document.getElementById('court-import-progress');
+        progressEl.style.display = 'block';
+        document.getElementById('court-import-bar').style.width = '0%';
+        document.getElementById('court-import-counters').textContent = 'Starting…';
+        document.getElementById('court-import-log').textContent = '';
+
+        try {
+            const r = await apiFetch(apiUrl('/api/court/import/start'), {
+                method: 'POST',
+                headers: {'Content-Type':'application/json'},
+                body: JSON.stringify({
+                    court_system:  _courtCurrentSystem,
+                    case_id:       _courtCurrentCaseId,
+                    case_number:   _courtCurrentCaseNumber,
+                    case_title:    _courtCurrentCaseTitle,
+                    project_slug:  slug,
+                })
+            });
+            const d = await r.json();
+            if (d.error) { showToast(d.error, 'error'); return; }
+            _courtImportJobId = d.job_id;
+            if (_courtPollTimer) clearInterval(_courtPollTimer);
+            _courtPollTimer = setInterval(()=>pollCourtImport(_courtImportJobId), 2000);
+        } catch(e) {
+            showToast('Error: '+e.message, 'error');
+        }
+    }
+
+    async function pollCourtImport(jobId) {
+        try {
+            const r = await apiFetch(apiUrl(`/api/court/import/status/${jobId}?log_lines=20`));
+            const d = await r.json();
+            if (d.error) { clearInterval(_courtPollTimer); return; }
+
+            const total = d.total_docs || 1;
+            const done  = (d.imported_docs||0) + (d.skipped_docs||0) + (d.failed_docs||0);
+            const pct   = total > 0 ? Math.round(done/total*100) : 0;
+            document.getElementById('court-import-bar').style.width = pct + '%';
+            document.getElementById('court-import-counters').innerHTML =
+                `${d.imported_docs||0} imported &nbsp;·&nbsp; ${d.skipped_docs||0} skipped &nbsp;·&nbsp; ${d.failed_docs||0} failed &nbsp;·&nbsp; ${pct}%`;
+
+            const logEl = document.getElementById('court-import-log');
+            if (d.log_tail && d.log_tail.length) {
+                logEl.textContent = d.log_tail.join('\n');
+                logEl.scrollTop = logEl.scrollHeight;
+            }
+
+            if (['completed','failed','cancelled'].includes(d.status)) {
+                clearInterval(_courtPollTimer);
+                _courtPollTimer = null;
+                document.getElementById('btn-court-cancel').style.display = 'none';
+                const color = d.status==='completed' ? '#4caf50' : d.status==='cancelled' ? '#f39c12' : '#e74c3c';
+                document.getElementById('court-import-counters').innerHTML +=
+                    `&nbsp;&nbsp;<strong style="color:${color};">${d.status.toUpperCase()}</strong>`;
+                loadCourtHistory();
+            }
+        } catch(e) { /* silently continue polling */ }
+    }
+
+    async function cancelCourtImport() {
+        if (!_courtImportJobId) return;
+        try {
+            await apiFetch(apiUrl(`/api/court/import/cancel/${_courtImportJobId}`), {method:'POST'});
+            showToast('Cancel signal sent', 'info');
+        } catch(e) {
+            showToast('Error: '+e.message, 'error');
+        }
+    }
+
+    // ── History ──────────────────────────────────────────────────────────────
+    async function loadCourtHistory() {
+        const slug = _courtProjectSlug();
+        const el = document.getElementById('court-history-table');
+        if (!el) return;
+        try {
+            const r = await apiFetch(apiUrl(`/api/court/import/history?project_slug=${encodeURIComponent(slug)}&limit=20`));
+            const d = await r.json();
+            const jobs = d.jobs || [];
+            if (!jobs.length) { el.innerHTML = '<span style="color:#555;">No import jobs yet.</span>'; return; }
+            const statusColor = {completed:'#16a34a', failed:'#dc2626', cancelled:'#d97706', running:'#2563eb', queued:'#6b7280'};
+            el.innerHTML = `<table style="width:100%; border-collapse:collapse; font-size:12px;">
+                <thead><tr style="background:#f6f8fa; color:#6b7280; text-transform:uppercase; font-size:11px; text-align:left;">
+                    <th style="padding:6px 8px; border-bottom:1px solid #e5e7eb;">Case</th>
+                    <th style="padding:6px 8px; border-bottom:1px solid #e5e7eb;">System</th>
+                    <th style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;">↑ Skip ✗</th>
+                    <th style="padding:6px 8px; border-bottom:1px solid #e5e7eb;">Date</th>
+                    <th style="padding:6px 8px; border-bottom:1px solid #e5e7eb;">Status</th>
+                    <th style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:center;">Actions</th>
+                </tr></thead>
+                <tbody>
+                ${jobs.map(j=>`<tr style="border-bottom:1px solid #f3f4f6;">
+                    <td style="padding:6px 8px; color:#374151; font-weight:500;" title="${escapeHtml(j.case_title||'')}">
+                        ${escapeHtml(j.case_number)}</td>
+                    <td style="padding:6px 8px; color:#6b7280;">${escapeHtml(j.court_system)}</td>
+                    <td style="padding:6px 8px; text-align:right; white-space:nowrap;">
+                        <span style="color:#16a34a;">${j.imported_docs||0}</span>&nbsp;
+                        <span style="color:#d97706;">${j.skipped_docs||0}</span>&nbsp;
+                        <span style="color:#dc2626;">${j.failed_docs||0}</span>
+                    </td>
+                    <td style="padding:6px 8px; color:#9ca3af;">
+                        ${escapeHtml((j.created_at||'').split('T')[0])}</td>
+                    <td style="padding:6px 8px;">
+                        <span style="color:${statusColor[j.status]||'#6b7280'}; font-weight:500;">${escapeHtml(j.status)}</span>
+                    </td>
+                    <td style="padding:6px 8px; text-align:center;">
+                        <button style="padding:3px 10px; font-size:11px; background:#f3f4f6; color:#374151; border:1px solid #d1d5db; border-radius:4px; cursor:pointer;"
+                            onclick="loadDocket('${escapeHtml(j.court_system)}','${escapeHtml(j.case_number)}','${escapeHtml(j.case_number)}','${escapeHtml((j.case_title||'').replace(/'/g,"\\'"))}')">
+                            ↺ Sync Again
+                        </button>
+                    </td>
+                </tr>`).join('')}
+                </tbody></table>`;
+        } catch(e) { el.innerHTML = `<span style="color:#e74c3c;">Error: ${escapeHtml(e.message)}</span>`; }
+    }
     </script>
     {% endif %}
 
