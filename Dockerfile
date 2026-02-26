@@ -30,6 +30,12 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Force-upgrade onnxruntime to >=1.16.0 to fix "cannot enable executable stack" crash
+# on Linux kernels with strict NX enforcement (Ubuntu 22.04+).
+# unstructured-inference 0.7.23 declares onnxruntime<1.16, which is incorrect — 1.24.x
+# works fine at runtime. The legacy resolver is required to bypass the pin conflict.
+RUN pip install --no-cache-dir --use-deprecated=legacy-resolver 'onnxruntime==1.24.2'
+
 # Install Playwright + Chromium only when requested (NYSCEF support)
 RUN if [ "$INCLUDE_PLAYWRIGHT" = "true" ]; then \
         playwright install chromium --with-deps; \

@@ -10,10 +10,11 @@ Pillow==10.2.0
 pypdfium2==4.26.0
 
 # Unstructured for document extraction
-# onnxruntime >=1.16.0 required — 1.15.1 crashes with "cannot enable executable stack" on
-# Linux kernels with strict NX enforcement (e.g. Ubuntu 22.04+). unstructured-inference
-# claims <1.16 but it's just a warning; 1.24.x works fine.
-onnxruntime>=1.16.0
+# NOTE: onnxruntime is intentionally pinned here at what unstructured-inference accepts
+# (<1.16). The Dockerfile then force-upgrades to 1.24.2 via --use-deprecated=legacy-resolver
+# because 1.15.1 crashes with "cannot enable executable stack" on Linux kernels with strict
+# NX enforcement (Ubuntu 22.04+). unstructured-inference works fine with 1.24.x at runtime.
+onnxruntime==1.15.1
 unstructured[pdf]==0.12.4
 unstructured-inference==0.7.23
 pytesseract==0.3.10
