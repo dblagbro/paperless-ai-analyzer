@@ -61,7 +61,8 @@ class CourtImportJobManager:
                           import_fn, *args, **kwargs):
         """Wrapper that cleans up after the import worker finishes."""
         try:
-            import_fn(*args, cancel_event=cancel_event, **kwargs)
+            # Inject job_id so the worker can log and update its own status
+            import_fn(*args, job_id=job_id, cancel_event=cancel_event, **kwargs)
         except Exception as e:
             logger.error(f"Court import job {job_id} thread crashed: {e}", exc_info=True)
             try:

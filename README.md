@@ -10,6 +10,16 @@ Advanced AI-powered anomaly detection and risk analysis microservice for [Paperl
 
 ---
 
+## What's New in v3.5.3
+
+### PACER direct docket import — now fully working
+- **Full case history** — the CM/ECF docket options form pre-fills a "last 2 weeks" date window; the connector now clears it before submitting so all docket entries are returned (97 documents on a 2-year bankruptcy case, not 2).
+- **Direct `DktRpt.pl` navigation** — `CourtListenerConnector` now looks up the numeric `pacer_case_id` from the CL dockets API, enabling direct navigation to `DktRpt.pl?{id}` instead of the fragile `iquery.pl` case-search form (which returns HTTP 500 on NYSB).
+- **Fallback on empty RECAP** — `FederalConnector` now also triggers the PACER fallback when CourtListener returns 0 entries (not just on 403), so cases with no RECAP-contributed documents are still imported.
+- Several lower-level fixes: duplicate `get_docket` stub removed, `court_id` short-code used in URLs, HTML table split fixed to eliminate attribute bleed in document titles.
+
+---
+
 ## What's New in v3.5.2
 
 ### Bug fixes

@@ -2011,6 +2011,9 @@
                                         <button type="button" onclick="toggleCourtPassword('court-wiz-federal-pass', this)"
                                                 style="padding:8px 10px; border:1px solid #d1d5db; border-radius:6px; background:#f9fafb; color:#6b7280; cursor:pointer; font-size:12px; white-space:nowrap;">Show</button>
                                     </div>
+                                    <label style="display:block; margin-bottom:5px; font-size:13px; font-weight:600; color:#374151;">PACER Login Court <span style="color:#9ca3af; font-weight:400;">(required for doc downloads)</span></label>
+                                    <input type="text" id="court-wiz-federal-court" placeholder="e.g. New York Southern Bankruptcy, Texas Southern Bankruptcy"
+                                           style="width:100%; box-sizing:border-box; padding:8px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:13px; margin-bottom:10px;">
                                     <label style="display:block; margin-bottom:5px; font-size:13px; font-weight:600; color:#374151;">PACER Client Code <span style="color:#9ca3af; font-weight:400;">(optional)</span></label>
                                     <input type="text" id="court-wiz-federal-client" placeholder="Billing client code"
                                            style="width:100%; box-sizing:border-box; padding:8px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:13px; margin-bottom:10px;">
@@ -8800,6 +8803,7 @@
                 username: document.getElementById('court-wiz-federal-user').value.trim(),
                 password: document.getElementById('court-wiz-federal-pass').value,
                 extra_config: {
+                    pacer_login_court: document.getElementById('court-wiz-federal-court').value.trim(),
                     pacer_client_code: document.getElementById('court-wiz-federal-client').value.trim(),
                     courtlistener_api_token: document.getElementById('court-wiz-cl-token').value.trim(),
                 }

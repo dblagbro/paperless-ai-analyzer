@@ -6687,7 +6687,8 @@ def court_save_credentials():
 
     if court_system not in ('federal', 'nyscef'):
         return jsonify({'error': 'court_system must be "federal" or "nyscef"'}), 400
-    if not username:
+    # NYSCEF public-only access has no username — allow empty username in that case
+    if not username and not (court_system == 'nyscef' and extra_config.get('public_only')):
         return jsonify({'error': 'username is required'}), 400
 
     try:

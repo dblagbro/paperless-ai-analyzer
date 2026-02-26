@@ -4,6 +4,19 @@ All notable changes to Paperless AI Analyzer are documented here.
 
 ---
 
+## v3.5.3 — 2026-02-26
+
+### Fixed
+- **PACER direct docket fetching** — `FederalConnector` now falls back to PACER CM/ECF when CourtListener returns 0 entries (previously only fell back on 403). Removes the incorrect assumption that 0 entries means no documents exist.
+- **PACER docket date range** — the CM/ECF docket options form pre-fills a "last 2 weeks" date window by default. The connector now clears all date-range inputs before submitting, so the full case history is returned (not just recent entries).
+- **PACER `pacer_case_id` lookup** — `CourtListenerConnector` now fetches the numeric `pacer_case_id` from the CL dockets API before the PACER fallback, enabling direct `DktRpt.pl?{pacer_case_id}` navigation. Avoids the `iquery.pl?1-L_0_0-1` endpoint which returns HTTP 500 on NYSB.
+- **Duplicate `get_docket` stub** — a dead `return []` method in `PACERConnector` shadowed the real implementation (Python uses the last definition). Removed the stub; PACER docket fetching now executes.
+- **`court_id` vs `court` in compound case_id** — `CourtListenerConnector._search_result_to_case()` was encoding the display name ("United States Bankruptcy Court, S.D. New York") instead of the short court code ("nysb"). The `ecf.{court_code}.uscourts.gov` URL requires the short code.
+- **HTML tag attribute bleed in document titles** — `<td[^>]*>` split (was `<td[\s>]`) now strips full opening tag attributes so table cell attribute text (e.g. `valign="bottom">`) no longer appears in parsed titles.
+- **PACER fallback also triggers on empty CL result** — `FederalConnector.get_docket()` now attempts PACER when CourtListener returns an empty list (in addition to the existing 403 RuntimeError path).
+
+---
+
 ## v3.5.2 — 2026-02-26
 
 ### Fixed

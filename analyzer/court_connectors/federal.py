@@ -82,7 +82,52 @@ class FederalConnector(CourtConnector):
                                      court=court)
 
     def get_docket(self, case_id: str) -> List[DocketEntry]:
-        return self._cl.get_docket(case_id)
+        """
+        Fetch docket via CourtListener/RECAP first.
+        Falls back to PACER direct CM/ECF docket if:
+          - The docket-entries API returns a RECAP-access 403 (no contributor access), OR
+          - CourtListener returns 0 entries (case not yet in RECAP archive).
+
+        case_id is expected to be the compound "{cl_id}|{court}|{case_number}"
+        string produced by CourtListenerConnector._search_result_to_case().
+        """
+        def _pacer_fallback(reason: str) -> Optional[List[DocketEntry]]:
+            if not (self._pacer_available and self._pacer):
+                return None
+            parts = case_id.split('|')
+            if len(parts) >= 3:
+                cl_docket_id, court_code, case_number = parts[0], parts[1], parts[2]
+                # Enrich with pacer_case_id so PACER can navigate directly to DktRpt.pl
+                pacer_case_id = self._cl.lookup_pacer_case_id(cl_docket_id)
+                pacer_id = (
+                    f"{court_code}|{case_number}|{pacer_case_id}"
+                    if pacer_case_id
+                    else f"{court_code}|{case_number}"
+                )
+                logger.info(f"{reason} — trying PACER direct docket for {pacer_id}")
+                return self._pacer.get_docket(pacer_id)
+            logger.warning(
+                "PACER docket fallback skipped: case_id is missing "
+                "court and case_number (search-based case_ids have them; "
+                "manually entered IDs do not)."
+            )
+            return None
+
+        try:
+            entries = self._cl.get_docket(case_id)
+            if not entries and self._pacer_available:
+                # Case exists in CL search index but has no RECAP-contributed documents.
+                # Try PACER direct docket before giving up.
+                pacer_entries = _pacer_fallback("CourtListener returned 0 RECAP entries")
+                if pacer_entries:
+                    return pacer_entries
+            return entries
+        except RuntimeError as e:
+            if 'RECAP' in str(e):
+                pacer_entries = _pacer_fallback("CourtListener RECAP access blocked (403)")
+                if pacer_entries is not None:
+                    return pacer_entries
+            raise
 
     def download_document(self, entry: DocketEntry) -> Optional[Path]:
         """Try RECAP first; fall back to PACER if available."""
