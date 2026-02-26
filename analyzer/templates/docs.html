@@ -341,7 +341,18 @@
         </ul>
 
         <h2 id="migrate-documents">Migrating documents between projects</h2>
-        <p>Use the <strong>Migrate</strong> option (three-dot menu → Migrate Documents) to move documents from one project to another. This removes the old <code>project:old-slug</code> tag from Paperless and adds <code>project:new-slug</code>. The analyzer re-embeds moved documents into the new project's collection on the next poll.</p>
+        <p>Click the <strong>📦 Move</strong> button on a project card to open the Move Documents dialog. Select the source and destination projects, choose whether to move all documents or specify individual document IDs, then click <strong>Move Documents</strong>.</p>
+        <p>The migration runs in the background and:</p>
+        <ul>
+            <li>Moves each document's ChromaDB vector embedding to the destination collection immediately (no re-embed needed).</li>
+            <li>Updates all <code>processed_documents</code> records to the new project slug.</li>
+            <li>Migrates all AI Chat sessions (and their messages) from the source project to the destination.</li>
+            <li>Updates the Paperless <code>project:old-slug</code> tag → <code>project:new-slug</code> on each document in Paperless.</li>
+            <li>Refreshes the cached document count on both projects when done.</li>
+        </ul>
+        <div class="callout callout-info">
+            Moving documents is logged: look for <code>Migration completed: N docs moved to &lt;slug&gt;, E errors</code> in the analyzer log. Any document that fails its Paperless tag update is counted as an error but does not block the rest of the migration.
+        </div>
 
         <h2 id="archive-project">Archiving vs. deleting</h2>
         <table>
