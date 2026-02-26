@@ -10,6 +10,23 @@ Advanced AI-powered anomaly detection and risk analysis microservice for [Paperl
 
 ---
 
+## What's New in v3.5.2
+
+### Bug fixes
+- **NYSCEF connector** — fixed Playwright waits (`networkidle` → `domcontentloaded`), county text-autocomplete, DocumentList redirect handling, and Pro Se login flow (now proceeds to login with a free NYSCEF account instead of hitting CAPTCHA anonymously).
+- **Delete document button** — onclick attribute was silently broken by unescaped double-quotes from `JSON.stringify(title)`. Fixed with `_escHtml()`.
+- **Document count consistency** — Overview and Manage Projects now both use ChromaDB count (was mismatched: Overview used SQLite, Manage Projects used ChromaDB).
+- **Direct-port access** — WSGI middleware now strips the URL prefix from PATH_INFO on direct access, so both nginx-proxied and direct requests work correctly.
+
+### NYSCEF Pro Se / Party access
+- New **"Pro Se / Party access"** checkbox in the NYSCEF credential wizard step 2 for parties, defendants, and plaintiffs who are not attorneys. Instructions link directly to the NYSCEF Unrepresented Litigants account creation page.
+- Password **Show/Hide toggle** added to PACER and NYSCEF password fields.
+
+### Migration improvements
+- Project-to-project migration now also moves **chat sessions** (with all messages), uses a **batch SQL UPDATE** for full-project moves, and **refreshes cached counts** on both projects when done.
+
+---
+
 ## What's New in v3.5.1
 
 ### Court Import — Credential Discoverability

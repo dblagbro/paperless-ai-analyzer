@@ -4,6 +4,21 @@ All notable changes to Paperless AI Analyzer are documented here.
 
 ---
 
+## v3.5.2 — 2026-02-26
+
+### Fixed
+- **NYSCEF connector reliability** — changed all Playwright waits from `networkidle` → `domcontentloaded` (Cloudflare blocks `networkidle`). County field in case search now uses `fill()` + autocomplete instead of `select_option()` (it is a text input, not a `<select>`). `get_docket()` now follows the DocumentList redirect when it is not the initial landing page. `authenticate()` now proceeds to login even when `public_only=true` if credentials are provided, instead of going anonymous and hitting CAPTCHA.
+- **Delete document button** — `confirmDeleteDoc()` onclick attribute was silently broken: `JSON.stringify(title)` produces double-quotes that terminate the `onclick=""` HTML attribute, so the browser discarded it. Fixed by wrapping with `_escHtml()` → `&quot;` is properly decoded by the browser when the handler fires.
+- **Document count consistency** — Overview dashboard and Manage Projects now always show the same count. `/api/status` previously used SQLite `count_processed_documents()` (drifts) while Manage Projects used ChromaDB `collection.count()` (live). Both now use ChromaDB.
+- **Direct-port access with URL prefix** — `_ReverseProxied` WSGI middleware now strips the URL prefix from `PATH_INFO` when present. Previously, direct requests (not via nginx) failed with 404 because `PATH_INFO` still contained the prefix that Flask's router didn't expect.
+
+### Improved
+- **Project migration** — `api_migrate_documents()` now also migrates chat sessions (with their messages via ON DELETE CASCADE), uses a single batch SQL UPDATE for full-project migrations instead of a per-document loop, and refreshes the cached document count on both source and destination projects when done.
+- **NYSCEF Pro Se / Party access UI** — "Pro Se / Party access" checkbox in the credential wizard step 2 for NYSCEF. Parties, defendants, and plaintiffs who are not attorneys create a free account at NYSCEF → Unrepresented Litigants. The credential fields stay visible (Pro Se users still need a username + password). Password show/hide toggle added to both PACER and NYSCEF password fields.
+- **onnxruntime version constraint** — `==1.15.1` → `>=1.16.0`. 1.15.1 crashes with "cannot enable executable stack" on Linux kernels with strict NX enforcement (Ubuntu 22.04+). 1.24.x works fine despite the unstructured-inference `<1.16` spec warning.
+
+---
+
 ## v3.5.1 — 2026-02-25
 
 ### Added
