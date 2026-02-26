@@ -211,7 +211,13 @@ class NYSCEFConnector(CourtConnector):
                      party_name: str = '',
                      court: str = '') -> List[CaseResult]:
         """
-        Search NYSCEF by index number (and county).
+        Search NYSCEF by index number (and optional county).
+
+        Returns ALL matching cases — the same index number may exist in multiple
+        counties (e.g. EF2022-477 appears in Montgomery, Delaware, Otsego, etc.).
+        Each CaseResult.case_id uses the compound format "EF2022-477|Montgomery County"
+        so get_docket() can fill the county field to select the right case.
+
         party_name is not supported by NYSCEF's public search.
         """
         self._require_playwright()
@@ -220,29 +226,87 @@ class NYSCEFConnector(CourtConnector):
         if not case_number:
             return []
 
+        import re as _re
+
         page = self._context.new_page()
         try:
             page.goto(f"{_NYSCEF_BASE}/CaseSearch", wait_until='domcontentloaded', timeout=20000)
             page.fill(NYSCEF_SELECTORS['index_number'], case_number)
-            if self._default_county:
-                # county_select is a text autocomplete, not a <select>
-                page.fill(NYSCEF_SELECTORS['county_select'], self._default_county)
+            # NOTE: county_select (#txtCounty) is a complex AJAX widget — page.fill()
+            # does not work on it. Search without county to get all matching results
+            # across all counties; the compound case_id carries county for get_docket().
             page.click(NYSCEF_SELECTORS['search_btn'])
             page.wait_for_load_state('domcontentloaded', timeout=15000)
 
-            # Extract case info from the results page
-            title = page.title() or ''
-            current_url = page.url
+            # Direct hit: single result sent straight to DocumentList
+            if 'DocumentList' in page.url:
+                return [CaseResult(
+                    case_id=case_number,
+                    case_number=case_number,
+                    case_title=(page.title() or case_number).replace('NYSCEF', '').strip(' -:'),
+                    court='nyscef',
+                    filing_date='',
+                    source='nyscef',
+                    extra={'county': self._default_county, 'search_url': page.url},
+                )]
 
+            # Results list: extract each link to DocumentList and its surrounding row data
+            results = []
+            seen_ids: set = set()
+            for link in page.query_selector_all('a[href*="DocumentList"]'):
+                href = link.get_attribute('href') or ''
+                try:
+                    cells = link.evaluate(
+                        '''el => {
+                            const row = el.closest("tr");
+                            if (!row) return [];
+                            return Array.from(row.querySelectorAll("td"))
+                                       .map(td => td.innerText.trim());
+                        }'''
+                    )
+                except Exception:
+                    cells = []
+
+                # Find the court/county cell and the caption cell
+                court_text = next((c for c in cells if 'County' in c), '')
+                caption = next(
+                    (c for c in cells
+                     if len(c) > 20 and 'County' not in c and not c[:5].count('/') >= 2),
+                    case_number
+                )
+
+                # Extract "Foo County" from "Foo County Supreme Court"
+                county_m = _re.search(r'^([\w\s]+?County)', court_text)
+                county = county_m.group(1).strip() if county_m else self._default_county
+
+                compound_id = f"{case_number}|{county}" if county else case_number
+                if compound_id in seen_ids:
+                    continue
+                seen_ids.add(compound_id)
+
+                results.append(CaseResult(
+                    case_id=compound_id,
+                    case_number=case_number,
+                    case_title=caption,
+                    court=court_text or 'nyscef',
+                    filing_date='',
+                    source='nyscef',
+                    extra={'county': county, 'search_url': href},
+                ))
+
+            if results:
+                return results
+
+            # Fallback: no DocumentList links — return page title as single result
+            title = page.title() or ''
             return [CaseResult(
                 case_id=case_number,
                 case_number=case_number,
-                case_title=title.replace('NYSCEF', '').strip(' -:'),
+                case_title=title.replace('NYSCEF', '').strip(' -:') or case_number,
                 court='nyscef',
                 filing_date='',
                 source='nyscef',
-                extra={'search_url': current_url,
-                       'county': self._default_county},
+                extra={'county': self._default_county, 'search_url': page.url},
             )]
         except Exception as e:
             logger.error(f"NYSCEF case search failed: {e}")
@@ -251,26 +315,52 @@ class NYSCEFConnector(CourtConnector):
             page.close()
 
     def get_docket(self, case_id: str) -> List[DocketEntry]:
-        """Scrape the NYSCEF document list for a case index number."""
+        """Scrape the NYSCEF document list for a case index number.
+
+        case_id may be a plain index number ("EF2022-477") or a compound
+        "index|county" string ("EF2022-477|Montgomery County") produced by
+        search_cases() when multiple counties share the same index number.
+        """
         self._require_playwright()
         self._ensure_authenticated()
+
+        # Parse compound case_id: "EF2022-477|Montgomery County"
+        if '|' in case_id:
+            index_number, county = case_id.split('|', 1)
+        else:
+            index_number = case_id
+            county = self._default_county
 
         page = self._context.new_page()
         entries: List[DocketEntry] = []
         try:
             page.goto(f"{_NYSCEF_BASE}/CaseSearch", wait_until='domcontentloaded', timeout=20000)
-            page.fill(NYSCEF_SELECTORS['index_number'], case_id)
-            if self._default_county:
-                # county_select is a text autocomplete, not a <select>
-                page.fill(NYSCEF_SELECTORS['county_select'], self._default_county)
+            page.fill(NYSCEF_SELECTORS['index_number'], index_number)
+            # NOTE: county_select (#txtCounty) is a complex AJAX widget that page.fill()
+            # cannot interact with reliably. Search without county to get all results,
+            # then pick the row matching the county from the compound case_id.
             page.click(NYSCEF_SELECTORS['search_btn'])
             page.wait_for_load_state('domcontentloaded', timeout=20000)
 
             # Authenticated users land on DocumentList directly; if not, follow the link
             if 'DocumentList' not in page.url:
-                case_link = page.query_selector('a[href*="DocumentList"]')
-                if case_link:
-                    case_link.click()
+                county_to_match = county or self._default_county
+                target_link = None
+                all_links = page.query_selector_all('a[href*="DocumentList"]')
+                if county_to_match and len(all_links) > 1:
+                    # Multiple results — click the row that contains our county
+                    for link in all_links:
+                        row_text = link.evaluate(
+                            'el => { const r = el.closest("tr"); return r ? r.innerText : ""; }'
+                        )
+                        if county_to_match.lower().split()[0] in row_text.lower():
+                            target_link = link
+                            logger.debug(f"NYSCEF: matched county '{county_to_match}' in row")
+                            break
+                if not target_link and all_links:
+                    target_link = all_links[0]
+                if target_link:
+                    target_link.click()
                     page.wait_for_load_state('domcontentloaded', timeout=15000)
 
             rows = page.query_selector_all(NYSCEF_SELECTORS['doc_list'])
@@ -280,7 +370,7 @@ class NYSCEFConnector(CourtConnector):
                 date_el  = row.query_selector(NYSCEF_SELECTORS['doc_date'])
                 title = title_el.inner_text().strip() if title_el else f"Document {i + 1}"
                 date  = date_el.inner_text().strip()  if date_el  else ''
-                doc_url = f"{_NYSCEF_BASE}/ViewDocument?docIndex={doc_id}&caseid={case_id}"
+                doc_url = f"{_NYSCEF_BASE}/ViewDocument?docIndex={doc_id}&caseid={index_number}"
                 entries.append(DocketEntry(
                     seq=doc_id,
                     title=title,
