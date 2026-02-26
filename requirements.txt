@@ -10,8 +10,10 @@ Pillow==10.2.0
 pypdfium2==4.26.0
 
 # Unstructured for document extraction
-# Pin onnxruntime before unstructured to avoid Docker stack issues
-onnxruntime==1.15.1
+# onnxruntime >=1.16.0 required — 1.15.1 crashes with "cannot enable executable stack" on
+# Linux kernels with strict NX enforcement (e.g. Ubuntu 22.04+). unstructured-inference
+# claims <1.16 but it's just a warning; 1.24.x works fine.
+onnxruntime>=1.16.0
 unstructured[pdf]==0.12.4
 unstructured-inference==0.7.23
 pytesseract==0.3.10
@@ -62,3 +64,7 @@ aiohttp>=3.9.0
 
 # Docker SDK for container management (v2.5.0)
 docker>=7.0.0
+
+# Court Document Importer (v3.5.0)
+cryptography>=42.0.0
+playwright>=1.40.0
