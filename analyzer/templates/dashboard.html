@@ -1696,7 +1696,7 @@
                         <li><strong>File</strong> — Drag and drop or browse for a PDF, image, or document file.</li>
                         <li><strong>URL</strong> — Paste a direct file link <em>or a folder/directory URL</em>. If the URL points to an HTML directory listing, all compatible files are discovered automatically. Add Basic Auth credentials if the link requires a login.</li>
                         <li><strong>Cloud Share Link</strong> — Paste a Google Drive, Dropbox, or OneDrive share link; it will be converted automatically to a direct download URL.</li>
-                        {% if COURT_IMPORT_ENABLED %}<li><strong>Court Import</strong> — Pull entire case files from federal courts (PACER / CourtListener RECAP) or NYS NYSCEF directly into your project library with 3-tier deduplication. Click <strong>⚙️ Manage</strong> to enter credentials manually, or <strong>📋 Paste credentials</strong> to let AI extract them from an email or Slack message in one step.</li>{% endif %}
+                        {% if COURT_IMPORT_ENABLED %}<li><strong>Court Import</strong> — Pull entire case files from federal courts (PACER / CourtListener RECAP) or NYS NYSCEF directly into your project library with 3-tier deduplication. Click <strong>📋 Paste credentials</strong> to let AI extract login info from any email or Slack message in one step, or <strong>⚙️ Manage</strong> to enter credentials manually. NYSCEF: attorneys enter their NY Bar Registration #; parties/defendants without bar numbers tick <em>Pro Se / Party access</em> and use a free NYSCEF account (create at iapps.courts.state.ny.us/nyscef → Unrepresented Litigants). <a href="{{ request.script_root }}/docs/court-import#court-nyscef-prose" target="_blank" style="color:#5dade2;">Pro Se setup guide →</a></li>{% endif %}
                         <li>Enable <strong>Smart Metadata</strong> (File / URL / Cloud modes) to let the AI suggest a title, tags, and project assignment before uploading.</li>
                         <li>The <strong>Recent Imports</strong> panel below tracks all file/URL/cloud uploads with their status and Paperless document IDs.</li>
                     </ul>
@@ -2005,8 +2005,12 @@
                                     <input type="text" id="court-wiz-federal-user" placeholder="PACER username"
                                            style="width:100%; box-sizing:border-box; padding:8px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:13px; margin-bottom:10px;">
                                     <label style="display:block; margin-bottom:5px; font-size:13px; font-weight:600; color:#374151;">PACER Password <span style="color:#9ca3af; font-weight:400;">(optional)</span></label>
-                                    <input type="password" id="court-wiz-federal-pass" placeholder="PACER password"
-                                           style="width:100%; box-sizing:border-box; padding:8px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:13px; margin-bottom:10px;">
+                                    <div style="display:flex; gap:6px; margin-bottom:10px;">
+                                        <input type="password" id="court-wiz-federal-pass" placeholder="PACER password"
+                                               style="flex:1; padding:8px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:13px;">
+                                        <button type="button" onclick="toggleCourtPassword('court-wiz-federal-pass', this)"
+                                                style="padding:8px 10px; border:1px solid #d1d5db; border-radius:6px; background:#f9fafb; color:#6b7280; cursor:pointer; font-size:12px; white-space:nowrap;">Show</button>
+                                    </div>
                                     <label style="display:block; margin-bottom:5px; font-size:13px; font-weight:600; color:#374151;">PACER Client Code <span style="color:#9ca3af; font-weight:400;">(optional)</span></label>
                                     <input type="text" id="court-wiz-federal-client" placeholder="Billing client code"
                                            style="width:100%; box-sizing:border-box; padding:8px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:13px; margin-bottom:10px;">
@@ -2015,13 +2019,26 @@
                                            style="width:100%; box-sizing:border-box; padding:8px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:13px; margin-bottom:4px;">
                                 </div>
                                 <div id="court-wizard-nyscef-fields" style="display:none;">
-                                    <p style="color:#6b7280; margin-bottom:12px; font-size:14px;"><strong>NYSCEF</strong> — Enter your NY Attorney Registration number and e-Filing password.</p>
-                                    <label style="display:block; margin-bottom:5px; font-size:13px; font-weight:600; color:#374151;">NY Attorney Registration #</label>
-                                    <input type="text" id="court-wiz-nyscef-user" placeholder="e.g. 1234567"
-                                           style="width:100%; box-sizing:border-box; padding:8px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:13px; margin-bottom:10px;">
-                                    <label style="display:block; margin-bottom:5px; font-size:13px; font-weight:600; color:#374151;">NYSCEF Password</label>
-                                    <input type="password" id="court-wiz-nyscef-pass" placeholder="NYSCEF e-Filing password"
-                                           style="width:100%; box-sizing:border-box; padding:8px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:13px; margin-bottom:10px;">
+                                    <div style="margin-bottom:12px; padding:10px 12px; background:#f0fdf4; border:1px solid #bbf7d0; border-radius:6px;">
+                                        <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:13px; color:#374151;">
+                                            <input type="checkbox" id="court-wiz-nyscef-public" onchange="toggleNyscefPublic(this.checked)"
+                                                   style="width:15px; height:15px;">
+                                            <span><strong>Pro Se / Party access</strong> — I'm a party/defendant (not an attorney). Create a free NYSCEF account at iapps.courts.state.ny.us/nyscef → Unrepresented Litigants → Create an Account, then enter those credentials below.</span>
+                                        </label>
+                                    </div>
+                                    <div id="court-wiz-nyscef-cred-fields">
+                                        <p id="court-wiz-nyscef-cred-desc" style="color:#6b7280; margin-bottom:12px; font-size:14px;"><strong>NYSCEF</strong> — Enter your NY Attorney Registration number and e-Filing password.</p>
+                                        <label id="court-wiz-nyscef-user-lbl" style="display:block; margin-bottom:5px; font-size:13px; font-weight:600; color:#374151;">NY Attorney Registration #</label>
+                                        <input type="text" id="court-wiz-nyscef-user" placeholder="e.g. 1234567"
+                                               style="width:100%; box-sizing:border-box; padding:8px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:13px; margin-bottom:10px;">
+                                        <label style="display:block; margin-bottom:5px; font-size:13px; font-weight:600; color:#374151;">NYSCEF Password</label>
+                                        <div style="display:flex; gap:6px; margin-bottom:10px;">
+                                            <input type="password" id="court-wiz-nyscef-pass" placeholder="NYSCEF e-Filing password"
+                                                   style="flex:1; padding:8px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:13px;">
+                                            <button type="button" onclick="toggleCourtPassword('court-wiz-nyscef-pass', this)"
+                                                    style="padding:8px 10px; border:1px solid #d1d5db; border-radius:6px; background:#f9fafb; color:#6b7280; cursor:pointer; font-size:12px; white-space:nowrap;">Show</button>
+                                        </div>
+                                    </div>
                                     <label style="display:block; margin-bottom:5px; font-size:13px; font-weight:600; color:#374151;">Default County</label>
                                     <input type="text" id="court-wiz-nyscef-county" placeholder="e.g. new york"
                                            style="width:100%; box-sizing:border-box; padding:8px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:13px; margin-bottom:4px;">
@@ -4473,7 +4490,7 @@
                                 style="margin-left:4px;font-size:11px;color:#3b82f6;background:none;border:none;cursor:pointer;padding:0;">more</button>` : ''}
                         </td>
                         <td style="padding:6px 8px;white-space:nowrap;">
-                            <button onclick="confirmDeleteDoc('${slug}', ${d.doc_id}, ${JSON.stringify(d.title)})"
+                            <button onclick="confirmDeleteDoc('${slug}', ${d.doc_id}, ${_escHtml(JSON.stringify(d.title))})"
                                 style="padding:3px 8px;border:1px solid #fca5a5;border-radius:5px;background:#fff;cursor:pointer;font-size:12px;color:#dc2626;">
                                 🗑️ Delete
                             </button>
@@ -8670,6 +8687,24 @@
     function closeCourtWizard() {
         document.getElementById('court-wizard-overlay').style.display = 'none';
     }
+    function toggleCourtPassword(inputId, btn) {
+        const el = document.getElementById(inputId);
+        if (!el) return;
+        const showing = el.type === 'text';
+        el.type = showing ? 'password' : 'text';
+        btn.textContent = showing ? 'Show' : 'Hide';
+    }
+    function toggleNyscefPublic(isPublic) {
+        // Pro Se users still need their free NYSCEF account credentials (anonymous
+        // searches hit CAPTCHA). We always show the credential fields; just update
+        // the hint text to match the account type.
+        const desc = document.getElementById('court-wiz-nyscef-cred-desc');
+        const userLbl = document.getElementById('court-wiz-nyscef-user-lbl');
+        if (desc) desc.textContent = isPublic
+            ? 'Enter your free NYSCEF Pro Se account username and password (create one at iapps.courts.state.ny.us/nyscef → Unrepresented Litigants → Create an Account).'
+            : 'Enter your NY Attorney Registration number and e-Filing password.';
+        if (userLbl) userLbl.textContent = isPublic ? 'NYSCEF Username' : 'NY Attorney Registration #';
+    }
     function courtWizardStep(n) {
         [1,2,3].forEach(i => {
             document.getElementById('court-wizard-step'+i).style.display = (i===n) ? 'block' : 'none';
@@ -8678,6 +8713,9 @@
             const system = document.querySelector('input[name="court-wizard-system"]:checked')?.value || 'federal';
             _courtCurrentSystem = system;
             document.getElementById('court-wiz-test-result').innerHTML = '';
+            // Reset NYSCEF public access toggle
+            const pubChk = document.getElementById('court-wiz-nyscef-public');
+            if (pubChk) { pubChk.checked = false; toggleNyscefPublic(false); }
             // Lazily init and always reset the AI filler on each entry to step 2
             if (!_courtAIFiller) { _courtAIFiller = _initCourtAIFiller(); }
             _courtAIFiller.reset();
@@ -8767,13 +8805,15 @@
                 }
             };
         } else {
+            const _nyscefPublic = document.getElementById('court-wiz-nyscef-public')?.checked || false;
             return {
                 court_system: 'nyscef',
                 project_slug: slug,
-                username: document.getElementById('court-wiz-nyscef-user').value.trim(),
-                password: document.getElementById('court-wiz-nyscef-pass').value,
+                username: _nyscefPublic ? '' : document.getElementById('court-wiz-nyscef-user').value.trim(),
+                password: _nyscefPublic ? '' : document.getElementById('court-wiz-nyscef-pass').value,
                 extra_config: {
                     nyscef_county: document.getElementById('court-wiz-nyscef-county').value.trim(),
+                    public_only: _nyscefPublic,
                 }
             };
         }
@@ -8796,7 +8836,7 @@
                 { name: 'nyscef_county', label: 'Default NYSCEF County',
                   description: 'Default NY county for NYSCEF filings' },
                 { name: 'public_only', label: 'Public Access Only',
-                  description: 'Set true if user only needs free public federal access without PACER credentials' },
+                  description: 'Set true if user is a party/defendant/plaintiff (not an attorney) with no credentials — works for both federal (CourtListener) and NYSCEF (index number only)' },
             ],
             fields: {
                 pacer_client_code:       '#court-wiz-federal-client',
@@ -8813,14 +8853,23 @@
                     if (radio) radio.checked = true;
                     _courtCurrentSystem = fields.court_system;
                 }
+                const sys = _courtCurrentSystem || fields.court_system || '';
+                // Handle public access flag
+                if (fields.public_only) {
+                    if (sys === 'nyscef') {
+                        const pubChk = document.getElementById('court-wiz-nyscef-public');
+                        if (pubChk) { pubChk.checked = true; toggleNyscefPublic(true); }
+                    }
+                    // For federal public_only, no extra action needed — no PACER creds required
+                }
                 // Route username/password to the correct system's inputs
-                if (_courtCurrentSystem === 'federal' || fields.court_system === 'federal') {
+                if (sys === 'federal') {
                     const u = document.getElementById('court-wiz-federal-user');
                     const p = document.getElementById('court-wiz-federal-pass');
                     if (u && fields.username) u.value = fields.username;
                     if (p && fields.password) p.value = fields.password;
                 }
-                if (_courtCurrentSystem === 'nyscef' || fields.court_system === 'nyscef') {
+                if (sys === 'nyscef' && !fields.public_only) {
                     const u = document.getElementById('court-wiz-nyscef-user');
                     const p = document.getElementById('court-wiz-nyscef-pass');
                     if (u && fields.username) u.value = fields.username;
@@ -8828,7 +8877,10 @@
                 }
                 setTimeout(() => {
                     courtWizEntryMode('manual');
-                    showToast('Fields auto-filled \u2014 review and click Test Connection', 'info');
+                    const msg = fields.public_only
+                        ? 'Public access mode set \u2014 click Test Connection to verify, then Save'
+                        : 'Fields auto-filled \u2014 review and click Test Connection';
+                    showToast(msg, 'info');
                 }, 400);
             }
         });
@@ -8919,7 +8971,34 @@
         try {
             const r = await apiFetch(apiUrl(`/api/court/docket/${encodeURIComponent(system)}/${encodeURIComponent(caseId)}?project_slug=${encodeURIComponent(slug)}`));
             const d = await r.json();
-            if (d.error) { document.getElementById('court-docket-meta').textContent = 'Error: '+d.error; return; }
+            if (d.error) {
+                const isRECAPErr = d.error.includes('RECAP') || d.error.includes('401') ||
+                                   d.error.includes('403') || d.error.includes('contributor');
+                const isTokenErr = d.error.includes('token') || d.error.includes('Authentication') || isRECAPErr;
+                document.getElementById('court-docket-meta').textContent = isTokenErr ? 'RECAP access required' : 'Error: '+d.error;
+                if (isTokenErr) {
+                    document.getElementById('court-docket-tbody').innerHTML =
+                        `<tr><td colspan="5" style="padding:16px 12px;">
+                            <div style="color:#92400e; background:#fffbeb; border:1px solid #fcd34d; border-radius:6px; padding:14px 16px; font-size:13px; line-height:1.6;">
+                                <strong style="font-size:14px;">&#9888;&#65039; This case has no documents in the RECAP archive</strong><br>
+                                <span style="color:#6b7280; font-size:12px;">RECAP only contains documents that were previously accessed by RECAP browser extension users. New cases are PACER-only until someone contributes them.</span>
+                                <div style="margin-top:12px; border-top:1px solid #fde68a; padding-top:12px;">
+                                    <strong>Option A &mdash; PACER credentials</strong> <em style="color:#6b7280;">(direct access, works immediately)</em><br>
+                                    1. Register or log in at <a href="https://pacer.login.uscourts.gov" target="_blank" style="color:#d97706; font-weight:600;">pacer.login.uscourts.gov</a> &mdash; free account, instant approval.<br>
+                                    2. Enter your PACER username &amp; password in <strong>&#9881;&#65039; Manage Credentials &rarr; Federal &rarr; PACER</strong>.<br>
+                                    3. Re-search the case &mdash; documents will load directly from PACER.
+                                </div>
+                                <div style="margin-top:12px; border-top:1px solid #fde68a; padding-top:12px;">
+                                    <strong>Option B &mdash; RECAP browser extension</strong> <em style="color:#6b7280;">(free, builds public archive)</em><br>
+                                    1. Install <a href="https://free.law/recap/" target="_blank" style="color:#d97706; font-weight:600;">the free RECAP extension</a> in Chrome or Firefox.<br>
+                                    2. Browse the case in PACER normally &mdash; RECAP automatically donates documents to the public archive.<br>
+                                    3. Come back here; documents will appear once contributed.
+                                </div>
+                            </div>
+                        </td></tr>`;
+                }
+                return;
+            }
             _courtDocketEntries = d.entries || [];
             document.getElementById('court-docket-meta').textContent =
                 `${_courtDocketEntries.length} documents · ${system} · ${caseNumber}`;

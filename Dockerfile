@@ -1,5 +1,8 @@
 FROM python:3.11-slim
 
+# Playwright build arg (optional — adds ~400 MB; required only for NYSCEF)
+ARG INCLUDE_PLAYWRIGHT=false
+
 # Install system dependencies for image processing and PDF handling
 RUN apt-get update && apt-get install -y \
     tesseract-ocr \
@@ -26,6 +29,11 @@ WORKDIR /app
 # Copy requirements and install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Install Playwright + Chromium only when requested (NYSCEF support)
+RUN if [ "$INCLUDE_PLAYWRIGHT" = "true" ]; then \
+        playwright install chromium --with-deps; \
+    fi
 
 # Copy application code
 COPY analyzer/ ./analyzer/

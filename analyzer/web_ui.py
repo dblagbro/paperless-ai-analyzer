@@ -118,7 +118,15 @@ class _ReverseProxied:
         script_name = os.environ.get('URL_PREFIX', '').rstrip('/')
         if script_name:
             environ['SCRIPT_NAME'] = script_name
-            # nginx already stripped the prefix from PATH_INFO, so don't strip again
+            # When the request comes in via nginx, nginx already strips the
+            # prefix before proxying, so PATH_INFO is already bare (e.g. /login).
+            # When the request comes in directly (e.g. Playwright, curl on port
+            # 8052), PATH_INFO still contains the full path including the prefix
+            # (e.g. /paperless-ai-analyzer-dev/login).  Strip it here so both
+            # access paths work correctly.
+            path_info = environ.get('PATH_INFO', '')
+            if path_info.startswith(script_name):
+                environ['PATH_INFO'] = path_info[len(script_name):] or '/'
         return self.app(environ, start_response)
 
 
@@ -467,13 +475,18 @@ def api_status():
             project_anomalies = ui_state['stats'].get('anomalies_detected', 0)
             project_high_risk = ui_state['stats'].get('high_risk_count', 0)
 
+        # Use the ChromaDB count for total_analyzed so the Overview dashboard
+        # matches Manage Projects (both now reflect the same live Chroma count).
+        # Fall back to SQLite processed_documents count when vector store is off.
+        chroma_count = vector_stats.get('total_documents', project_analyzed) if vector_stats.get('enabled') else project_analyzed
+
         return jsonify({
             'status': 'running',
             'uptime_seconds': _get_uptime(),
             'state': state_stats,
             'stats': {
                 **ui_state['stats'],
-                'total_analyzed': project_analyzed,
+                'total_analyzed': chroma_count,
                 'anomalies_detected': project_anomalies,
                 'high_risk_count': project_high_risk,
             },
@@ -3738,15 +3751,47 @@ def api_migrate_documents():
                 try:
                     db_path = '/app/data/app.db'
                     con = sqlite3.connect(db_path)
-                    for doc_id in docs_to_migrate:
+                    if document_ids:
+                        # Partial migration — update only the specific docs
+                        for doc_id in docs_to_migrate:
+                            con.execute(
+                                'UPDATE processed_documents SET project_slug=? WHERE doc_id=?',
+                                (dest_slug, doc_id)
+                            )
+                    else:
+                        # Full migration — batch update all docs in source project
                         con.execute(
-                            'UPDATE processed_documents SET project_slug=? WHERE doc_id=?',
-                            (dest_slug, doc_id)
+                            'UPDATE processed_documents SET project_slug=? WHERE project_slug=?',
+                            (dest_slug, source_slug)
                         )
                     con.commit()
                     con.close()
+                    logger.info(f"Updated processed_documents: {source_slug} → {dest_slug}")
                 except Exception as e:
                     logger.warning(f"Could not update processed_documents after migration: {e}")
+
+                # ── 4. Migrate chat sessions (and their messages via CASCADE) ────
+                try:
+                    db_path = '/app/data/app.db'
+                    con = sqlite3.connect(db_path)
+                    session_rows = con.execute(
+                        'UPDATE chat_sessions SET project_slug=? WHERE project_slug=?',
+                        (dest_slug, source_slug)
+                    )
+                    con.commit()
+                    chat_count = session_rows.rowcount
+                    con.close()
+                    logger.info(f"Migrated {chat_count} chat session(s) from {source_slug} → {dest_slug}")
+                except Exception as e:
+                    logger.warning(f"Could not migrate chat sessions: {e}")
+
+                # ── 5. Refresh project document count cache ───────────────────────
+                try:
+                    app.project_manager.update_document_count(source_slug, source_vs.collection.count())
+                    app.project_manager.update_document_count(dest_slug, dest_vs.collection.count())
+                    logger.info(f"Updated project doc counts after migration")
+                except Exception as e:
+                    logger.warning(f"Could not refresh project doc counts: {e}")
 
                 migration_result['status'] = 'completed'
                 migration_result['migrated'] = migrated_count
@@ -6965,16 +7010,19 @@ def court_parse_credentials():
         "  - \"nyscef\": New York state courts — NY Attorney Registration # + "
         "NYSCEF e-Filing password + optional default county.\n\n"
         "RULES:\n"
-        "  - Phrases like 'public access', 'no login required', or 'free access' "
-        "mean the user uses federal/CourtListener with no PACER credentials "
-        "— set public_only:true.\n"
+        "  - Phrases like 'public access', 'no login required', 'free access', "
+        "'I am a party', 'I am a defendant', 'I am a plaintiff' (not an attorney) "
+        "mean the user has no professional credentials — set public_only:true.\n"
+        "  - For federal + public_only: CourtListener works without PACER.\n"
+        "  - For nyscef + public_only: parties/defendants/plaintiffs can use the "
+        "public NYSCEF portal with just an index number — no attorney login needed.\n"
         "  - Extract usernames/passwords even if labelled differently "
         "(e.g. 'login: X', 'user: X', 'pw: Y').\n"
         "  - If court system is unclear, ask ONE clarifying question.\n"
         "  - Ask follow-up questions ONE AT A TIME — never ask multiple at once.\n"
         "  - Set complete:true when you have enough to configure the system "
-        "(public_only + court_system is sufficient; password not required for "
-        "public-only federal).\n\n"
+        "(public_only + court_system is sufficient for both public federal and "
+        "public NYSCEF; no password required in public_only mode).\n\n"
         "Respond with ONLY valid JSON — no markdown fences, no extra text:\n"
         '{"court_system":"federal"|"nyscef"|null,'
         '"username":null,"password":null,'

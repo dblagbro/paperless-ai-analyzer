@@ -1166,7 +1166,7 @@
         <ul>
             <li>Search federal cases via the free CourtListener/RECAP API (no account needed)</li>
             <li>Fall back to PACER direct downloads when a document is not in the RECAP archive</li>
-            <li>Import NYS NYSCEF case files using your NY Attorney Registration credentials (requires Playwright/Chromium)</li>
+            <li>Import NYS NYSCEF case files using your NY Attorney Registration credentials <em>or</em> a free NYSCEF Pro Se account (requires Playwright/Chromium)</li>
             <li>All documents are 3-tier deduplicated so re-running an import is safe</li>
         </ul>
 
@@ -1180,7 +1180,7 @@
         <h3 id="court-wizard">Wizard steps (manual path)</h3>
         <ol>
             <li><strong>Step 1</strong> — Select the court system: Federal (PACER + CourtListener) or NYSCEF.</li>
-            <li><strong>Step 2</strong> — Choose <em>✏️ Manual</em> or <em>📋 AI Paste</em>. Enter credentials and click <strong>🔌 Test Connection</strong> to verify before saving. For federal, PACER credentials are optional (RECAP is free). For NYSCEF, enter your NY Attorney Registration # and e-Filing password.</li>
+            <li><strong>Step 2</strong> — Choose <em>✏️ Manual</em> or <em>📋 AI Paste</em>. Enter credentials and click <strong>🔌 Test Connection</strong> to verify before saving. For federal, PACER credentials are optional (RECAP is free). For NYSCEF, enter your NY Attorney Registration # and e-Filing password — or tick <strong>Pro Se / Party access</strong> and enter your free NYSCEF account credentials instead (see below). Password fields have a Show/Hide toggle.</li>
             <li><strong>Step 3</strong> — Confirmation. Credentials are AES-256-GCM encrypted at rest.</li>
         </ol>
         <p><strong>Security note:</strong> Rotating the Flask secret key (rare) invalidates all stored court passwords — you will need to re-enter them.</p>
@@ -1195,6 +1195,18 @@
         <h2 id="court-nyscef">NYSCEF (New York courts)</h2>
         <p>NYSCEF support uses Playwright headless Chromium and requires the image to be built with <code>INCLUDE_PLAYWRIGHT=true</code> (adds ~400 MB). Without Playwright, NYSCEF features return a clear error rather than crashing.</p>
         <p>Set a <strong>Default County</strong> in the wizard extra config to pre-select the county dropdown on every search.</p>
+
+        <h3 id="court-nyscef-prose">Pro Se / Party access</h3>
+        <p>Attorneys use their NY Attorney Registration number as username. Parties, defendants, and plaintiffs who are <em>not</em> admitted attorneys need a free <strong>NYSCEF Pro Se account</strong> instead:</p>
+        <ol>
+            <li>Go to <a href="https://iapps.courts.state.ny.us/nyscef/HomePage" target="_blank" rel="noopener">iapps.courts.state.ny.us/nyscef</a> → <strong>Unrepresented Litigants → Create an Account</strong>.</li>
+            <li>Complete registration. You will receive a username (not a 7-digit bar number) and set a password.</li>
+            <li>In the credential wizard step 2, tick <strong>Pro Se / Party access</strong>. The label changes from "NY Attorney Registration #" to "NYSCEF Username" and the hint text updates accordingly.</li>
+            <li>Enter your Pro Se username and password and click <strong>🔌 Test Connection</strong> to verify.</li>
+        </ol>
+        <div class="callout callout-info" style="background:#eff6ff; border-left:4px solid #3b82f6; padding:10px 14px; border-radius:4px; margin:12px 0; font-size:13px;">
+            <strong>Why Pro Se users need an account:</strong> Anonymous NYSCEF case searches are protected by CAPTCHA. Any user — attorney or Pro Se — must be logged in to search and download dockets programmatically.
+        </div>
 
         <h2 id="court-dedup">Deduplication</h2>
         <p>Every document passes three dedup checks before upload:</p>
