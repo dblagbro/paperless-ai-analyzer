@@ -2383,7 +2383,7 @@
                         </div>
                         <!-- Session title + action buttons -->
                         <div class="chat-session-header">
-                            <span style="font-size: 11px; color: #888; margin-right: 6px; white-space: nowrap;">Title:</span><span class="chat-session-title" id="active-session-title">New Chat</span>
+                            <span style="font-size: 11px; color: #888; margin-right: 6px; white-space: nowrap;">Topic:</span><span class="chat-session-title" id="active-session-title">New Chat</span>
                             <div class="chat-session-actions">
                                 <button class="btn-session-action" onclick="shareCurrentChat()" id="btn-share-chat" title="Share chat">🔗 Share</button>
                                 <button class="btn-session-action" onclick="exportCurrentChat()" id="btn-export-chat" title="Export as PDF">📥 Export PDF</button>
@@ -7089,7 +7089,7 @@
                 const active = s.id === currentSessionId ? ' active' : '';
                 const sharedBadge = s.is_shared ? '<span class="session-badge-shared">shared</span>' : '';
                 return `<div class="session-item${active}" data-session-id="${s.id}" onclick="loadSession('${s.id}')">
-                    <span class="session-title">title: ${escapeHtml(s.title)}${sharedBadge}</span>
+                    <span class="session-title">topic: ${escapeHtml(s.title)}${sharedBadge}</span>
                     <span class="session-meta">${formatDate(s.updated_at)}</span>
                     <div class="session-actions" onclick="event.stopPropagation()">
                         <button class="session-action-btn" title="Rename" onclick="renameSessionPrompt('${s.id}', '${escapeHtml(s.title).replace(/'/g, "\\'")}')">✏️</button>
