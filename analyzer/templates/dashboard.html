@@ -767,20 +767,25 @@
         }
 
         .msg-edit-btn {
-            opacity: 0;
-            transition: opacity 0.15s;
-            background: none;
-            border: none;
-            cursor: pointer;
-            font-size: 13px;
-            color: #6b7280;
-            padding: 2px 4px;
-            margin-left: 4px;
+            align-self: flex-end;
+            font-size: 11px;
+            color: #9ca3af;
+            background: #f9fafb;
+            border: 1px solid #e5e7eb;
             border-radius: 4px;
+            padding: 3px 8px;
+            cursor: pointer;
+            margin-right: 6px;
+            font-family: inherit;
+            white-space: nowrap;
+            transition: background 0.15s, color 0.15s, border-color 0.15s;
         }
 
-        .chat-message:hover .msg-edit-btn { opacity: 0.6; }
-        .msg-edit-btn:hover { opacity: 1 !important; background: #f3f4f6; }
+        .msg-edit-btn:hover {
+            background: #eff6ff;
+            color: #3b82f6;
+            border-color: #bfdbfe;
+        }
 
         .msg-edit-area {
             width: 100%;
@@ -2345,9 +2350,9 @@
                     <ul style="margin:8px 0 0 0; padding-left:18px;">
                         <li>The AI has access to all analyzed documents in the <strong>Current Project</strong> selected in the header.</li>
                         <li>Ask things like: <em>"Are there any documents with balance mismatches?"</em> or <em>"Summarize documents from March 2024."</em></li>
-                        <li><strong>Edit messages</strong> — hover a user bubble to reveal ✏️; click to edit and resend. Old responses are discarded and regenerated.</li>
-                        <li><strong>Stop</strong> — click the red <strong>■ Stop</strong> button (appears while waiting) to abort the current request.</li>
-                        <li><strong>Compare ⚖️</strong> — toggle compare mode to send the same query to both configured LLM providers; results appear in side-by-side tabs. Requires a fallback provider configured in AI Settings.</li>
+                        <li><strong>Edit messages</strong> — each user message has a visible <strong>✏️ Edit</strong> button to its left. Click to edit in-place; <strong>↩ Resend</strong> truncates from that point and regenerates. Works on restored sessions too.</li>
+                        <li><strong>Stop</strong> — click the red <strong>■ Stop</strong> button (appears while waiting) to abort the current request. The stopped message also gets an Edit button so you can fix and resend.</li>
+                        <li><strong>⚖️ Compare LLMs</strong> — toggle compare mode to send the same query to both configured LLM providers; results appear in side-by-side tabs. Requires a fallback provider configured in AI Settings.</li>
                         <li>Document references like <code>[Document #NNN]</code> are clickable links to Paperless.</li>
                         <li>Use <strong>+ New Chat</strong> to start a fresh conversation. Sessions can be <strong>shared</strong> with other users.</li>
                         <li>Requires an AI API key — configure one under <strong>⚙️ Configuration → AI Settings</strong>.</li>
@@ -2419,7 +2424,7 @@
                                 </div>
                                 <div class="chat-input-container">
                                     <textarea class="chat-input" id="chat-input" rows="1" placeholder="Ask me anything about your documents… (Enter to send, Ctrl+Enter for new line)" onkeydown="handleChatKeypress(event)"></textarea>
-                                    <button class="compare-toggle-btn" id="compare-toggle-btn" onclick="toggleCompareMode()" title="Compare both LLMs side-by-side">⚖️</button>
+                                    <button class="compare-toggle-btn" id="compare-toggle-btn" onclick="toggleCompareMode()" title="Send to both LLMs and see answers side-by-side">⚖️ Compare LLMs</button>
                                     <button class="chat-stop-btn" id="chat-stop-btn" onclick="stopChatRequest()" style="display:none;">■ Stop</button>
                                     <button class="chat-send-btn" id="chat-send-btn" onclick="sendChatMessage()">Send</button>
                                 </div>
@@ -7468,6 +7473,15 @@
             });
         }
 
+        function _makeEditBtn(messageId) {
+            const btn = document.createElement('button');
+            btn.className = 'msg-edit-btn';
+            btn.textContent = '✏️ Edit';
+            btn.title = 'Edit this message and resend';
+            btn.onclick = () => startEditMessage(messageId);
+            return btn;
+        }
+
         function addChatMessage(role, content, messageId = null) {
             const messagesDiv = document.getElementById('chat-messages');
             const messageDiv = document.createElement('div');
@@ -7479,32 +7493,23 @@
 
             // Render markdown for assistant messages, plain text for user
             if (role === 'assistant' && typeof marked !== 'undefined') {
-                // Configure marked for safe rendering
                 marked.setOptions({
-                    breaks: true,  // Convert \n to <br>
-                    gfm: true,     // GitHub Flavored Markdown (tables, etc.)
-                    headerIds: false,
-                    mangle: false
+                    breaks: true, gfm: true, headerIds: false, mangle: false
                 });
                 const slug = document.getElementById('project-selector')?.value || 'default';
                 bubble.innerHTML = _linkifyDocRefs(marked.parse(content), slug);
             } else {
                 bubble.textContent = content;
-                // Add pencil edit button for user messages with a tracked ID
-                if (role === 'user' && messageId) {
-                    const editBtn = document.createElement('button');
-                    editBtn.className = 'msg-edit-btn';
-                    editBtn.title = 'Edit and resend';
-                    editBtn.textContent = '✏️';
-                    editBtn.onclick = () => startEditMessage(messageId);
-                    bubble.appendChild(editBtn);
-                }
+            }
+
+            // For user messages with a tracked ID, add the Edit button BEFORE the bubble
+            // (flex-row, justify-end → button sits to the left of the blue bubble)
+            if (role === 'user' && messageId) {
+                messageDiv.appendChild(_makeEditBtn(messageId));
             }
 
             messageDiv.appendChild(bubble);
             messagesDiv.appendChild(messageDiv);
-
-            // Scroll to bottom
             messagesDiv.scrollTop = messagesDiv.scrollHeight;
 
             chatHistory.push({role, content});
@@ -7513,23 +7518,17 @@
         function startEditMessage(messageId) {
             const msgDiv = document.querySelector(`[data-msg-id="${messageId}"]`);
             if (!msgDiv) return;
+            const editBtn = msgDiv.querySelector('.msg-edit-btn');
             const bubble = msgDiv.querySelector('.message-bubble');
-            const originalText = chatHistory.find((_, i) => {
-                // Find matching user message by walking DOM order
-                const allUserDivs = [...document.querySelectorAll('.chat-message.user[data-msg-id]')];
-                const idx = allUserDivs.findIndex(d => d.dataset.msgId == messageId);
-                // Map to chatHistory: count user messages before this one
-                if (idx < 0) return false;
-                let userCount = 0;
-                for (let ci = 0; ci < chatHistory.length; ci++) {
-                    if (chatHistory[ci].role === 'user') {
-                        if (userCount === idx) return ci === i;
-                        userCount++;
-                    }
-                }
-                return false;
-            })?.content || bubble.textContent.replace('✏️', '').trim();
+            // Original text is cleanly in bubble.textContent (no emoji mixed in)
+            const originalText = bubble.textContent.trim();
 
+            if (editBtn) editBtn.style.display = 'none';  // hide while editing
+            // Switch bubble to white background so the edit area is clearly visible
+            const origBg = bubble.style.background;
+            bubble.style.background = '#fff';
+            bubble.style.border = '1px solid #d1d5db';
+            bubble.style.color = '#111827';
             bubble.innerHTML = '';
             const ta = document.createElement('textarea');
             ta.className = 'msg-edit-area';
@@ -7543,12 +7542,11 @@
             cancelBtn.textContent = '✕ Cancel';
             cancelBtn.onclick = () => {
                 bubble.textContent = originalText;
-                const editBtn = document.createElement('button');
-                editBtn.className = 'msg-edit-btn';
-                editBtn.title = 'Edit and resend';
-                editBtn.textContent = '✏️';
-                editBtn.onclick = () => startEditMessage(messageId);
-                bubble.appendChild(editBtn);
+                // Restore original bubble appearance
+                bubble.style.background = origBg || '';
+                bubble.style.border = '';
+                bubble.style.color = '';
+                if (editBtn) editBtn.style.display = '';  // restore edit button
             };
             bubble.appendChild(ta);
             const btnRow = document.createElement('div');
@@ -7557,6 +7555,7 @@
             btnRow.appendChild(cancelBtn);
             bubble.appendChild(btnRow);
             ta.focus();
+            ta.select();
         }
 
         async function confirmEditMessage(messageId, newText) {
@@ -7599,10 +7598,12 @@
             const btn = document.getElementById('compare-toggle-btn');
             if (_compareMode) {
                 btn.classList.add('active-compare');
-                btn.title = 'Compare mode ON — click to disable';
+                btn.textContent = '⚖️ Comparing — ON';
+                btn.title = 'Compare mode is ON. Next Send will query both LLMs. Click to turn off.';
             } else {
                 btn.classList.remove('active-compare');
-                btn.title = 'Compare both LLMs side-by-side';
+                btn.textContent = '⚖️ Compare LLMs';
+                btn.title = 'Send to both LLMs and see answers side-by-side';
             }
         }
 
@@ -7619,6 +7620,14 @@
             input.disabled = false;
             sendBtn.disabled = false;
             input.focus();
+            // Attach edit button to the stopped user message (never got an ID from server)
+            const allUserDivs = document.querySelectorAll('.chat-message.user');
+            const lastUser = allUserDivs[allUserDivs.length - 1];
+            if (lastUser && !lastUser.dataset.msgId && !lastUser.querySelector('.msg-edit-btn')) {
+                lastUser.dataset.msgId = 'stopped-' + Date.now();
+                const bubble = lastUser.querySelector('.message-bubble');
+                if (bubble) lastUser.insertBefore(_makeEditBtn(lastUser.dataset.msgId), bubble);
+            }
         }
 
         function addCompareMessage(primaryProv, primaryResp, secProv, secResp, secError) {
@@ -7746,12 +7755,7 @@
                             lastUser.dataset.msgId = data.user_message_id;
                             const bubble = lastUser.querySelector('.message-bubble');
                             if (bubble) {
-                                const editBtn = document.createElement('button');
-                                editBtn.className = 'msg-edit-btn';
-                                editBtn.title = 'Edit and resend';
-                                editBtn.textContent = '✏️';
-                                editBtn.onclick = () => startEditMessage(data.user_message_id);
-                                bubble.appendChild(editBtn);
+                                lastUser.insertBefore(_makeEditBtn(data.user_message_id), bubble);
                             }
                         }
                     }
