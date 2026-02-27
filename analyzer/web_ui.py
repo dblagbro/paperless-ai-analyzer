@@ -9,6 +9,7 @@ import json
 import logging
 import smtplib
 import ssl
+import time
 from email.message import EmailMessage
 from pathlib import Path
 from datetime import datetime, timedelta
@@ -406,6 +407,38 @@ def create_app(state_manager, profile_loader, paperless_client,
     return app
 
 
+# ── v3.6.0: Per-project Paperless client factory ─────────────────────────────
+_project_client_cache: dict = {}  # slug -> (PaperlessClient, timestamp)
+_PROJECT_CLIENT_TTL = 300  # 5-minute cache
+
+
+def _get_project_client(slug: str):
+    """
+    Return a PaperlessClient for the given project slug.
+
+    If the project has its own paperless_url + token configured, returns a
+    dedicated client for that instance.  Otherwise falls back to the global
+    app.paperless_client (shared instance).
+
+    Results are cached for _PROJECT_CLIENT_TTL seconds so each request doesn't
+    hit the DB.
+    """
+    now = time.time()
+    cached = _project_client_cache.get(slug)
+    if cached and now - cached[1] < _PROJECT_CLIENT_TTL:
+        return cached[0]
+
+    cfg = app.project_manager.get_paperless_config(slug) if app.project_manager else {}
+    if cfg.get('url') and cfg.get('token'):
+        from analyzer.paperless_client import PaperlessClient
+        client = PaperlessClient(base_url=cfg['url'], api_token=cfg['token'])
+    else:
+        client = app.paperless_client  # fallback: global client
+
+    _project_client_cache[slug] = (client, now)
+    return client
+
+
 @app.route('/login', methods=['GET', 'POST'])
 def login_page():
     """Login page."""
@@ -480,6 +513,22 @@ def api_status():
         # Fall back to SQLite processed_documents count when vector store is off.
         chroma_count = vector_stats.get('total_documents', project_analyzed) if vector_stats.get('enabled') else project_analyzed
 
+        from analyzer.court_db import get_court_doc_count, get_pending_ocr_count
+        try:
+            court_count = get_court_doc_count(project_slug)
+        except Exception:
+            court_count = 0
+
+        # Awaiting OCR: uploaded to Paperless (task_id recorded) but doc_id not yet resolved
+        # Awaiting AI: doc is in Paperless with content, but not yet embedded in ChromaDB
+        try:
+            _pc = _get_project_client(project_slug)
+            paperless_total = _pc.get_project_document_count(project_slug)
+            awaiting_ocr = get_pending_ocr_count(project_slug)
+            awaiting_ai = max(0, paperless_total - chroma_count - awaiting_ocr)
+        except Exception:
+            awaiting_ocr = awaiting_ai = 0
+
         return jsonify({
             'status': 'running',
             'uptime_seconds': _get_uptime(),
@@ -492,7 +541,10 @@ def api_status():
             },
             'last_update': ui_state['last_update'],
             'active_profiles': len(app.profile_loader.profiles),
-            'vector_store': vector_stats
+            'vector_store': vector_stats,
+            'court_doc_count': court_count,
+            'awaiting_ocr': awaiting_ocr,
+            'awaiting_ai': awaiting_ai,
         })
 
 
@@ -517,12 +569,21 @@ def api_recent():
                 key=lambda m: m.get('timestamp', ''),
                 reverse=True
             )[:50]
+            # Build per-project or global Paperless base URL for doc links
+            try:
+                _rcfg = app.project_manager.get_paperless_config(project_slug) if app.project_manager else {}
+                _rbase = (_rcfg.get('doc_base_url') or '').rstrip('/')
+            except Exception:
+                _rbase = ''
+            if not _rbase:
+                _rbase = os.environ.get('PAPERLESS_PUBLIC_BASE_URL', '').rstrip('/')
             analyses = []
             for m in metas_sorted:
                 anomalies_str = m.get('anomalies', '')
                 anomalies_list = [a.strip() for a in anomalies_str.split(',') if a.strip()] if anomalies_str else []
+                _rdid = m.get('document_id')
                 analyses.append({
-                    'document_id': m.get('document_id'),
+                    'document_id': _rdid,
                     'document_title': m.get('title', ''),
                     'anomalies_found': anomalies_list,
                     'risk_score': m.get('risk_score', 0),
@@ -530,6 +591,7 @@ def api_recent():
                     'brief_summary': m.get('brief_summary', ''),
                     'full_summary': m.get('full_summary', ''),
                     'ai_analysis': m.get('ai_analysis', ''),
+                    'paperless_link': f"{_rbase}/documents/{_rdid}/details" if _rbase and _rdid else None,
                 })
             return jsonify({'analyses': analyses})
     except Exception as e:
@@ -3226,15 +3288,33 @@ def api_list_projects():
     try:
         projects = app.project_manager.list_projects(include_archived=True)
 
-        # Add statistics to each project
+        # Add statistics and per-project Paperless config to each project
+        from analyzer.court_db import get_court_doc_count
         for project in projects:
             try:
                 stats = app.project_manager.get_statistics(project['slug'])
                 project.update(stats)
             except Exception:
                 pass  # Skip stats if unavailable
+            try:
+                project['court_doc_count'] = get_court_doc_count(project['slug'])
+            except Exception:
+                project['court_doc_count'] = 0
+            try:
+                cfg = app.project_manager.get_paperless_config(project['slug'])
+                project['paperless_doc_base_url'] = cfg.get('doc_base_url') or ''
+                project['paperless_url'] = cfg.get('url') or ''
+                project['paperless_configured'] = bool(cfg.get('url') and cfg.get('token'))
+            except Exception:
+                project['paperless_doc_base_url'] = ''
+                project['paperless_url'] = ''
+                project['paperless_configured'] = False
 
-        return jsonify({'projects': projects, 'count': len(projects)})
+        return jsonify({
+            'projects': projects,
+            'count': len(projects),
+            'global_paperless_base_url': os.environ.get('PAPERLESS_PUBLIC_BASE_URL', ''),
+        })
 
     except Exception as e:
         logger.error(f"Failed to list projects: {e}")
@@ -3275,6 +3355,13 @@ def api_create_project():
                 color=project.get('color', '#3498db')
             )
 
+        # Auto-provision a dedicated Paperless instance in the background
+        import threading
+        _provision_status[slug] = {'status': 'queued', 'phase': 'Queued', 'error': None}
+        threading.Thread(
+            target=_provision_project_paperless, args=(slug,), daemon=True
+        ).start()
+
         logger.info(f"Created project: {slug}")
         return jsonify(project), 201
 
@@ -3300,6 +3387,11 @@ def api_get_project(slug):
         # Add statistics
         stats = app.project_manager.get_statistics(slug)
         project.update(stats)
+        from analyzer.court_db import get_court_doc_count
+        try:
+            project['court_doc_count'] = get_court_doc_count(slug)
+        except Exception:
+            project['court_doc_count'] = 0
 
         return jsonify(project)
 
@@ -3400,6 +3492,814 @@ def api_unarchive_project(slug):
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/projects/<slug>/paperless-config', methods=['POST'])
+@login_required
+def api_set_project_paperless_config(slug):
+    """Save per-project Paperless-ngx connection config (URL, token, public base URL)."""
+    if not app.project_manager:
+        return jsonify({'error': 'Project management not enabled'}), 503
+    try:
+        project = app.project_manager.get_project(slug)
+        if not project:
+            return jsonify({'error': 'Project not found'}), 404
+
+        data = request.json or {}
+        updates = {}
+        if 'url' in data:
+            updates['paperless_url'] = data['url'] or None
+        if 'token' in data:
+            updates['paperless_token'] = data['token'] or None
+        if 'doc_base_url' in data:
+            updates['paperless_doc_base_url'] = data['doc_base_url'] or None
+
+        app.project_manager.update_project(slug, **updates)
+
+        # Invalidate client cache so next request picks up new credentials
+        _project_client_cache.pop(slug, None)
+
+        logger.info(f"Updated Paperless config for project '{slug}'")
+        return jsonify({'success': True})
+
+    except Exception as e:
+        logger.error(f"Failed to set Paperless config for {slug}: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/projects/<slug>/paperless-config', methods=['GET'])
+@login_required
+def api_get_project_paperless_config(slug):
+    """Get per-project Paperless-ngx connection config (token is masked)."""
+    if not app.project_manager:
+        return jsonify({'error': 'Project management not enabled'}), 503
+    try:
+        project = app.project_manager.get_project(slug)
+        if not project:
+            return jsonify({'error': 'Project not found'}), 404
+        cfg = app.project_manager.get_paperless_config(slug)
+        return jsonify({
+            'url': cfg.get('url') or '',
+            'token_set': bool(cfg.get('token')),
+            'doc_base_url': cfg.get('doc_base_url') or '',
+        })
+    except Exception as e:
+        logger.error(f"Failed to get Paperless config for {slug}: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/projects/<slug>/provision-snippets', methods=['GET'])
+@login_required
+def api_provision_snippets(slug):
+    """Return ready-to-paste infrastructure snippets for a per-project Paperless instance."""
+    if not app.project_manager:
+        return jsonify({'error': 'Project management not enabled'}), 503
+    try:
+        project = app.project_manager.get_project(slug)
+        if not project:
+            return jsonify({'error': 'Project not found'}), 404
+
+        # Auto-assign next free Redis DB index (0 = shared default, 1+ = per-project)
+        try:
+            all_projects = app.project_manager.list_projects(include_archived=True)
+            projects_with_instance = [
+                p['slug'] for p in all_projects
+                if app.project_manager.get_paperless_config(p['slug']).get('url')
+            ]
+            # Assign index based on position in the list (or next available)
+            if slug in projects_with_instance:
+                redis_db = projects_with_instance.index(slug) + 1
+            else:
+                redis_db = len(projects_with_instance) + 1
+        except Exception:
+            redis_db = 1
+
+        db_name = f"paperless_{slug.replace('-', '_')}"
+        db_user = f"paperless_{slug.replace('-', '_')}"
+        web_svc = f"paperless-web-{slug}"
+        consumer_svc = f"paperless-consumer-{slug}"
+
+        compose_snippet = f"""  {web_svc}:
+    image: ghcr.io/paperless-ngx/paperless-ngx:latest
+    restart: unless-stopped
+    depends_on:
+      - paperless-postgres
+      - paperless-redis
+    environment:
+      PAPERLESS_REDIS: redis://paperless-redis:6379/{redis_db}
+      PAPERLESS_DBHOST: paperless-postgres
+      PAPERLESS_DBNAME: {db_name}
+      PAPERLESS_DBUSER: paperless
+      PAPERLESS_DBPASS: ${{PAPERLESS_DBPASS}}
+      PAPERLESS_SECRET_KEY: ${{PAPERLESS_{slug.upper().replace('-','_')}_SECRET_KEY}}
+      PAPERLESS_URL: https://${{DOMAIN}}/paperless-{slug}
+      PAPERLESS_FORCE_SCRIPT_NAME: /paperless-{slug}
+      PAPERLESS_STATIC_URL: /paperless-{slug}/static/
+      PAPERLESS_CONSUMPTION_DIR: /usr/src/paperless/consume
+      PAPERLESS_DATA_DIR: /usr/src/paperless/data
+      PAPERLESS_MEDIA_ROOT: /usr/src/paperless/media
+      PAPERLESS_OCR_LANGUAGE: eng
+    volumes:
+      - /mnt/s/documents/paperless-{slug}/data:/usr/src/paperless/data
+      - /mnt/s/documents/paperless-{slug}/media:/usr/src/paperless/media
+      - /mnt/s/documents/paperless-{slug}/consume:/usr/src/paperless/consume
+      - /mnt/s/documents/paperless-{slug}/export:/usr/src/paperless/export
+    networks:
+      - default
+
+  {consumer_svc}:
+    image: ghcr.io/paperless-ngx/paperless-ngx:latest
+    restart: unless-stopped
+    depends_on:
+      - {web_svc}
+    environment:
+      PAPERLESS_REDIS: redis://paperless-redis:6379/{redis_db}
+      PAPERLESS_DBHOST: paperless-postgres
+      PAPERLESS_DBNAME: {db_name}
+      PAPERLESS_DBUSER: paperless
+      PAPERLESS_DBPASS: ${{PAPERLESS_DBPASS}}
+      PAPERLESS_SECRET_KEY: ${{PAPERLESS_{slug.upper().replace('-','_')}_SECRET_KEY}}
+      PAPERLESS_CONSUMPTION_DIR: /usr/src/paperless/consume
+      PAPERLESS_DATA_DIR: /usr/src/paperless/data
+      PAPERLESS_MEDIA_ROOT: /usr/src/paperless/media
+    volumes:
+      - /mnt/s/documents/paperless-{slug}/data:/usr/src/paperless/data
+      - /mnt/s/documents/paperless-{slug}/media:/usr/src/paperless/media
+      - /mnt/s/documents/paperless-{slug}/consume:/usr/src/paperless/consume
+      - /mnt/s/documents/paperless-{slug}/export:/usr/src/paperless/export
+    networks:
+      - default
+    command: document_consumer"""
+
+        nginx_snippet = f"""location /paperless-{slug}/ {{
+    proxy_pass http://paperless-web-{slug}:8000/paperless-{slug}/;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-Host $host;
+    proxy_set_header X-Forwarded-Port $server_port;
+    proxy_set_header X-Script-Name /paperless-{slug};
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_connect_timeout 300s;
+    proxy_send_timeout 300s;
+    proxy_read_timeout 300s;
+    client_max_body_size 100M;
+}}
+location = /paperless-{slug} {{
+    return 301 /paperless-{slug}/;
+}}"""
+
+        postgres_sql = f"""-- Run as the 'paperless' superuser (shared DB user):
+-- CREATE DATABASE {db_name};  ← Auto-provisioning does this automatically
+-- The shared 'paperless' DB user owns all project DBs."""
+
+        return jsonify({
+            'slug': slug,
+            'web_service': web_svc,
+            'consumer_service': consumer_svc,
+            'redis_db_index': redis_db,
+            'db_name': db_name,
+            'db_user': db_user,
+            'compose': compose_snippet,
+            'nginx': nginx_snippet,
+            'postgres_sql': postgres_sql,
+        })
+
+    except Exception as e:
+        logger.error(f"Failed to generate provision snippets for {slug}: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/projects/<slug>/migrate-to-own-paperless', methods=['POST'])
+@login_required
+def api_migrate_to_own_paperless(slug):
+    """Start a background migration of all project docs from shared to per-project Paperless."""
+    if not app.project_manager:
+        return jsonify({'error': 'Project management not enabled'}), 503
+    try:
+        project = app.project_manager.get_project(slug)
+        if not project:
+            return jsonify({'error': 'Project not found'}), 404
+
+        existing = _migration_status.get(slug, {})
+        if existing.get('status') == 'running':
+            return jsonify({'error': 'Migration already in progress'}), 409
+
+        _migration_status[slug] = {
+            'status': 'running', 'total': 0, 'migrated': 0,
+            'failed': 0, 'error': None, 'phase': 'starting'
+        }
+        from threading import Thread
+        Thread(target=_migrate_project_to_own_paperless, args=(slug,), daemon=True).start()
+        return jsonify({'success': True, 'message': f'Migration started for project {slug}'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/projects/<slug>/migration-status', methods=['GET'])
+@login_required
+def api_migration_status(slug):
+    """Return current migration status for a project."""
+    status = _migration_status.get(slug, {'status': 'idle'})
+    return jsonify(status)
+
+
+@app.route('/api/projects/<slug>/provision-status', methods=['GET'])
+@login_required
+def api_provision_status(slug):
+    """Return current auto-provisioning status for a project."""
+    status = _provision_status.get(slug, {'status': 'idle'})
+    return jsonify(status)
+
+
+@app.route('/api/projects/<slug>/reprovision', methods=['POST'])
+@login_required
+def api_reprovision(slug):
+    """Trigger automated Paperless provisioning for an existing project."""
+    if not app.project_manager:
+        return jsonify({'error': 'Project management not enabled'}), 503
+    try:
+        project = app.project_manager.get_project(slug)
+        if not project:
+            return jsonify({'error': 'Project not found'}), 404
+
+        existing = _provision_status.get(slug, {})
+        if existing.get('status') == 'running':
+            return jsonify({'error': 'Provisioning already in progress'}), 409
+
+        _provision_status[slug] = {'status': 'queued', 'phase': 'Queued', 'error': None}
+        from threading import Thread
+        Thread(target=_provision_project_paperless, args=(slug,), daemon=True).start()
+        return jsonify({'success': True, 'message': f'Provisioning started for project {slug}'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# In-memory migration state: {slug: {status, total, migrated, failed, error, phase}}
+_migration_status: dict = {}
+
+# In-memory provisioning state: {slug: {status, phase, error}}
+_provision_status: dict = {}
+
+
+def _provision_log(slug: str, phase: str, status: str = None):
+    s = _provision_status.setdefault(slug, {})
+    s['phase'] = phase
+    if status:
+        s['status'] = status
+    logger.info(f"[Provision:{slug}] {phase}")
+
+
+def _provision_project_paperless(slug: str) -> None:
+    """
+    Daemon thread: spin up a dedicated Paperless-ngx instance for the given project.
+    Creates Postgres DB, starts web+consumer containers, writes nginx conf, and wires
+    the project to its new instance in the DB.
+    """
+    import secrets as _secrets
+    import time as _time
+    import os as _os
+
+    _provision_status[slug] = {'status': 'running', 'phase': 'Starting', 'error': None}
+
+    try:
+        dc = _get_docker_client()
+        if dc is None:
+            raise RuntimeError("Docker SDK not available — cannot auto-provision")
+
+        # ── 1. Read shared config from existing paperless-web container ─────────────
+        _provision_log(slug, 'Reading shared Paperless config')
+        try:
+            pw_container = dc.containers.get('paperless-web')
+            pw_env = {
+                e.split('=', 1)[0]: e.split('=', 1)[1]
+                for e in pw_container.attrs['Config']['Env']
+                if '=' in e
+            }
+        except Exception as e:
+            raise RuntimeError(f"Cannot reach paperless-web container: {e}")
+
+        db_pass = pw_env.get('PAPERLESS_DBPASS', '')
+        if not db_pass:
+            raise RuntimeError("PAPERLESS_DBPASS not found in paperless-web env")
+        time_zone = pw_env.get('PAPERLESS_TIME_ZONE', 'America/Toronto')
+
+        # ── 2. Pick next free Redis DB index ────────────────────────────────────────
+        _provision_log(slug, 'Assigning Redis DB index')
+        used_redis_dbs = set()
+        try:
+            for c in dc.containers.list():
+                if 'paperless-web-' in c.name:
+                    c_env = {
+                        e.split('=', 1)[0]: e.split('=', 1)[1]
+                        for e in c.attrs['Config']['Env']
+                        if '=' in e
+                    }
+                    redis_val = c_env.get('PAPERLESS_REDIS', '')
+                    # format: redis://paperless-redis:6379/N
+                    if '/' in redis_val:
+                        try:
+                            used_redis_dbs.add(int(redis_val.rsplit('/', 1)[1]))
+                        except ValueError:
+                            pass
+        except Exception:
+            pass
+        redis_db = 1
+        while redis_db in used_redis_dbs:
+            redis_db += 1
+
+        # ── 3. Generate credentials ──────────────────────────────────────────────────
+        _provision_log(slug, 'Generating credentials')
+        secret_key = _secrets.token_hex(32)
+        admin_password = _secrets.token_urlsafe(16)
+
+        # ── 4. Create Postgres database (idempotent) ─────────────────────────────────
+        _provision_log(slug, 'Creating Postgres database')
+        db_name = f"paperless_{slug.replace('-', '_')}"
+        try:
+            pg = dc.containers.get('paperless-postgres')
+            # Check if DB exists
+            check_result = pg.exec_run(
+                ['psql', '-U', 'paperless', '-tAc',
+                 f"SELECT 1 FROM pg_database WHERE datname='{db_name}'"]
+            )
+            if check_result.output.decode().strip() != '1':
+                create_result = pg.exec_run(
+                    ['psql', '-U', 'paperless', '-c', f'CREATE DATABASE {db_name}']
+                )
+                if create_result.exit_code != 0:
+                    raise RuntimeError(
+                        f"Failed to create DB {db_name}: "
+                        f"{create_result.output.decode()[:200]}"
+                    )
+        except Exception as e:
+            if 'No such container' in str(e):
+                raise RuntimeError("paperless-postgres container not found") from e
+            raise
+
+        # ── 5. Create host directories ───────────────────────────────────────────────
+        _provision_log(slug, 'Creating host directories')
+        base_dir = f"/mnt/s/documents/paperless-{slug}"
+        for subdir in ['data', 'media', 'consume', 'export', 'tmp']:
+            _os.makedirs(f"{base_dir}/{subdir}", exist_ok=True)
+
+        # ── 6. Start web container ────────────────────────────────────────────────────
+        web_name = f"paperless-web-{slug}"
+        consumer_name = f"paperless-consumer-{slug}"
+        image = 'ghcr.io/paperless-ngx/paperless-ngx:latest'
+
+        _provision_log(slug, f'Starting {web_name}')
+        # Remove existing containers if present (idempotent)
+        for cname in [web_name, consumer_name]:
+            try:
+                existing = dc.containers.get(cname)
+                existing.stop(timeout=10)
+                existing.remove()
+            except Exception:
+                pass
+
+        # PAPERLESS_URL must be origin-only (no path) — Paperless passes it to CORS_ALLOWED_ORIGINS
+        # and Django CORS will reject it if it contains a path.  Copy directly from existing container.
+        existing_url = pw_env.get('PAPERLESS_URL', 'https://voipguru.org').rstrip('/')
+        existing_csrf = pw_env.get('PAPERLESS_CSRF_TRUSTED_ORIGINS', existing_url)
+        existing_allowed = pw_env.get('PAPERLESS_ALLOWED_HOSTS', existing_url.split('/')[2])
+        domain = existing_url.split('/')[2]  # e.g. "www.voipguru.org"
+        web_env = {
+            'PAPERLESS_REDIS': f'redis://paperless-redis:6379/{redis_db}',
+            'PAPERLESS_DBHOST': 'paperless-postgres',
+            'PAPERLESS_DBNAME': db_name,
+            'PAPERLESS_DBUSER': 'paperless',
+            'PAPERLESS_DBPASS': db_pass,
+            'PAPERLESS_SECRET_KEY': secret_key,
+            'PAPERLESS_URL': existing_url,                           # origin only, no sub-path
+            'PAPERLESS_FORCE_SCRIPT_NAME': f'/paperless-{slug}',    # sub-path goes here
+            'PAPERLESS_STATIC_URL': f'/paperless-{slug}/static/',
+            'PAPERLESS_CSRF_TRUSTED_ORIGINS': existing_csrf,
+            'PAPERLESS_ALLOWED_HOSTS': existing_allowed + f',paperless-web-{slug}',
+            'PAPERLESS_TIME_ZONE': time_zone,
+            'PAPERLESS_CONSUMPTION_DIR': '/usr/src/paperless/consume',
+            'PAPERLESS_DATA_DIR': '/usr/src/paperless/data',
+            'PAPERLESS_MEDIA_ROOT': '/usr/src/paperless/media',
+            'PAPERLESS_OCR_LANGUAGE': 'eng',
+            'PAPERLESS_ADMIN_USER': 'admin',
+            'PAPERLESS_ADMIN_PASSWORD': admin_password,
+            'PAPERLESS_ADMIN_MAIL': 'admin@localhost',
+        }
+        web_vols = {
+            f'{base_dir}/data': {'bind': '/usr/src/paperless/data', 'mode': 'rw'},
+            f'{base_dir}/media': {'bind': '/usr/src/paperless/media', 'mode': 'rw'},
+            f'{base_dir}/consume': {'bind': '/usr/src/paperless/consume', 'mode': 'rw'},
+            f'{base_dir}/export': {'bind': '/usr/src/paperless/export', 'mode': 'rw'},
+            f'{base_dir}/tmp': {'bind': '/tmp/paperless', 'mode': 'rw'},
+        }
+
+        dc.containers.run(
+            image,
+            name=web_name,
+            detach=True,
+            environment=web_env,
+            volumes=web_vols,
+            network='docker_default',
+            restart_policy={'Name': 'unless-stopped'},
+            labels={'managed-by': 'paperless-ai-analyzer', 'project': slug},
+        )
+
+        # ── 7. Start consumer container ───────────────────────────────────────────────
+        _provision_log(slug, f'Starting {consumer_name}')
+        consumer_env = {k: v for k, v in web_env.items()}
+        dc.containers.run(
+            image,
+            name=consumer_name,
+            command='document_consumer',
+            detach=True,
+            environment=consumer_env,
+            volumes=web_vols,
+            network='docker_default',
+            restart_policy={'Name': 'unless-stopped'},
+            labels={'managed-by': 'paperless-ai-analyzer', 'project': slug},
+        )
+
+        # ── 8. Wait for web container to be ready ─────────────────────────────────────
+        # First run: Django runs migrations + collects static files — allow up to 8 minutes.
+        # urllib raises HTTPError for 4xx/5xx — those still mean Django is responding.
+        # Only a connection error (refused/timeout) means the container isn't ready yet.
+        import urllib.request as _urlreq
+        import urllib.error as _urlerr
+        deadline = _time.monotonic() + 480
+        ready = False
+        while _time.monotonic() < deadline:
+            elapsed = int(_time.monotonic() - (deadline - 480))
+            _provision_log(slug, f'Waiting for Paperless web to start ({elapsed}s elapsed, up to 8 min)…')
+            try:
+                _urlreq.urlopen(f'http://{web_name}:8000/api/', timeout=5)
+                ready = True
+                break
+            except _urlerr.HTTPError:
+                # Any HTTP response — Django is up and serving
+                ready = True
+                break
+            except Exception:
+                # Connection refused / timeout — not up yet
+                pass
+            _time.sleep(5)
+
+        if not ready:
+            raise RuntimeError(
+                f"{web_name} did not become ready within 8 minutes. "
+                f"Check logs: docker logs {web_name}"
+            )
+
+        # ── 9. Force-set admin password via docker exec ───────────────────────────────
+        # Paperless skips PAPERLESS_ADMIN_PASSWORD if the admin user already exists
+        # (e.g. on reprovision). We exec a Django shell command to always set it.
+        _provision_log(slug, 'Setting admin password')
+        py_cmd = (
+            "from django.contrib.auth import get_user_model; "
+            "U=get_user_model(); "
+            "u,_=U.objects.get_or_create(username='admin'); "
+            f"u.set_password('{admin_password}'); "
+            "u.is_superuser=True; u.is_staff=True; u.save()"
+        )
+        web_c = dc.containers.get(web_name)
+        reset = web_c.exec_run(
+            ['python', '/usr/src/paperless/src/manage.py', 'shell', '-c', py_cmd],
+        )
+        if reset.exit_code != 0:
+            raise RuntimeError(
+                f"Password reset exec failed (exit {reset.exit_code}): "
+                f"{reset.output.decode()[:400]}"
+            )
+
+        # ── 10. Obtain API token ────────────────────────────────────────────────────────
+        _provision_log(slug, 'Obtaining Paperless API token')
+        import json as _json
+        import urllib.parse as _urlparse
+        # Retry a few times in case the password reset needs a moment to commit
+        api_token = None
+        for _attempt in range(6):
+            token_data = _urlparse.urlencode({
+                'username': 'admin',
+                'password': admin_password,
+            }).encode()
+            token_req = _urlreq.Request(
+                f'http://{web_name}:8000/api/token/',
+                data=token_data,
+                method='POST',
+            )
+            try:
+                with _urlreq.urlopen(token_req, timeout=10) as resp:
+                    token_body = _json.loads(resp.read())
+                    api_token = token_body['token']
+                    break
+            except _urlerr.HTTPError as he:
+                logger.warning(f"[Provision:{slug}] Token attempt {_attempt+1}: HTTP {he.code}")
+                _time.sleep(3)
+            except Exception as e:
+                logger.warning(f"[Provision:{slug}] Token attempt {_attempt+1}: {e}")
+                _time.sleep(3)
+        if not api_token:
+            raise RuntimeError(f"Failed to get API token from {web_name} after 6 attempts")
+
+        # ── 10. Write nginx location conf ─────────────────────────────────────────────
+        _provision_log(slug, 'Writing nginx location conf')
+        nginx_conf = f"""# Auto-generated for project: {slug}
+location /paperless-{slug}/ {{
+    proxy_pass http://paperless-web-{slug}:8000/paperless-{slug}/;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-Host $host;
+    proxy_set_header X-Forwarded-Port $server_port;
+    proxy_set_header X-Script-Name /paperless-{slug};
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_connect_timeout 300s;
+    proxy_send_timeout 300s;
+    proxy_read_timeout 300s;
+    client_max_body_size 100M;
+}}
+location = /paperless-{slug} {{
+    return 301 /paperless-{slug}/;
+}}
+"""
+        nginx_conf_path = f'/app/nginx-projects-locations.d/paperless-{slug}.conf'
+        with open(nginx_conf_path, 'w') as f:
+            f.write(nginx_conf)
+
+        # ── 11. Reload nginx ──────────────────────────────────────────────────────────
+        _provision_log(slug, 'Reloading nginx')
+        try:
+            nginx_c = dc.containers.get('nginx')
+            nginx_c.exec_run(['nginx', '-s', 'reload'])
+        except Exception as e:
+            logger.warning(f"[Provision:{slug}] nginx reload failed (non-fatal): {e}")
+
+        # ── 12. Save config to DB ─────────────────────────────────────────────────────
+        _provision_log(slug, 'Saving project config to database')
+        paperless_url = f'http://{web_name}:8000'
+        doc_base_url = f'https://{domain}/paperless-{slug}'
+        app.project_manager.update_project(slug,
+            paperless_url=paperless_url,
+            paperless_token=api_token,
+            paperless_doc_base_url=doc_base_url,
+            paperless_secret_key=secret_key,
+            paperless_admin_password=admin_password,
+        )
+        _project_client_cache.pop(slug, None)
+
+        _provision_status[slug] = {
+            'status': 'complete',
+            'phase': 'Provisioning complete',
+            'error': None,
+            'paperless_url': paperless_url,
+            'doc_base_url': doc_base_url,
+        }
+        logger.info(f"[Provision:{slug}] Complete — accessible at {doc_base_url}")
+
+    except Exception as exc:
+        logger.error(f"[Provision:{slug}] Failed: {exc}", exc_info=True)
+        _provision_status[slug] = {
+            'status': 'error',
+            'phase': 'Failed',
+            'error': str(exc),
+        }
+
+
+def _migration_log(slug: str, phase: str, migrated: int = None, total: int = None,
+                   failed: int = None):
+    s = _migration_status.setdefault(slug, {})
+    s['phase'] = phase
+    if migrated is not None:
+        s['migrated'] = migrated
+    if total is not None:
+        s['total'] = total
+    if failed is not None:
+        s['failed'] = failed
+    logger.info(f"[Migration:{slug}] {phase} — {s.get('migrated',0)}/{s.get('total',0)}")
+
+
+def _migrate_project_to_own_paperless(slug: str) -> None:
+    """
+    Daemon thread: migrate all project documents from the shared Paperless instance
+    to the project's dedicated Paperless instance.
+    """
+    import sqlite3 as _sqlite3
+    import re as _re
+    status = _migration_status.setdefault(slug, {})
+    status['status'] = 'running'
+    status['error'] = None
+
+    try:
+        # 1. Preflight
+        _migration_log(slug, 'preflight')
+        new_client = _get_project_client(slug)
+        if new_client is app.paperless_client:
+            raise ValueError("No dedicated Paperless instance configured. "
+                             "Save URL + token on the Connect tab first.")
+        if not new_client.health_check():
+            raise RuntimeError(f"New Paperless instance is not reachable at {new_client.base_url}")
+        old_client = app.paperless_client
+
+        # 2. Enumerate docs from shared instance
+        _migration_log(slug, 'enumerating')
+        all_docs = []
+        page = 1
+        while True:
+            resp = old_client.get_documents_by_project(
+                slug, ordering='-modified', page_size=100, page=page
+            )
+            all_docs.extend(resp.get('results', []))
+            if not resp.get('next'):
+                break
+            page += 1
+
+        total = len(all_docs)
+        _migration_log(slug, 'enumerating', total=total, migrated=0, failed=0)
+        logger.info(f"[Migration:{slug}] Found {total} documents to migrate")
+
+        if total == 0:
+            status['status'] = 'done'
+            status['phase'] = 'complete — 0 documents found'
+            return
+
+        # 3. Per-document migration
+        from analyzer.vector_store import VectorStore
+        vs = VectorStore(project_slug=slug)
+        doc_id_map = {}  # old_id -> new_id
+        migrated = 0
+        failed = 0
+
+        for doc in all_docs:
+            old_id = doc['id']
+            try:
+                _migration_log(slug, f'migrating doc {old_id} ({migrated}/{total})',
+                               migrated=migrated, total=total, failed=failed)
+
+                content_bytes = old_client.download_document(old_id, archived=True)
+                filename = (doc.get('original_file_name') or
+                            f"{doc.get('title','document').replace(' ','-')}.pdf")
+
+                task_id = new_client.upload_document_bytes(
+                    filename=filename,
+                    content=content_bytes,
+                    title=doc.get('title'),
+                    created=doc.get('created'),
+                )
+                if not task_id:
+                    raise RuntimeError(f"upload returned no task_id for old doc {old_id}")
+
+                new_id = new_client.resolve_task_to_doc_id(task_id, timeout=180)
+                if not new_id:
+                    raise RuntimeError(f"OCR timed out for task {task_id} (old doc {old_id})")
+
+                doc_id_map[old_id] = new_id
+
+                # Re-key ChromaDB
+                if vs.enabled:
+                    try:
+                        old_str = str(old_id)
+                        existing = vs.collection.get(
+                            ids=[old_str],
+                            include=['embeddings', 'documents', 'metadatas']
+                        )
+                        if existing['ids']:
+                            emb = existing['embeddings'][0] if existing.get('embeddings') else None
+                            doc_text = existing['documents'][0] if existing.get('documents') else ''
+                            meta = existing['metadatas'][0] if existing.get('metadatas') else {}
+                            meta['document_id'] = new_id
+                            vs.collection.delete(ids=[old_str])
+                            add_kw = {'ids': [str(new_id)], 'documents': [doc_text], 'metadatas': [meta]}
+                            if emb:
+                                add_kw['embeddings'] = [emb]
+                            vs.collection.add(**add_kw)
+                    except Exception as _ce:
+                        logger.warning(f"[Migration:{slug}] ChromaDB re-key failed for {old_id}: {_ce}")
+
+                # Update processed_documents
+                try:
+                    with _sqlite3.connect('/app/data/app.db') as conn:
+                        conn.execute(
+                            "UPDATE processed_documents SET doc_id = ? WHERE doc_id = ? AND project_slug = ?",
+                            (new_id, old_id, slug)
+                        )
+                        conn.commit()
+                except Exception as _dbe:
+                    logger.warning(f"[Migration:{slug}] DB update failed for {old_id}: {_dbe}")
+
+                migrated += 1
+                _migration_log(slug, f'migrated {migrated}/{total}',
+                               migrated=migrated, total=total, failed=failed)
+
+            except Exception as e:
+                failed += 1
+                logger.error(f"[Migration:{slug}] Failed to migrate doc {old_id}: {e}")
+                _migration_log(slug, f'error on doc {old_id}: {e}',
+                               migrated=migrated, total=total, failed=failed)
+
+        # 4. Patch chat history
+        if doc_id_map:
+            _migration_log(slug, 'patching chat history', migrated=migrated, total=total)
+            try:
+                with _sqlite3.connect('/app/data/app.db') as conn:
+                    sess_ids = [r[0] for r in conn.execute(
+                        "SELECT id FROM chat_sessions WHERE project_slug = ?", (slug,)
+                    ).fetchall()]
+                    if sess_ids:
+                        ph = ','.join('?' * len(sess_ids))
+                        rows = conn.execute(
+                            f"SELECT id, content FROM chat_messages WHERE session_id IN ({ph})",
+                            sess_ids
+                        ).fetchall()
+                        updates = []
+                        for msg_id, content in rows:
+                            nc = content
+                            for oid, nid in doc_id_map.items():
+                                nc = _re.sub(
+                                    rf'(?<=#){oid}(?!\d)',
+                                    str(nid), nc
+                                )
+                            if nc != content:
+                                updates.append((nc, msg_id))
+                        if updates:
+                            conn.executemany("UPDATE chat_messages SET content = ? WHERE id = ?", updates)
+                            conn.commit()
+                            logger.info(f"[Migration:{slug}] Patched {len(updates)} chat messages")
+            except Exception as _che:
+                logger.warning(f"[Migration:{slug}] Chat history patch failed: {_che}")
+
+        # 5. Update court_imported_docs (tables live in projects.db)
+        if doc_id_map:
+            _migration_log(slug, 'updating court_imported_docs')
+            try:
+                with _sqlite3.connect('/app/data/projects.db') as conn:
+                    for oid, nid in doc_id_map.items():
+                        conn.execute(
+                            "UPDATE court_imported_docs SET paperless_doc_id = ? "
+                            "WHERE paperless_doc_id = ? AND project_slug = ?",
+                            (nid, oid, slug)
+                        )
+                    conn.commit()
+            except Exception as _cde:
+                logger.warning(f"[Migration:{slug}] court_imported_docs update failed: {_cde}")
+
+        status['status'] = 'done'
+        status['doc_id_map'] = {str(k): v for k, v in doc_id_map.items()}
+        status['phase'] = f'complete — {migrated}/{total} migrated, {failed} failed'
+        logger.info(f"[Migration:{slug}] Complete: {migrated}/{total} migrated, {failed} failed")
+
+    except Exception as e:
+        status['status'] = 'error'
+        status['error'] = str(e)
+        status['phase'] = f'error: {e}'
+        logger.error(f"[Migration:{slug}] Migration failed: {e}", exc_info=True)
+
+
+@app.route('/api/projects/<slug>/paperless-health-check', methods=['POST'])
+@login_required
+def api_paperless_health_check(slug):
+    """Test-connect a Paperless URL + token without saving. Returns {ok, message/error}."""
+    try:
+        data = request.json or {}
+        url = (data.get('url') or '').strip().rstrip('/')
+        token = (data.get('token') or '').strip()
+        if not url:
+            return jsonify({'ok': False, 'error': 'url is required'}), 400
+        # Fall back to saved token when none supplied (allows testing without re-entering)
+        if not token and app.project_manager:
+            cfg = app.project_manager.get_paperless_config(slug)
+            token = cfg.get('token') or ''
+        if not token:
+            return jsonify({'ok': False, 'error': 'No token provided and none saved for this project'}), 400
+        from analyzer.paperless_client import PaperlessClient
+        pc = PaperlessClient(base_url=url, api_token=token)
+        healthy = pc.health_check()
+        if healthy:
+            return jsonify({'ok': True, 'message': 'Paperless API is reachable'})
+        else:
+            return jsonify({'ok': False, 'error': 'Health check failed — check URL and token'})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)})
+
+
+@app.route('/api/projects/<slug>/doc-link/<int:doc_id>', methods=['GET'])
+@login_required
+def api_project_doc_link(slug, doc_id):
+    """Return the public Paperless URL for a specific document in a project."""
+    if not app.project_manager:
+        return jsonify({'url': None})
+    try:
+        cfg = app.project_manager.get_paperless_config(slug)
+        base = (cfg.get('doc_base_url') or '').rstrip('/')
+        url = f"{base}/documents/{doc_id}/details" if base else None
+        return jsonify({'url': url})
+    except Exception as e:
+        logger.error(f"doc-link error for {slug}/{doc_id}: {e}")
+        return jsonify({'url': None})
+
+
 @app.route('/api/projects/<slug>/documents', methods=['GET'])
 @login_required
 def api_list_project_documents(slug):
@@ -3412,19 +4312,33 @@ def api_list_project_documents(slug):
         if not vs.enabled:
             return jsonify({'documents': [], 'count': 0})
         raw = vs.collection.get(include=['metadatas'])
+        # Fetch per-project Paperless doc base URL for "View in Paperless" links.
+        # Fall back to PAPERLESS_PUBLIC_BASE_URL env var for projects without a
+        # dedicated Paperless instance (all existing projects until configured).
+        try:
+            _pcfg = app.project_manager.get_paperless_config(slug) if app.project_manager else {}
+            _base_url = (_pcfg.get('doc_base_url') or '').rstrip('/')
+        except Exception:
+            _base_url = ''
+        if not _base_url:
+            _base_url = os.environ.get('PAPERLESS_PUBLIC_BASE_URL', '').rstrip('/')
+
         docs = []
         for i, doc_id in enumerate(raw.get('ids', [])):
             m = raw['metadatas'][i]
             anomalies_str = m.get('anomalies', '')
             anomalies_list = [a.strip() for a in anomalies_str.split(',') if a.strip()] if anomalies_str else []
+            _did = int(m.get('document_id', 0))
+            _link = f"{_base_url}/documents/{_did}/details" if _base_url and _did else None
             docs.append({
-                'doc_id':        int(m.get('document_id', 0)),
+                'doc_id':        _did,
                 'title':         m.get('title', 'Untitled'),
                 'timestamp':     m.get('timestamp', ''),
                 'brief_summary': m.get('brief_summary', ''),
                 'full_summary':  m.get('full_summary', ''),
                 'anomalies':     anomalies_list,
                 'risk_score':    float(m.get('risk_score') or 0),
+                'paperless_link': _link,
             })
         docs.sort(key=lambda x: x['doc_id'])
         return jsonify({'documents': docs, 'count': len(docs)})
@@ -3440,16 +4354,17 @@ def api_delete_project_document(slug, doc_id):
     import sqlite3 as _sqlite3
     warnings = []
 
-    # 1. Delete from Paperless-ngx
-    if app.paperless_client:
-        try:
-            url = f"{app.paperless_client.base_url}/api/documents/{doc_id}/"
-            resp = app.paperless_client.session.delete(url)
+    # 1. Delete from Paperless-ngx (use per-project client if configured)
+    try:
+        pc = _get_project_client(slug)
+        if pc:
+            url = f"{pc.base_url}/api/documents/{doc_id}/"
+            resp = pc.session.delete(url)
             if resp.status_code not in (204, 404):
                 resp.raise_for_status()
-        except Exception as e:
-            warnings.append(f"Paperless: {e}")
-            logger.warning(f"Could not delete doc {doc_id} from Paperless: {e}")
+    except Exception as e:
+        warnings.append(f"Paperless: {e}")
+        logger.warning(f"Could not delete doc {doc_id} from Paperless: {e}")
 
     # 2. Delete from Chroma vector store
     try:
@@ -3785,7 +4700,50 @@ def api_migrate_documents():
                 except Exception as e:
                     logger.warning(f"Could not migrate chat sessions: {e}")
 
-                # ── 5. Refresh project document count cache ───────────────────────
+                # ── 5. Migrate Case Intelligence runs ─────────────────────────────
+                # ci_runs.project_slug is the only field that needs updating;
+                # all child tables (entities, events, contradictions, theories,
+                # reports, etc.) reference run_id and follow automatically.
+                try:
+                    ci_db_path = '/app/data/case_intelligence.db'
+                    con = sqlite3.connect(ci_db_path)
+                    r = con.execute(
+                        'UPDATE ci_runs SET project_slug=? WHERE project_slug=?',
+                        (dest_slug, source_slug)
+                    )
+                    con.commit()
+                    ci_count = r.rowcount
+                    con.close()
+                    logger.info(
+                        f"Migrated {ci_count} Case Intelligence run(s) "
+                        f"from {source_slug} → {dest_slug}"
+                    )
+                except Exception as e:
+                    logger.warning(f"Could not migrate CI runs: {e}")
+
+                # ── 6. Migrate court import jobs and imported-doc records ──────────
+                try:
+                    proj_db_path = '/app/data/projects.db'
+                    con = sqlite3.connect(proj_db_path)
+                    r_jobs = con.execute(
+                        'UPDATE court_import_jobs SET project_slug=? WHERE project_slug=?',
+                        (dest_slug, source_slug)
+                    )
+                    r_docs = con.execute(
+                        'UPDATE court_imported_docs SET project_slug=? WHERE project_slug=?',
+                        (dest_slug, source_slug)
+                    )
+                    con.commit()
+                    con.close()
+                    logger.info(
+                        f"Migrated {r_jobs.rowcount} court import job(s) and "
+                        f"{r_docs.rowcount} court imported doc record(s) "
+                        f"from {source_slug} → {dest_slug}"
+                    )
+                except Exception as e:
+                    logger.warning(f"Could not migrate court import data: {e}")
+
+                # ── 8. Refresh project document count cache ───────────────────────
                 try:
                     app.project_manager.update_document_count(source_slug, source_vs.collection.count())
                     app.project_manager.update_document_count(dest_slug, dest_vs.collection.count())
@@ -4046,6 +5004,27 @@ def api_upload_from_url():
 
         if not url:
             return jsonify({'error': 'URL is required'}), 400
+
+        # URL-based dedup: skip if already successfully imported from this exact URL
+        try:
+            from analyzer.db import _get_conn as _db_conn_dedup
+            with _db_conn_dedup() as _dc:
+                _existing = _dc.execute(
+                    "SELECT id, filename, paperless_doc_id FROM import_history"
+                    " WHERE original_url = ? AND status = 'uploaded' LIMIT 1",
+                    (url,)
+                ).fetchone()
+            if _existing:
+                logger.info(f"URL dedup: skipping already-imported URL {url[:80]}")
+                return jsonify({
+                    'success': True,
+                    'duplicate': True,
+                    'document_id': _existing['paperless_doc_id'],
+                    'title': _existing['filename'],
+                    'detail': 'Already imported from this URL',
+                }), 200
+        except Exception as _dedup_err:
+            logger.warning(f"URL dedup check failed (non-fatal): {_dedup_err}")
 
         # Download file
         from analyzer.remote_downloader import RemoteFileDownloader
@@ -4722,8 +5701,28 @@ def _get_own_container_name() -> str:
 
 
 def _get_managed_containers() -> list:
-    """Return the 4 core Paperless containers plus only this analyzer instance."""
-    return PAPERLESS_CONTAINERS + [_get_own_container_name()]
+    """Return the 4 core Paperless containers, per-project containers, plus this analyzer instance.
+
+    Per-project containers are discovered dynamically from projects.db: any project whose
+    paperless_url references 'paperless-web-{slug}' has a dedicated instance and gets both
+    paperless-web-{slug} and paperless-consumer-{slug} added to the managed list.
+    """
+    managed = list(PAPERLESS_CONTAINERS)
+    try:
+        import sqlite3 as _sqlite3
+        db_path = '/app/data/projects.db'
+        with _sqlite3.connect(db_path) as _conn:
+            rows = _conn.execute(
+                "SELECT slug, paperless_url FROM projects WHERE paperless_url IS NOT NULL AND paperless_url != ''"
+            ).fetchall()
+            for (slug, url) in rows:
+                if slug and f'paperless-web-{slug}' in (url or ''):
+                    managed.append(f'paperless-web-{slug}')
+                    managed.append(f'paperless-consumer-{slug}')
+    except Exception:
+        pass
+    managed.append(_get_own_container_name())
+    return managed
 
 
 def _get_docker_client():
@@ -4816,6 +5815,39 @@ def _check_docker_container(name, dc):
         return {'status': 'error', 'latency_ms': 0, 'detail': err[:80]}
 
 
+def _check_project_containers(dc) -> dict:
+    """Aggregate health check for all per-project Paperless containers.
+
+    Returns ok if all are running, warning if any are missing/stopped,
+    error if Docker is unavailable. Detail lists each project slug + status.
+    """
+    if not dc:
+        return {'status': 'warning', 'latency_ms': 0, 'detail': 'Docker unavailable'}
+    try:
+        import sqlite3 as _sqlite3
+        db_path = '/app/data/projects.db'
+        with _sqlite3.connect(db_path) as _conn:
+            rows = _conn.execute(
+                "SELECT slug, paperless_url FROM projects WHERE paperless_url IS NOT NULL AND paperless_url != ''"
+            ).fetchall()
+        project_slugs = [slug for (slug, url) in rows if slug and f'paperless-web-{slug}' in (url or '')]
+        if not project_slugs:
+            return {'status': 'ok', 'latency_ms': 0, 'detail': 'No per-project instances provisioned'}
+        parts = []
+        worst = 'ok'
+        for slug in project_slugs:
+            web_name = f'paperless-web-{slug}'
+            r = _check_docker_container(web_name, dc)
+            parts.append(f'{slug}:{r["status"]}')
+            if r['status'] == 'error' and worst != 'error':
+                worst = 'error'
+            elif r['status'] == 'warning' and worst == 'ok':
+                worst = 'warning'
+        return {'status': worst, 'latency_ms': 0, 'detail': ', '.join(parts)}
+    except Exception as e:
+        return {'status': 'warning', 'latency_ms': 0, 'detail': str(e)[:120]}
+
+
 @app.route('/api/system-health')
 @login_required
 def api_system_health():
@@ -4836,10 +5868,11 @@ def api_system_health():
         'redis': (lambda: _check_docker_container('paperless-redis', dc))
                  if docker_available else
                  (lambda: {'status': 'warning', 'latency_ms': 0, 'detail': 'Docker unavailable'}),
+        'projects_containers': (lambda: _check_project_containers(dc)),
     }
 
     results = {}
-    with ThreadPoolExecutor(max_workers=6) as executor:
+    with ThreadPoolExecutor(max_workers=7) as executor:
         futures = {executor.submit(fn): name for name, fn in checks.items()}
         for future in as_completed(futures):
             name = futures[future]
@@ -6478,6 +7511,130 @@ def _build_court_connector(court_system: str, project_slug: str):
         raise RuntimeError(f"Unknown court system: {court_system}")
 
 
+def _post_import_analyze(job_id: str, project_slug: str,
+                         task_ids: list, doc_ids: list):
+    """
+    Background daemon: resolve Paperless task UUIDs → doc IDs, then run AI analysis.
+    Called after _run_court_import upload loop finishes.
+    """
+    from analyzer.court_db import update_court_doc_task_resolved, update_import_job
+    import datetime as _dt
+
+    def _log(msg: str):
+        ts = _dt.datetime.utcnow().strftime('%H:%M:%S')
+        update_import_job(job_id, log_append=[f"[{ts}] [AI] {msg}"])
+
+    try:
+        resolved_doc_ids = list(doc_ids)  # start with any already-known doc IDs
+
+        # Resolve task UUIDs → Paperless doc IDs (waits for OCR to complete)
+        _pc = _get_project_client(project_slug)
+        for task_id in task_ids:
+            try:
+                _log(f"Waiting for OCR on task {task_id[:8]}…")
+                doc_id = _pc.resolve_task_to_doc_id(task_id, timeout=180)
+                if doc_id:
+                    update_court_doc_task_resolved(task_id, doc_id)
+                    resolved_doc_ids.append(doc_id)
+                    _log(f"Task {task_id[:8]} → doc {doc_id} — OCR complete.")
+                else:
+                    _log(f"Task {task_id[:8]} — OCR timed out or failed, skipping AI.")
+            except Exception as e:
+                _log(f"Task {task_id[:8]} resolve error: {e}")
+
+        if not resolved_doc_ids:
+            _log("No documents to analyze.")
+            return
+
+        # Run AI analysis on all resolved docs
+        _log(f"Starting AI analysis on {len(resolved_doc_ids)} document(s)…")
+        ok = 0
+        for doc_id in resolved_doc_ids:
+            try:
+                full_doc = _pc.get_document(doc_id)
+                if not full_doc.get('content', '').strip():
+                    _log(f"Doc {doc_id}: no content yet, skipping.")
+                    continue
+                app.document_analyzer.analyze_document(full_doc)
+                ok += 1
+            except Exception as e:
+                _log(f"Doc {doc_id}: analysis error — {e}")
+
+        _log(f"AI analysis complete — {ok}/{len(resolved_doc_ids)} succeeded.")
+        update_import_job(job_id, log_append=[])  # flush
+
+    except Exception as e:
+        logger.error(f"_post_import_analyze failed for job {job_id}: {e}", exc_info=True)
+        try:
+            update_import_job(job_id, log_append=[f"[AI ERROR] {str(e)[:200]}"])
+        except Exception:
+            pass
+
+
+def _analyze_missing_for_project(project_slug: str) -> int:
+    """
+    Scan all Paperless docs tagged project:<slug> that are NOT yet in ChromaDB
+    and run AI analysis on each.  Returns the number of docs queued.
+    """
+    try:
+        from analyzer.vector_store import VectorStore
+        vs = VectorStore(project_slug=project_slug)
+        if not vs.enabled:
+            logger.warning(f"_analyze_missing_for_project: vector store disabled for {project_slug}")
+            return 0
+
+        # IDs already in Chroma (as strings)
+        existing = set(vs.collection.get(ids=None)['ids'])
+
+        # Page through all Paperless docs for this project using tags__id__all.
+        # tags__name is NOT reliable — some Paperless versions ignore it and return
+        # all documents regardless of the filter value.
+        _pc = _get_project_client(project_slug)
+        missing = []
+        page = 1
+        while True:
+            resp = _pc.get_documents_by_project(
+                project_slug, ordering='-modified', page_size=100, page=page
+            )
+            for doc in resp.get('results', []):
+                if str(doc['id']) not in existing:
+                    missing.append(doc['id'])
+            if not resp.get('next'):
+                break
+            page += 1
+
+        logger.info(f"_analyze_missing_for_project({project_slug}): {len(missing)} missing from Chroma")
+
+        ok = 0
+        for doc_id in missing:
+            try:
+                full_doc = _pc.get_document(doc_id)
+                if not full_doc.get('content', '').strip():
+                    continue
+                app.document_analyzer.analyze_document(full_doc)
+                ok += 1
+            except Exception as e:
+                logger.warning(f"_analyze_missing_for_project: doc {doc_id} failed: {e}")
+
+        logger.info(f"_analyze_missing_for_project({project_slug}): {ok}/{len(missing)} analyzed")
+        return ok
+
+    except Exception as e:
+        logger.error(f"_analyze_missing_for_project({project_slug}) error: {e}", exc_info=True)
+        return 0
+
+
+@app.route('/api/projects/<slug>/analyze-missing', methods=['POST'])
+@login_required
+def api_project_analyze_missing(slug):
+    """Trigger background AI analysis for all Paperless docs in <slug> not yet in ChromaDB."""
+    if not hasattr(app, 'document_analyzer') or not app.document_analyzer:
+        return jsonify({'error': 'Analyzer not running'}), 503
+    from threading import Thread
+    Thread(target=_analyze_missing_for_project, args=(slug,), daemon=True).start()
+    return jsonify({'success': True, 'message': f'Scanning project {slug} for unanalyzed docs'})
+
+
 def _run_court_import(job_id: str, project_slug: str, court_system: str,
                       case_id: str, cancel_event=None):
     """
@@ -6546,6 +7703,8 @@ def _run_court_import(job_id: str, project_slug: str, court_system: str,
             _log(f"Warning: could not create tags: {e}")
 
         imported = skipped = failed = 0
+        collected_task_ids: list = []
+        collected_doc_ids: list = []
 
         for entry in docket:
             if cancel_event and cancel_event.is_set():
@@ -6617,23 +7776,48 @@ def _run_court_import(job_id: str, project_slug: str, court_system: str,
 
             # Upload to Paperless
             tag_ids = [t for t in [court_tag_id, project_tag_id] if t]
+            # Convert PACER date (MM/DD/YYYY) to ISO format (YYYY-MM-DD) that
+            # Paperless-ngx expects. Dates in other formats are passed through
+            # unchanged; missing dates are sent as None.
+            _raw_date = entry.date or None
+            if _raw_date:
+                try:
+                    import datetime as _ddt
+                    _raw_date = _ddt.datetime.strptime(_raw_date, '%m/%d/%Y').strftime('%Y-%m-%d')
+                except (ValueError, TypeError):
+                    pass  # already ISO or unparseable — leave as-is
             paperless_doc_id = None
+            paperless_task_id = ''
             try:
                 if paperless_client:
                     result = paperless_client.upload_document(
                         str(tmp_path),
                         title=title,
                         tags=tag_ids,
-                        created=entry.date or None,
+                        created=_raw_date,
                     )
                     if result and isinstance(result, dict):
-                        paperless_doc_id = result.get('id')
+                        if result.get('task_id'):
+                            paperless_task_id = result['task_id']
+                            collected_task_ids.append(paperless_task_id)
+                        elif result.get('id'):
+                            paperless_doc_id = result['id']
+                            collected_doc_ids.append(paperless_doc_id)
+                    elif paperless_client:
+                        # upload_document returned None — Paperless rejected or
+                        # errored; treat as upload failure so the doc is NOT
+                        # marked 'imported' (which would block future re-imports
+                        # via the URL-dedup check).
+                        raise RuntimeError(
+                            "Paperless upload returned no result (check Paperless logs)"
+                        )
                 _log(f"{seq_label}: uploaded as \"{title[:60]}\"")
                 log_court_doc(job_id, project_slug, court_system, case_id,
                               status='imported', doc_sequence=entry.seq,
                               source_url=entry.source_url, sha256_hash=digest,
                               filename=tmp_path.name,
-                              paperless_doc_id=paperless_doc_id)
+                              paperless_doc_id=paperless_doc_id,
+                              paperless_task_id=paperless_task_id)
                 imported += 1
             except Exception as e:
                 _log(f"{seq_label}: upload failed — {e}")
@@ -6656,6 +7840,16 @@ def _run_court_import(job_id: str, project_slug: str, court_system: str,
                           imported_docs=imported, skipped_docs=skipped,
                           failed_docs=failed,
                           completed_at=_dt.datetime.utcnow().isoformat())
+
+        # Fire post-import AI analysis in a daemon thread
+        if imported > 0 and hasattr(app, 'document_analyzer') and app.document_analyzer:
+            import threading
+            threading.Thread(
+                target=_post_import_analyze,
+                args=(job_id, project_slug, collected_task_ids, collected_doc_ids),
+                daemon=True,
+            ).start()
+            _log("Background AI analysis started for imported documents.")
 
     except Exception as e:
         logger.error(f"Court import job {job_id} failed: {e}", exc_info=True)

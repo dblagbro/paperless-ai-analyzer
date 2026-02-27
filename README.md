@@ -10,55 +10,83 @@ Advanced AI-powered anomaly detection and risk analysis microservice for [Paperl
 
 ---
 
-## What's New in v3.5.3
+## What's New in v3.6.1
 
-### PACER direct docket import — now fully working
-- **Full case history** — the CM/ECF docket options form pre-fills a "last 2 weeks" date window; the connector now clears it before submitting so all docket entries are returned (97 documents on a 2-year bankruptcy case, not 2).
-- **Direct `DktRpt.pl` navigation** — `CourtListenerConnector` now looks up the numeric `pacer_case_id` from the CL dockets API, enabling direct navigation to `DktRpt.pl?{id}` instead of the fragile `iquery.pl` case-search form (which returns HTTP 500 on NYSB).
-- **Fallback on empty RECAP** — `FederalConnector` now also triggers the PACER fallback when CourtListener returns 0 entries (not just on 403), so cases with no RECAP-contributed documents are still imported.
-- Several lower-level fixes: duplicate `get_docket` stub removed, `court_id` short-code used in URLs, HTML table split fixed to eliminate attribute bleed in document titles.
+### Fully Automated Per-Project Paperless Provisioning
 
----
+v3.6.1 completes the per-project isolation story: provisioning is now **100% automated** — no Docker Compose editing, no SQL commands, no manual steps.
 
-## What's New in v3.5.2
+**Zero-touch project creation:**
+- Creating a project automatically starts a background provisioner that spins up `paperless-web-{slug}` and `paperless-consumer-{slug}`, creates a dedicated Postgres database and Redis DB index, generates credentials, writes an nginx location block, and wires the project — all in ~45 seconds.
+- A live banner on the project card shows provisioning progress (`⏳ Provisioning… Waiting for Paperless web to start (12s elapsed, up to 8 min)…`) and turns green when complete.
 
-### Bug fixes
-- **NYSCEF connector** — fixed Playwright waits (`networkidle` → `domcontentloaded`), county text-autocomplete, DocumentList redirect handling, and Pro Se login flow (now proceeds to login with a free NYSCEF account instead of hitting CAPTCHA anonymously).
-- **Delete document button** — onclick attribute was silently broken by unescaped double-quotes from `JSON.stringify(title)`. Fixed with `_escHtml()`.
-- **Document count consistency** — Overview and Manage Projects now both use ChromaDB count (was mismatched: Overview used SQLite, Manage Projects used ChromaDB).
-- **Direct-port access** — WSGI middleware now strips the URL prefix from PATH_INFO on direct access, so both nginx-proxied and direct requests work correctly.
+**Reprovision button:**
+- Any project with a Provision tab now has an **⚡ Auto-Provision Now** button that triggers a full reprovision in the background (safe to run on already-provisioned projects).
 
-### NYSCEF Pro Se / Party access
-- New **"Pro Se / Party access"** checkbox in the NYSCEF credential wizard step 2 for parties, defendants, and plaintiffs who are not attorneys. Instructions link directly to the NYSCEF Unrepresented Litigants account creation page.
-- Password **Show/Hide toggle** added to PACER and NYSCEF password fields.
+**Live health monitoring:**
+- A 7th dot ("Project Instances") appears in the title bar health widget — it turns green/yellow/red based on the aggregate running status of all per-project `paperless-web-{slug}` containers.
+- The Container Manager (Debug & Tools tab) now dynamically lists all per-project containers alongside the core stack. Per-project containers are added/removed automatically as projects are provisioned.
+- Restart and log-view operations work for per-project containers.
 
-### Migration improvements
-- Project-to-project migration now also moves **chat sessions** (with all messages), uses a **batch SQL UPDATE** for full-project moves, and **refreshes cached counts** on both projects when done.
+**URL deduplication for batch imports:**
+- The file URL importer (`Upload → From URL`) now checks `import_history` before downloading. If the exact file URL was already successfully imported, it returns `{duplicate: true}` and skips the download entirely — preventing duplicates when rescanning the same directory.
 
----
-
-## What's New in v3.5.1
-
-### Court Import — Credential Discoverability
-- **📋 Paste credentials button** — now visible directly on the Court Import panel. Paste any email, Slack message, or attorney notes; AI extracts all fields, asks one follow-up question if anything is missing, and auto-fills the form. Previously this feature was buried 4+ clicks deep.
-- **Generic AI form-fill widget** — reusable `AIFormFiller` JS class + Flask route extracted as a standalone library at [github.com/dblagbro/ai-form-filler](https://github.com/dblagbro/ai-form-filler). Drop two files into any Flask project to get the same AI paste behaviour on any form.
+**Zero-migration upgrade:**
+- Two new encrypted columns (`paperless_secret_key_enc`, `paperless_admin_pass_enc`) are added via idempotent `ALTER TABLE` on startup — no manual SQL required. All existing data (chat history, case intelligence, ChromaDB, documents) is preserved.
 
 ---
 
-## What's New in v3.2
+## What's New in v3.6.0
 
-### Case Intelligence — Analysis Quality
-- **War room briefing** — Phase 1 findings (entities, timeline, financial) are compiled into a compact briefing and injected into every Phase 2 manager before it starts. Contradiction, theory, and authority agents now have full situational awareness instead of deriving facts from scratch.
-- **Opposing theory pass** — CI automatically generates theories from the opposing perspective (e.g. defense theories when your role is plaintiff), so you see the strongest counter-arguments before proceedings.
-- **Contradiction engine fixed** — entities and events extracted in Phase 1 are now correctly passed to the contradiction and disputed-facts analysis (previously hardcoded to empty lists).
-- **Richer disputed facts matrix** — the LLM now receives document content excerpts and key party names per document rather than just entity/event counts, producing substantive factual disputes.
+### Per-Project Paperless-ngx Instances (100% Back-End Separation)
 
-### Case Intelligence — Notifications & Progress
-- **Email notifications fixed** — notification email, completion alert, and budget alerts are now correctly saved and sent. Budget notification percentage corrected (was showing "1000%" instead of "10%").
-- **Enhanced progress bar** — live status now shows active manager/worker counts, cumulative token usage, elapsed time, and estimated time remaining.
+v3.6.0 eliminates the single shared Paperless-ngx instance risk: each project can now have its own dedicated Paperless web + consumer containers. There is no longer any path for a tag accident, API quirk, or bug to contaminate another project's documents.
 
-### Case Intelligence — AI Chat Integration
-- **Findings RAG-embedded** — all CI findings are automatically embedded into the project's vector store when a run completes. AI Chat cites CI findings alongside document excerpts; the Director skips re-extraction of already-known facts on re-runs.
+**Infrastructure provisioning (UI-assisted):**
+- Click **⚙️ Paperless** on any project card → the **Provision** tab generates ready-to-paste Docker Compose services, nginx location block, and Postgres SQL for a new per-project instance.
+- Auto-assigns the next free Redis DB index (0 = shared, 1+ = per-project).
+
+**Connection management:**
+- **Connect** tab — enter the internal container URL, API token (stored AES-256-GCM encrypted), and public base URL for "View in Paperless" links. Includes a **Test Connection** button.
+- Credentials are encrypted using the same key derivation as court court credential storage.
+- Each project's client is factory-cached (5-minute TTL) so credential changes are picked up automatically.
+
+**Dedicated polling threads:**
+- Each configured project gets its own daemon polling thread at startup, using its own `PaperlessClient` and `StateManager`. The default project continues using the main loop.
+
+**"View in Paperless" links everywhere:**
+- Manage Projects document table, Search/Analysis tab, and AI chat now all show clickable per-project links.
+- AI chat automatically linkifies `[Document #NNN]` and `Document #NNN` patterns to the correct project's Paperless URL.
+
+**One-click document migration:**
+- The **Migrate** tab in the Configure Paperless modal starts a background migration: downloads all documents from the shared instance (tagged `project:{slug}`), uploads each to the new dedicated instance, waits for OCR, re-keys ChromaDB embeddings to the new doc IDs, updates `processed_documents`, patches chat history references, and updates `court_imported_docs`. Live progress bar shows `N / total` documents migrated.
+
+---
+
+## What's New in v3.5.5
+
+### Reliable Upload-to-Analysis Pipeline
+
+Court imports (and any upload that returns a Paperless task UUID) now automatically trigger full AI analysis as soon as OCR completes:
+
+- **Background analysis thread** — after the upload loop finishes, a daemon thread resolves each task UUID to a Paperless doc ID (waiting up to 3 min for OCR), then runs AI analysis on every newly added document. The import job log shows live task-resolution progress and a final "AI analysis complete" line.
+- **`paperless_task_id` tracking** — stored in `court_imported_docs` so partially-resolved imports survive restarts.
+
+### Historical Backlog Recovery
+
+If documents were uploaded in the past but never analyzed (e.g. the 746-doc federal court backlog):
+
+- **"🔍 Analyze Missing" button** on each project card in Manage Projects — triggers a background scan of all Paperless docs tagged with that project, compares against ChromaDB, and runs AI analysis on anything not yet embedded.
+- **`POST /api/projects/<slug>/analyze-missing`** — REST endpoint powering the button.
+
+### Pipeline Visibility
+
+Two new stat cards appear on Overview when relevant:
+
+- **Awaiting OCR** — documents uploaded to Paperless but OCR not yet complete (resolves automatically as tasks finish).
+- **Awaiting AI** — OCR complete in Paperless but not yet AI-analyzed (use Analyze Missing to recover).
+
+The "Documents Analyzed" card is renamed **"AI Analyzed"** to clearly indicate it reflects the ChromaDB-embedded count.
 
 ---
 
@@ -170,9 +198,9 @@ Advanced AI-powered anomaly detection and risk analysis microservice for [Paperl
 - **Idempotent Processing**: Safe to re-run on the same documents
 
 ### Multi-Tenant & Management (v1.5+)
-- **Multi-Project Support**: Isolated document collections with per-project tagging and separate ChromaDB collections
-- **Document Migration**: Move documents (vectors + SQLite records + chat sessions) between projects with automatic Paperless tag management
-- **LLM Usage Tracking**: Token counting, cost calculation, and daily usage bar chart
+- **Multi-Project Support**: Isolated document collections with per-project tagging
+- **Document Migration**: Move documents between projects with automatic tag management
+- **LLM Usage Tracking**: Token counting, cost calculation, and usage analytics
 
 ### Smart Ingestion (v1.5+)
 - **Smart Upload**: Drag-and-drop upload with AI-powered tagging and project assignment
@@ -181,28 +209,11 @@ Advanced AI-powered anomaly detection and risk analysis microservice for [Paperl
 
 ### Secure Multi-User Dashboard (v2.0)
 - **Login Required**: All pages protected; redirects to `/login` when unauthenticated
-- **Role-Based Access**: Admin / Advanced / Basic — Advanced enables Case Intelligence and power features
-- **Persistent Chat**: Sessions stored in SQLite, survive restarts and redeploys; project-scoped isolation
+- **Role-Based Access**: `admin` sees all users' chats and user management; `basic` sees only their own
+- **Persistent Chat**: Sessions stored in SQLite, survive restarts and redeploys
 - **Chat Sharing**: Share sessions with named users (not public links)
 - **PDF Export**: Download any chat as a formatted PDF
-- **👤 My Profile**: Every user can update name, email, phone, address, job title, and password without admin help
 - **Admin UI**: User management panel inside the Configuration tab
-
-### Case Intelligence AI (v3.1+, Advanced/Admin role)
-- **Director → Manager → Worker orchestrator**: Analyzes all project documents as a coordinated group across 6 domains — Entities, Timeline, Financial, Contradictions, Theories, Authorities
-- **Opposing theory pass**: Automatically generates counter-arguments from the opposing side so you see what you're up against
-- **War room briefing**: Phase 1 findings injected into Phase 2 agents so they start with full context
-- **Scientific paper report**: 12-section report with Executive Summary through Appendices; PDF download
-- **Budget checkpoints**: Email alerts at every 10% completion; per-run spending cap
-- **CI findings in AI Chat**: All findings embedded into the vector store; Chat cites CI findings alongside documents
-
-### Court Document Importer (v3.5+, `COURT_IMPORT_ENABLED=true`)
-- **Federal courts (PACER / CourtListener RECAP)**: Free access via RECAP for archived documents; PACER direct fallback for others
-- **NYS NYSCEF** (requires `INCLUDE_PLAYWRIGHT=true` Docker build arg): Headless Chromium login, case search, docket scrape, download
-- **Pro Se / Party access**: Parties/defendants without an attorney bar number use a free NYSCEF account (Unrepresented Litigants)
-- **AI credential paste**: Paste any email or Slack message — AI extracts all fields, asks follow-up questions, auto-fills the form
-- **3-tier deduplication**: URL match → SHA-256 hash → Paperless title search; safe to re-run an import on an existing case
-- **AES-256-GCM credential storage**: Court passwords encrypted at rest; rotating the Flask secret key invalidates stored credentials
 
 ---
 
@@ -552,8 +563,7 @@ The chat uses RAG (retrieval-augmented generation) over your document corpus —
 - **📖 Users Manual** — opens the built-in 12-page user manual in a new tab
 - **? Help** — toggles a contextual help panel at the top of the current tab
 - **🐛 Report Issue** — sends a bug report with optional log attachment
-- **👤 My Profile** — update name, email, phone, address, job title, and password
-- **Sign Out**
+- **🔑 Change Password** / **Sign Out**
 
 ### Overview Tab
 
@@ -573,36 +583,29 @@ Create, edit, archive, and delete projects. Move documents between projects. Arc
 
 ### Smart Upload Tab
 
-Upload documents via file drag-and-drop, direct URL, or cloud share link (Google Drive, Dropbox, OneDrive). Optional Smart Metadata pre-analyzes the document before upload. When `COURT_IMPORT_ENABLED=true`, a fourth **🏛️ Court Import** sub-tab appears for pulling federal (PACER/RECAP) and NYSCEF case files directly into Paperless.
-
-### Case Intelligence Tab *(Advanced/Admin, `CASE_INTELLIGENCE_ENABLED=true`)*
-
-- **Setup** — configure role (Plaintiff/Defendant/Neutral), jurisdiction, goal, budget, and orchestration tiers. Click **✨ Refine with AI** to improve your goal statement via chat.
-- **Findings** — browse results across 6 domains (Entities, Timeline, Financial, Contradictions, Theories, Authorities). Every finding cites source document + page.
-- **Report Builder** — Director synthesizes a 12-section scientific paper; download as PDF.
+Upload documents via file drag-and-drop, direct URL, or cloud share link (Google Drive, Dropbox, OneDrive). Optional Smart Metadata pre-analyzes the document before upload.
 
 ### Configuration Tab
 
-- **AI Settings** — Global API keys (admin) + per-project provider/model for 3 use-cases (Document Analysis / AI Chat / Case Intelligence). Fallback chain: per-project → global → system default.
+- **AI Settings** — Configure OpenAI or Anthropic API keys, model selection, and test connectivity
+- **Vector Store** — View, search, and manage Chroma embeddings for the current project; manually trigger stale re-embedding
 - **AI Usage** — Daily bar chart of LLM API token usage and cost sourced from the persistent usage tracker
 - **Profiles** — Browse and activate document profiles
-- **Vector Store** — Manage ChromaDB embeddings for the current project; trigger stale re-embedding or clear all
-- **Notifications** *(admin)* — SMTP settings for email alerts, CI budget and completion notifications
-- **Users** *(admin)* — Add, edit, deactivate users; three roles: Admin / Advanced / Basic
+- **Notifications** — SMTP settings for email alerts and bug reports
+- **User Management** *(admin only)* — Add, edit, deactivate users; send the user manual by email
 
 ### Debug & Tools Tab
 
-- **🩺 System Health** — live status of Paperless API, ChromaDB, LLM, Analyzer Loop, PostgreSQL, Redis; auto-refreshes every 30 s
-- **🐳 Container Manager** — view and restart the 7 managed Docker containers and stream their logs without leaving the browser
-- **🔄 Reprocess All / Single** — clears analysis state and re-queues documents
+- **Reprocess All** — clears analysis state and re-queues all documents
+- **Reprocess Document** — re-queues a single document by Paperless ID
 - **🔁 Reconcile Index** — removes stale DB records and Chroma embeddings for documents deleted from Paperless (no re-analysis)
-- **📋 Live Logs** — real-time tail of the last 200 analyzer log lines
+- **Live Logs** — real-time tail of the last 200 analyzer log lines
 
 ---
 
 ## Built-In User Manual
 
-A comprehensive 14-page user manual is built into the app at `/docs/` (or `/<url_prefix>/docs/`). Click **📖 Users Manual** in the header to open it.
+A comprehensive 12-page user manual is built into the app at `/docs/` (or `/<url_prefix>/docs/`). Click **📖 Users Manual** in the header to open it.
 
 Sections:
 | Page | URL |
@@ -619,8 +622,6 @@ Sections:
 | User Management | `/docs/users` |
 | LLM Usage & Cost | `/docs/llm-usage` |
 | API Reference | `/docs/api` |
-| Case Intelligence | `/docs/case-intelligence` |
-| Court Import | `/docs/court-import` |
 
 ---
 

@@ -180,19 +180,37 @@ class CourtListenerConnector(CourtConnector):
         return entries
 
     def download_document(self, entry: DocketEntry) -> Optional[Path]:
-        """Download a RECAP document to a temp file."""
+        """Download a RECAP document to a temp file.
+
+        Returns None if the response is HTML (e.g. PACER fee-gate page or
+        CourtListener login redirect) rather than a real document.
+        """
         if not entry.source_url:
             return None
         try:
-            resp = self._session.get(entry.source_url, timeout=60, stream=True)
+            resp = self._session.get(entry.source_url, timeout=60)
             resp.raise_for_status()
+            content = resp.content
+
+            # Detect HTML by content-type OR magic bytes; this catches PACER
+            # fee-confirmation pages that are served via a RECAP/ECF URL.
+            ct = resp.headers.get('Content-Type', '').lower()
+            is_html = 'html' in ct or content.lstrip()[:15].lower().startswith(
+                (b'<!doctype', b'<html')
+            )
+            if is_html:
+                logger.warning(
+                    f"RECAP download got HTML for seq {entry.seq} "
+                    f"(possible fee-gate or auth redirect) — skipping"
+                )
+                return None
+
             suffix = '.pdf'
             tmp = tempfile.NamedTemporaryFile(
                 delete=False, suffix=suffix,
                 prefix=f"court_recap_{entry.seq}_"
             )
-            for chunk in resp.iter_content(chunk_size=65536):
-                tmp.write(chunk)
+            tmp.write(content)
             tmp.flush()
             tmp.close()
             return Path(tmp.name)

@@ -130,13 +130,25 @@ class FederalConnector(CourtConnector):
             raise
 
     def download_document(self, entry: DocketEntry) -> Optional[Path]:
-        """Try RECAP first; fall back to PACER if available."""
-        if entry.source_url:
-            # RECAP copy available
+        """Download a document, preferring RECAP; falling back to PACER.
+
+        ECF/PACER URLs (*.uscourts.gov/doc1/...) bypass CourtListener entirely
+        and go straight to the PACER connector so that fee-gate handling runs.
+        """
+        # Route ECF URLs directly to PACER to avoid the CourtListener connector
+        # downloading an HTML fee-confirmation page and returning it as a PDF.
+        is_ecf_url = bool(
+            entry.source_url and 'uscourts.gov' in entry.source_url
+        )
+
+        if entry.source_url and not is_ecf_url:
+            # Try RECAP / CourtListener for non-PACER URLs
             result = self._cl.download_document(entry)
             if result:
                 return result
             logger.debug(f"RECAP download failed for seq {entry.seq}, trying PACER fallback")
+        elif is_ecf_url:
+            logger.debug(f"ECF URL for seq {entry.seq} — routing directly to PACER connector")
 
         if self._pacer_available and self._pacer:
             result = self._pacer.download_document(entry)

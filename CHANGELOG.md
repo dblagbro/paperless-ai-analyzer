@@ -4,6 +4,113 @@ All notable changes to Paperless AI Analyzer are documented here.
 
 ---
 
+## v3.6.1 — 2026-02-27
+
+### Added
+- **Automated per-project Paperless provisioning** — when a new project is created (or "Auto-Provision Now" is clicked in the Paperless modal), the analyzer automatically:
+  1. Reads shared config from the running `paperless-web` container via Docker SDK
+  2. Assigns the next free Redis DB index by scanning running `paperless-web-*` containers
+  3. Generates a random `secret_key` (64-hex) and `admin_password` (URL-safe 16-char)
+  4. Creates the per-project Postgres database on `paperless-postgres` (idempotent)
+  5. Creates host directories under `/mnt/s/documents/paperless-{slug}/`
+  6. Starts `paperless-web-{slug}` and `paperless-consumer-{slug}` containers with `unless-stopped` restart policy
+  7. Waits up to 3 minutes for the web container to become ready (HTTP 200/302/401/403)
+  8. Obtains an API token via `POST /api/token/`
+  9. Writes a nginx location block to `/app/nginx-projects-locations.d/paperless-{slug}.conf` and reloads nginx
+  10. Saves `paperless_url`, `paperless_token`, `paperless_doc_base_url`, `paperless_secret_key`, and `paperless_admin_password` to the project DB (all sensitive values AES-256-GCM encrypted)
+- **`GET /api/projects/<slug>/provision-status`** — live polling endpoint; returns `{status, phase, error, doc_base_url}`. Status values: `idle`, `queued`, `running`, `complete`, `error`.
+- **`POST /api/projects/<slug>/reprovision`** — trigger auto-provisioning for an existing project (used by the "Auto-Provision Now" / "Reprovision" button).
+- **`_provision_status` dict** — in-memory provisioning state, mirrors the `_migration_status` pattern.
+- **`paperless_secret_key_enc` / `paperless_admin_pass_enc` DB columns** — two new encrypted columns in the `projects` table (idempotent migrations). Stored and retrieved via `update_project` / `get_paperless_config`.
+- **Auto-Provision button in the Provision tab** — replaces the "manual steps" description with a prominent green "⚡ Auto-Provision Now" button. Manual snippets collapsed into an expandable `<details>` section.
+- **Provisioning progress banner** — after project creation or clicking Auto-Provision, the Paperless modal shows a live yellow→green/red status banner polling every 3 s. On completion, shows a direct "Open Paperless →" link.
+- **Provision status resume** — reopening the Paperless modal while provisioning is in progress resumes the polling banner automatically.
+- **`nginx/projects-locations.d/`** — new host directory; nginx container now mounts it at `/etc/nginx/projects-locations.d/` (rw), and the analyzer-dev container at `/app/nginx-projects-locations.d/` (rw). The nginx.conf 443 server block now includes `projects-locations.d/*.conf`.
+
+### Changed
+- **`provision-snippets` infra names** — compose snippet now uses correct names (`paperless-postgres`, `paperless-redis`, host-path volumes under `/mnt/s/documents/paperless-{slug}/`) instead of the old generic `postgres-master`/`redis` names.
+- **`update_project`** — now accepts `paperless_secret_key` and `paperless_admin_password` (plaintext → encrypted on write). Allowed-fields list updated.
+- **`get_paperless_config`** — returns `secret_key` and `admin_password` (decrypted) in addition to existing fields.
+- **`api_create_project`** — now immediately queues auto-provisioning in a daemon thread and opens the Paperless modal with the provision progress banner after creation.
+
+### Fixed
+- **Provision snippets postgres_sql** — removed misleading `CREATE USER` with placeholder password; the shared `paperless` DB user is reused and the DB is created automatically by the provisioner.
+
+---
+
+## v3.6.0 — 2026-02-26
+
+### Added
+- **Per-project Paperless-ngx instances** — each project can now point to its own dedicated Paperless web + consumer containers. 100% back-end document separation with zero tag-accident risk.
+- **`projects` table schema** — 3 new columns (`paperless_url`, `paperless_token_enc`, `paperless_doc_base_url`) added via idempotent migrations. Token stored AES-256-GCM encrypted using the same key derivation as court credentials.
+- **`ProjectManager.get_paperless_config(slug)`** — returns `{url, token, doc_base_url}` with decrypted token; never exposes the encrypted BLOB in public dicts.
+- **`_get_project_client(slug)` helper** — module-level TTL-cached factory in `web_ui.py`. Returns a dedicated `PaperlessClient` for projects with their own URL+token, falls back to the global client for projects without.
+- **`POST /api/projects/<slug>/paperless-config`** — save internal URL, API token (encrypted on write), and public base URL. Clears client cache entry.
+- **`GET /api/projects/<slug>/paperless-config`** — return current config (token masked to `token_set: true/false`).
+- **`GET /api/projects/<slug>/provision-snippets`** — auto-generates ready-to-paste Docker Compose services, nginx location block, and Postgres SQL for a new per-project Paperless instance. Redis DB index auto-assigned.
+- **`POST /api/projects/<slug>/paperless-health-check`** — test URL + token without saving; used by the Connect tab.
+- **`GET /api/projects/<slug>/doc-link/<int:doc_id>`** — resolve a doc ID to its public Paperless URL for a given project.
+- **"View in Paperless" links** — all document tables (Manage Projects docs, Search/Analysis tab) now show per-project "↗ View" or clickable `#ID` links using `paperless_doc_base_url`. Falls back gracefully when no base URL is configured.
+- **AI chat doc reference linkification** — `[Document #NNN]`, `Document #NNN`, and `doc #NNN` patterns in assistant messages are automatically wrapped in `<a href>` links to the per-project Paperless URL.
+- **Per-project polling threads** — `DocumentAnalyzer.start_project_pollers()` launches a daemon thread (`_poll_project_loop`) for each project that has its own Paperless URL+token. The default project continues using the main poll loop.
+- **"Configure Paperless" modal** — gear button on each project card. Tabbed UI with Provision (infra snippets + copy buttons), Connect (URL/token/base URL form + test connection), and Migrate tabs.
+- **Document migration** — `POST /api/projects/<slug>/migrate-to-own-paperless` starts a background migration: download from shared Paperless → upload to new instance → wait OCR → re-key ChromaDB embeddings → update `processed_documents` → patch chat history doc ID references → update `court_imported_docs`.
+- **`GET /api/projects/<slug>/migration-status`** — live polling endpoint for migration progress (total, migrated, failed, phase, status).
+- **Migration progress UI** — progress bar + live count in the Migrate tab of the Configure Paperless modal. Polls every 2 seconds.
+- **`upload_document_bytes(filename, content, title, tag_ids, created)`** — new `PaperlessClient` method for uploading raw bytes without a temp file on disk; used by migration.
+
+### Changed
+- **All project-scoped API endpoints** now use `_get_project_client(slug)` instead of `app.paperless_client`: delete document, `_analyze_missing_for_project`, `_post_import_analyze`, `/api/status` awaiting-counts.
+- **`GET /api/projects` response** now includes `paperless_doc_base_url`, `paperless_url`, `paperless_configured`, and `global_paperless_base_url` per project.
+- **Project card buttons** — "⚙️ Paperless" button added; turns green when instance is configured.
+- **`update_project()`** — now accepts `paperless_url`, `paperless_token` (plaintext → encrypts on write), `paperless_doc_base_url`.
+- **`PAPERLESS_PUBLIC_BASE_URL` env var** — new env var used as global fallback for all "View in Paperless" links when a project has no dedicated `paperless_doc_base_url`. Both `api_list_project_documents` and `api_recent` use this fallback.
+- **`_paperlessDocUrl(slug, docId)` JS helper** — now falls back to `_globalPaperlessBase` (from `GET /api/projects` response) when the project has no per-project Paperless URL.
+- **Analysis tab doc links** — previously used a hardcoded voipguru.org URL; now dynamically resolved from `analysis.paperless_link` or `_globalPaperlessBase`.
+
+### Fixed
+- **Project migration missing CI and court data** — `api_migrate_documents` (the "Move" feature on Manage Projects) now migrates ALL project-scoped data in addition to Chroma embeddings and Paperless tags: (5) Case Intelligence runs (`ci_runs.project_slug` in `case_intelligence.db` — child tables follow via `run_id`), (6) court import jobs and imported-doc records (`court_import_jobs` and `court_imported_docs` in `projects.db`). Previously only Chroma, Paperless tags, `processed_documents`, and `chat_sessions` were moved, leaving CI and court import history orphaned on the source project.
+- **Court import "ghost imported" bug** — `_run_court_import` was recording documents as `status='imported'` even when `upload_document()` returned `None` (upload silently failed). The misleading `_log("uploaded as...")` also ran in this case. Now raises a `RuntimeError` for None results so the document is correctly recorded as `status='failed'`, preserving the ability to re-import via URL dedup.
+- **PACER fee-gate Playwright download** — `_download_via_playwright` now correctly captures PACER's temp PDF URL from the response interceptor (avoiding `response.body()` which fails with "No resource with given identifier found"), then downloads the PDF via `context.request.get()` which shares the browser's cookies. This resolves the fee-confirmation flow: PACER loads `/doc1/<old>` (fee gate) → click "View Document" → navigates to `/doc1/<new>` (HTML wrapper) → browser loads `/cgi-bin/show_temp.pl?file=<random>.pdf` (actual PDF).
+- **PACER docket form submission wait** — `_get_docket_direct` and `_get_docket_playwright` now use `wait_for_load_state('load')` after submitting the docket options form, replacing `'domcontentloaded'` which was resolving too early (before PACER finished writing the full docket HTML) and causing 0 entries to be returned.
+- **ECF URL routing** — `FederalConnector.download_document()` now routes PACER ECF URLs (containing `uscourts.gov`) directly to the PACER connector, bypassing `CourtListenerConnector` which was downloading the fee-confirmation HTML and returning it as a valid path.
+- **HTML detection in RECAP connector** — `CourtListenerConnector.download_document()` now detects HTML content (fee-gate pages or auth redirects) by inspecting `Content-Type` and magic bytes, returning `None` instead of saving HTML to a temp file.
+- **PACER date format** — `_parse_pacer_docket_html` now normalises entry dates from `MM/DD/YYYY` (PACER format) to `YYYY-MM-DD` (ISO 8601) at the source. `_run_court_import` applies the same conversion as a safeguard before passing dates to Paperless-ngx.
+- **Paperless upload error details** — `PaperlessClient.upload_document()` exception handler now includes the Paperless response body (first 400 chars) in the error log, making upload rejections (e.g., `{"document":["File type text/html not supported"]}`) immediately visible.
+
+---
+
+## v3.5.5 — 2026-02-26
+
+### Added
+- **Post-import AI analysis pipeline** — after a court import upload loop completes, a daemon thread (`_post_import_analyze`) resolves each Paperless task UUID to a doc ID (waiting up to 3 minutes per task for OCR to finish), then runs AI analysis on every newly uploaded document. Import job log now shows task-resolution progress and analysis completion lines.
+- **`resolve_task_to_doc_id(task_id)`** — new `PaperlessClient` method that polls `GET /api/tasks/?task_id=<uuid>` until Paperless reports `SUCCESS` or timeout, returning the resolved `related_document` integer ID. Handles the Paperless-ngx v2+ behavior of returning a task UUID instead of a full doc dict on upload.
+- **`get_project_document_count(project_slug)`** — new `PaperlessClient` method for a fast single-request count of all Paperless documents tagged `project:<slug>` (used by `/api/status`).
+- **`_analyze_missing_for_project(project_slug)`** — scans all Paperless docs tagged `project:<slug>`, compares against ChromaDB IDs, and runs AI analysis on any not yet embedded. Returns the count analyzed.
+- **`POST /api/projects/<slug>/analyze-missing`** — new endpoint that fires `_analyze_missing_for_project` in a background thread. Enables one-click recovery of the historical 746-doc backlog.
+- **"🔍 Analyze Missing" button** — added to each project card in Manage Projects. Calls the new endpoint and shows a toast confirming the scan has started.
+- **`paperless_task_id` column** — added to `court_imported_docs` table via migration in `init_court_db()`. Stores the Paperless upload task UUID so it can be polled for OCR completion.
+- **`get_pending_ocr_count(project_slug)`** — returns count of court docs uploaded (task_id recorded) but not yet resolved to a Paperless doc_id.
+- **`update_court_doc_task_resolved(task_id, doc_id)`** — marks a court_imported_doc as resolved by writing the Paperless doc_id for a given task_id.
+- **"Awaiting OCR" stat card** — shown on Overview when `awaiting_ocr > 0`. Counts court docs whose Paperless task hasn't resolved yet.
+- **"Awaiting AI" stat card** — shown on Overview when `awaiting_ai > 0`. Counts docs present in Paperless but not yet embedded in ChromaDB (computed as `paperless_total - chroma_count - awaiting_ocr`).
+
+### Changed
+- **`log_court_doc()`** — accepts new optional `paperless_task_id: str = ''` parameter written to the new column.
+- **`_run_court_import()`** — now collects `task_id` (Paperless-ngx v2+) or `doc_id` (v1.x) from each upload result and fires the post-import analysis thread when the loop completes.
+- **`/api/status`** — now returns `awaiting_ocr` and `awaiting_ai` counts alongside existing fields.
+- **"Documents Analyzed" → "AI Analyzed"** — renamed stat card on Overview dashboard for clarity; distinguishes ChromaDB-analyzed count from raw Paperless document counts.
+
+---
+
+## v3.5.4 — 2026-02-26
+
+### Fixed
+- **Court-imported documents now visible in project view** — `GET /api/projects` and `GET /api/projects/<slug>` now include a `court_doc_count` field sourced from the `court_imported_docs` table (count of successfully imported entries for that project). Previously, the project "Manage Projects" card showed only the ChromaDB-analyzed document count, which is always 0 for court-imported documents (court docs are uploaded to Paperless-ngx but not run through AI analysis). Result: Manage Projects cards now show "X analyzed · Y court" counts separately so court-imported documents are visible.
+- **Overview "Court Imported" stat card** — `/api/status` now returns `court_doc_count` for the current project. A new "Court Imported" stat card is shown on the Overview dashboard whenever `court_doc_count > 0`, hidden otherwise.
+
+---
+
 ## v3.5.3 — 2026-02-26
 
 ### Fixed

@@ -57,6 +57,21 @@ class ProjectManager:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_projects_archived ON projects(is_archived)")
 
             conn.commit()
+
+            # v3.6.0: Per-project Paperless instance config — idempotent migrations
+            for col_sql in [
+                "ALTER TABLE projects ADD COLUMN paperless_url TEXT",
+                "ALTER TABLE projects ADD COLUMN paperless_token_enc BLOB",
+                "ALTER TABLE projects ADD COLUMN paperless_doc_base_url TEXT",
+                "ALTER TABLE projects ADD COLUMN paperless_secret_key_enc BLOB",
+                "ALTER TABLE projects ADD COLUMN paperless_admin_pass_enc BLOB",
+            ]:
+                try:
+                    conn.execute(col_sql)
+                    conn.commit()
+                except Exception:
+                    pass  # Column already exists
+
             logger.info(f"Project database initialized at {self.db_path}")
 
     def _ensure_default_project(self):
@@ -190,7 +205,8 @@ class ProjectManager:
             raise ValueError(f"Project '{slug}' not found")
 
         # Build update query dynamically
-        allowed_fields = ['name', 'description', 'color', 'is_archived']
+        allowed_fields = ['name', 'description', 'color', 'is_archived',
+                          'paperless_url', 'paperless_doc_base_url']
         update_fields = []
         update_values = []
 
@@ -202,6 +218,24 @@ class ProjectManager:
                     current_metadata.update(value)
                 update_fields.append('metadata = ?')
                 update_values.append(json.dumps(current_metadata))
+            elif field == 'paperless_token':
+                # Encrypt token on write using AES-256-GCM (same pattern as credential_store.py)
+                if value:
+                    from analyzer.court_connectors.credential_store import encrypt_password
+                    encrypted = encrypt_password(value)
+                    update_fields.append('paperless_token_enc = ?')
+                    update_values.append(encrypted)
+                else:
+                    update_fields.append('paperless_token_enc = ?')
+                    update_values.append(None)
+            elif field == 'paperless_secret_key':
+                from analyzer.court_connectors.credential_store import encrypt_password
+                update_fields.append('paperless_secret_key_enc = ?')
+                update_values.append(encrypt_password(value) if value else None)
+            elif field == 'paperless_admin_password':
+                from analyzer.court_connectors.credential_store import encrypt_password
+                update_fields.append('paperless_admin_pass_enc = ?')
+                update_values.append(encrypt_password(value) if value else None)
             elif field in allowed_fields:
                 update_fields.append(f'{field} = ?')
                 update_values.append(value)
@@ -371,6 +405,58 @@ class ProjectManager:
 
         return stats
 
+    def get_paperless_config(self, slug: str) -> Dict:
+        """
+        Get per-project Paperless-ngx configuration with decrypted credentials.
+
+        Returns:
+            Dict with keys: url, token, doc_base_url, secret_key, admin_password
+        """
+        with self.lock:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                row = conn.execute(
+                    "SELECT paperless_url, paperless_token_enc, paperless_doc_base_url, "
+                    "paperless_secret_key_enc, paperless_admin_pass_enc "
+                    "FROM projects WHERE slug = ?",
+                    (slug,)
+                ).fetchone()
+
+        if not row:
+            return {'url': None, 'token': None, 'doc_base_url': None,
+                    'secret_key': None, 'admin_password': None}
+
+        from analyzer.court_connectors.credential_store import decrypt_password
+
+        token = None
+        if row['paperless_token_enc']:
+            try:
+                token = decrypt_password(bytes(row['paperless_token_enc']))
+            except Exception as e:
+                logger.warning(f"Failed to decrypt Paperless token for project {slug}: {e}")
+
+        secret_key = None
+        if row['paperless_secret_key_enc']:
+            try:
+                secret_key = decrypt_password(bytes(row['paperless_secret_key_enc']))
+            except Exception as e:
+                logger.warning(f"Failed to decrypt Paperless secret_key for project {slug}: {e}")
+
+        admin_password = None
+        if row['paperless_admin_pass_enc']:
+            try:
+                admin_password = decrypt_password(bytes(row['paperless_admin_pass_enc']))
+            except Exception as e:
+                logger.warning(f"Failed to decrypt Paperless admin_password for project {slug}: {e}")
+
+        return {
+            'url': row['paperless_url'],
+            'token': token,
+            'doc_base_url': row['paperless_doc_base_url'],
+            'secret_key': secret_key,
+            'admin_password': admin_password,
+        }
+
     def update_document_count(self, slug: str, count: int):
         """
         Update cached document count.
@@ -498,5 +584,9 @@ class ProjectManager:
 
         # Convert boolean
         data['is_archived'] = bool(data['is_archived'])
+
+        # Never expose encrypted BLOB columns in public dicts
+        for col in ('paperless_token_enc', 'paperless_secret_key_enc', 'paperless_admin_pass_enc'):
+            data.pop(col, None)
 
         return data

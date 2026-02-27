@@ -376,6 +376,83 @@
             <li><strong>Storage</strong> — approximate disk size of the vector store.</li>
         </ul>
 
+        <h2 id="per-project-paperless">Per-Project Paperless-ngx Instances (v3.6.1)</h2>
+        <p>By default, all projects share a single Paperless-ngx instance with <code>project:{slug}</code> tags for separation.
+        v3.6.0 added support for dedicated instances; v3.6.1 makes provisioning fully automated — no manual Docker, nginx, or SQL steps required.</p>
+
+        <h3 id="auto-provision">Auto-Provisioning (v3.6.1, Recommended)</h3>
+        <p>When a new project is created, provisioning starts automatically in the background. You can also trigger it manually for any existing project:</p>
+        <ol>
+            <li>Click <strong>⚙️ Paperless</strong> on the project card to open the Configure Paperless modal.</li>
+            <li>Click <strong>⚡ Auto-Provision Now</strong> in the Provision tab.</li>
+            <li>A live progress banner shows each step. Provisioning typically takes 1–3 minutes.</li>
+            <li>On completion, the banner shows "✅ Provisioning complete" with an <strong>Open Paperless →</strong> link. The project is immediately wired to its new instance.</li>
+        </ol>
+        <p>The provisioner performs all these steps automatically:</p>
+        <ul>
+            <li>Reads shared config (DB password, timezone) from the running <code>paperless-web</code> container via Docker SDK</li>
+            <li>Assigns the next free Redis DB index (scans running <code>paperless-web-*</code> containers)</li>
+            <li>Generates a strong random <code>secret_key</code> and <code>admin_password</code></li>
+            <li>Creates the per-project Postgres database on <code>paperless-postgres</code> (idempotent)</li>
+            <li>Creates host directories under <code>/mnt/s/documents/paperless-{slug}/</code></li>
+            <li>Starts <code>paperless-web-{slug}</code> and <code>paperless-consumer-{slug}</code> containers with <code>unless-stopped</code> restart</li>
+            <li>Waits for the web container to become ready (up to 3 minutes)</li>
+            <li>Obtains an API token and writes the nginx location block to <code>projects-locations.d/paperless-{slug}.conf</code></li>
+            <li>Reloads nginx and saves all credentials (AES-256-GCM encrypted) to the project DB</li>
+        </ul>
+
+        <div class="callout callout-tip">
+            <strong>Prerequisites:</strong> The nginx service must mount <code>./config/nginx/projects-locations.d:/etc/nginx/projects-locations.d:rw</code> and the analyzer container must mount the same directory at <code>/app/nginx-projects-locations.d:rw</code>. The nginx.conf 443 server block must include <code>include /etc/nginx/projects-locations.d/*.conf;</code>. These are one-time host setup steps (already done on this server as of v3.6.1).
+        </div>
+
+        <h3 id="provision-instance">Manual Provisioning (Advanced)</h3>
+        <p>If you need to provision manually (e.g., on a different host), click <strong>⚙️ Paperless → Provision → Manual Setup Snippets</strong> to expand the compose and nginx snippets, then:</p>
+        <ol>
+            <li>Copy the Docker Compose snippet into your <code>docker-compose.yml</code>.</li>
+            <li>Copy the nginx block into your server's nginx config.</li>
+            <li>Run: <code>sudo docker compose up -d paperless-web-{slug} paperless-consumer-{slug}</code></li>
+            <li>Open the public URL, create the admin user, and generate an API token from Admin → Auth Tokens.</li>
+            <li>Switch to the <strong>Connect</strong> tab and enter the URL + token manually.</li>
+        </ol>
+
+        <h3 id="connect-instance">Connect tab</h3>
+        <ol>
+            <li>Switch to the <strong>Connect</strong> tab in the Configure Paperless modal.</li>
+            <li>Enter the <strong>Internal Container URL</strong> — the Docker-internal address, e.g. <code>http://paperless-web-robinhoodproperties:8000</code>.</li>
+            <li>Enter the <strong>API Token</strong> from the new instance.</li>
+            <li>Enter the <strong>Public Base URL</strong> — the nginx-proxied public URL, e.g. <code>https://home.example.com/paperless-robin</code>. This is used for "View in Paperless" links throughout the UI.</li>
+            <li>Click <strong>Test Connection</strong> to verify, then <strong>Save</strong>.</li>
+        </ol>
+        <p>From this point on, the project's Paperless API calls (analyze-missing, delete, upload, poll) all route to the dedicated instance. A dedicated polling thread also starts automatically on the next container restart.</p>
+
+        <h3 id="migrate-documents-new">Step 3 — Migrate existing documents</h3>
+        <p>If you previously used the shared Paperless instance for this project, use the <strong>Migrate</strong> tab to move all existing documents:</p>
+        <ol>
+            <li>Click <strong>📦 Start Migration</strong>.</li>
+            <li>The migration downloads each document from the shared instance, uploads it to the new instance, waits for OCR to complete, then:
+                <ul>
+                    <li>Re-keys ChromaDB embeddings to the new document ID.</li>
+                    <li>Updates <code>processed_documents</code> in SQLite.</li>
+                    <li>Patches <code>chat_messages</code> that reference old document IDs.</li>
+                    <li>Updates <code>court_imported_docs</code> entries.</li>
+                </ul>
+            </li>
+            <li>A live progress bar shows <code>N / total documents migrated</code>.</li>
+            <li>After migration completes, the old <code>project:{slug}</code> tags in the shared instance are no longer used as a data source for that project.</li>
+        </ol>
+        <div class="callout callout-tip">
+            <strong>Note:</strong> The migration does <em>not</em> delete documents from the shared instance. You can remove them manually after verifying the migration was successful.
+        </div>
+
+        <h3 id="view-in-paperless">View in Paperless links</h3>
+        <p>Once a <strong>Public Base URL</strong> is configured for a project, the UI shows clickable links throughout:</p>
+        <ul>
+            <li><strong>Manage Projects → Docs table</strong> — an <em>↗ View</em> button next to each document.</li>
+            <li><strong>Search / Analysis tab</strong> — document IDs become clickable links.</li>
+            <li><strong>AI Chat</strong> — <code>[Document #NNN]</code> and <code>Document #NNN</code> references in assistant responses are automatically linkified.</li>
+            <li><strong>Case Intelligence</strong> — evidence card document titles become links.</li>
+        </ul>
+
 {# ═══════════════════════════════════════════════════════════════════ #}
 {# SMART UPLOAD                                                        #}
 {# ═══════════════════════════════════════════════════════════════════ #}
