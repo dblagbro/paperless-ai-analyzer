@@ -110,6 +110,96 @@
             .main { padding:24px 20px; }
             .feature-grid { grid-template-columns:1fr; }
         }
+
+        /* ── Tree nav ── */
+        .nav-leaf { display:block; padding:7px 20px 7px 24px; color:#bdc3c7;
+                    text-decoration:none; font-size:13px; border-left:3px solid transparent;
+                    transition:all 0.15s; }
+        .nav-leaf:hover { color:#fff; background:rgba(255,255,255,.06); }
+        .nav-leaf.active { color:#fff; border-left-color:#3498db; background:rgba(52,152,219,.12); }
+
+        .nav-tree-hd { display:flex; align-items:stretch; }
+        nav .nav-tree-label { flex:1; display:block; padding:7px 6px 7px 24px; color:#bdc3c7;
+                               text-decoration:none; font-size:13px; border-left:3px solid transparent;
+                               transition:all 0.15s; }
+        nav .nav-tree-label:hover { color:#fff; background:rgba(255,255,255,.06); }
+        nav .nav-tree-label.active { color:#fff; border-left-color:#3498db; background:rgba(52,152,219,.12); }
+
+        .nav-tree-toggle { background:none; border:none; color:#636e72; cursor:pointer;
+                            padding:0 12px; font-size:9px; transition:transform .22s;
+                            flex-shrink:0; line-height:1; }
+        .nav-tree-toggle:hover { color:#ecf0f1; }
+        .nav-tree.is-open > .nav-tree-hd > .nav-tree-toggle { transform:rotate(90deg); color:#bdc3c7; }
+
+        .nav-tree-ch { display:none; }
+        .nav-tree.is-open > .nav-tree-ch { display:block; }
+
+        nav .nav-child { display:block; padding:5px 20px 5px 36px; color:#7f8c8d;
+                          text-decoration:none; font-size:12px; border-left:2px solid transparent;
+                          transition:all .15s; }
+        nav .nav-child:hover { color:#ecf0f1; background:rgba(255,255,255,.05); }
+        nav .nav-child.active { color:#fff; border-left-color:#3498db; background:rgba(52,152,219,.1); }
+        nav .nav-child-node { padding-left:28px; font-size:12.5px; border-left:3px solid transparent; }
+        nav .nav-child-deep { padding-left:52px; font-size:11.5px; }
+
+        /* ── Sidebar search ── */
+        .sidebar-search { padding:8px 10px 8px; border-bottom:1px solid rgba(255,255,255,.08); position:relative; }
+        .sidebar-search-wrap { position:relative; }
+        .sidebar-search-wrap .s-icon { position:absolute; left:9px; top:50%; transform:translateY(-50%);
+                                        font-size:11px; color:#7f8c8d; pointer-events:none; }
+        .sidebar-search input { width:100%; background:rgba(255,255,255,.09); border:1px solid rgba(255,255,255,.14);
+                                 border-radius:6px; padding:6px 8px 6px 26px; color:#ecf0f1; font-size:12px;
+                                 outline:none; font-family:inherit; }
+        .sidebar-search input::placeholder { color:#636e72; }
+        .sidebar-search input:focus { border-color:rgba(52,152,219,.6); background:rgba(255,255,255,.13); }
+        .search-dropdown { position:absolute; left:0; right:0; top:calc(100% + 4px);
+                            background:#fff; border-radius:6px; box-shadow:0 6px 24px rgba(0,0,0,.28);
+                            z-index:300; max-height:340px; overflow-y:auto; }
+        .search-dropdown a { display:block; padding:9px 14px; color:#2c3e50; text-decoration:none;
+                              border-bottom:1px solid #f0f0f0; }
+        .search-dropdown a:last-child { border-bottom:none; }
+        .search-dropdown a:hover { background:#ebf5fb; }
+        .s-res-title { font-weight:600; font-size:13px; }
+        .s-res-page { font-size:11px; color:#95a5a6; margin-top:1px; }
+        .s-no-results { padding:11px 14px; color:#95a5a6; font-size:13px; }
+
+        /* ── AI Help widget ── */
+        .docs-ai-btn { position:fixed; bottom:24px; right:24px; width:50px; height:50px;
+                        background:#3498db; border:none; border-radius:50%; color:#fff; font-size:20px;
+                        cursor:pointer; box-shadow:0 4px 16px rgba(52,152,219,.45); z-index:200;
+                        transition:all .2s; display:flex; align-items:center; justify-content:center; }
+        .docs-ai-btn:hover { background:#2980b9; transform:scale(1.07); }
+        .docs-ai-panel { position:fixed; bottom:82px; right:24px; width:360px;
+                          background:#fff; border-radius:12px;
+                          box-shadow:0 8px 32px rgba(0,0,0,.18); z-index:200;
+                          display:flex; flex-direction:column; overflow:hidden; }
+        .docs-ai-panel.hidden { display:none; }
+        .docs-ai-hd { background:#2c3e50; color:#fff; padding:11px 14px;
+                       display:flex; align-items:center; gap:8px; }
+        .docs-ai-hd-title { flex:1; font-weight:600; font-size:13.5px; }
+        .docs-ai-close { background:none; border:none; color:#bdc3c7; cursor:pointer;
+                          font-size:16px; line-height:1; padding:2px 4px; }
+        .docs-ai-close:hover { color:#fff; }
+        .docs-ai-msgs { flex:1; overflow-y:auto; padding:10px 12px;
+                         display:flex; flex-direction:column; gap:8px;
+                         min-height:140px; max-height:320px; }
+        .docs-ai-msg { max-width:90%; padding:8px 11px; border-radius:10px;
+                        font-size:13px; line-height:1.55; white-space:pre-wrap; word-break:break-word; }
+        .docs-ai-msg.user { background:#3498db; color:#fff; align-self:flex-end;
+                             border-radius:10px 10px 2px 10px; }
+        .docs-ai-msg.assistant { background:#f0f3f6; color:#2c3e50; align-self:flex-start;
+                                  border-radius:10px 10px 10px 2px; }
+        .docs-ai-msg.ai-error { background:#fde8e8; color:#c0392b; align-self:flex-start; }
+        .docs-ai-typing-dot { animation:dot-blink 1.2s infinite; }
+        @keyframes dot-blink { 0%,80%,100%{opacity:0} 40%{opacity:1} }
+        .docs-ai-foot { display:flex; gap:6px; padding:9px 10px; border-top:1px solid #e8eaf0; }
+        .docs-ai-foot textarea { flex:1; border:1px solid #e0e3e8; border-radius:6px;
+                                  padding:7px 10px; font-size:13px; resize:none; font-family:inherit;
+                                  outline:none; max-height:80px; overflow-y:auto; line-height:1.4; }
+        .docs-ai-foot textarea:focus { border-color:#3498db; }
+        .docs-ai-foot button { background:#3498db; color:#fff; border:none; border-radius:6px;
+                                padding:7px 12px; cursor:pointer; font-size:15px; align-self:flex-end; }
+        .docs-ai-foot button:disabled { background:#bdc3c7; cursor:default; }
     </style>
 </head>
 <body>
@@ -122,30 +212,160 @@
             <div class="version">v{{ version }} — User Manual</div>
             <a class="back-link" href="{{ url_prefix }}/">← Back to Dashboard</a>
         </div>
+
+        <!-- Search -->
+        <div class="sidebar-search">
+            <div class="sidebar-search-wrap">
+                <span class="s-icon">🔍</span>
+                <input type="text" id="docs-search-input" placeholder="Search manual…"
+                       autocomplete="off" oninput="docsSearchInput(this.value)" onblur="docsSearchBlur()">
+                <div id="docs-search-drop" class="search-dropdown" style="display:none;"></div>
+            </div>
+        </div>
+
         <nav>
             <div class="nav-section">Getting Started</div>
-            <a href="{{ url_prefix }}/docs/overview"        {% if page=='overview' %}class="active"{% endif %}>Overview</a>
-            <a href="{{ url_prefix }}/docs/getting-started" {% if page=='getting-started' %}class="active"{% endif %}>Quick Start</a>
+            <a href="{{ url_prefix }}/docs/overview"
+               class="nav-leaf{% if page=='overview' %} active{% endif %}">Overview</a>
+            <a href="{{ url_prefix }}/docs/getting-started"
+               class="nav-leaf{% if page=='getting-started' %} active{% endif %}">Quick Start</a>
 
             <div class="nav-section">Features</div>
-            <a href="{{ url_prefix }}/docs/projects"        {% if page=='projects' %}class="active"{% endif %}>Projects</a>
-            <a href="{{ url_prefix }}/docs/upload"          {% if page=='upload' %}class="active"{% endif %}>Smart Upload</a>
-            <a href="{{ url_prefix }}/docs/chat"            {% if page=='chat' %}class="active"{% endif %}>AI Chat</a>
-            <a href="{{ url_prefix }}/docs/search"          {% if page=='search' %}class="active"{% endif %}>Search &amp; Analysis</a>
-            <a href="{{ url_prefix }}/docs/anomaly-detection" {% if page=='anomaly-detection' %}class="active"{% endif %}>Anomaly Detection</a>
-            <a href="{{ url_prefix }}/docs/case-intelligence" {% if page=='case-intelligence' %}class="active"{% endif %}>Case Intelligence AI</a>
-            <a href="{{ url_prefix }}/docs/court-import"    {% if page=='court-import' %}class="active"{% endif %}>Court Import</a>
-            <a href="{{ url_prefix }}/docs/tools"           {% if page=='tools' %}class="active"{% endif %}>Debug &amp; Tools</a>
+
+            <!-- Projects -->
+            <div class="nav-tree{% if page=='projects' %} is-open{% endif %}">
+                <div class="nav-tree-hd">
+                    <a href="{{ url_prefix }}/docs/projects"
+                       class="nav-tree-label{% if page=='projects' %} active{% endif %}">📁 Projects</a>
+                    <button class="nav-tree-toggle" onclick="toggleNavTree(this)" title="Expand">▶</button>
+                </div>
+                <div class="nav-tree-ch">
+                    <a href="{{ url_prefix }}/docs/projects#auto-provision" class="nav-child">↳ Auto-Provision</a>
+                    <a href="{{ url_prefix }}/docs/projects#connect-instance" class="nav-child">↳ Connect Instance</a>
+                    <a href="{{ url_prefix }}/docs/projects#migrate-documents-new" class="nav-child">↳ Migrate Documents</a>
+                </div>
+            </div>
+
+            <!-- Smart Upload — with Court Import nested inside -->
+            <div class="nav-tree{% if page in ['upload','court-import'] %} is-open{% endif %}">
+                <div class="nav-tree-hd">
+                    <a href="{{ url_prefix }}/docs/upload"
+                       class="nav-tree-label{% if page=='upload' %} active{% endif %}">📤 Smart Upload</a>
+                    <button class="nav-tree-toggle" onclick="toggleNavTree(this)" title="Expand">▶</button>
+                </div>
+                <div class="nav-tree-ch">
+                    <a href="{{ url_prefix }}/docs/upload#file-upload" class="nav-child">↳ File Upload</a>
+                    <a href="{{ url_prefix }}/docs/upload#url-upload" class="nav-child">↳ URL Upload</a>
+                    <a href="{{ url_prefix }}/docs/upload#cloud-links" class="nav-child">↳ Cloud Link</a>
+                    <!-- Court Import — level-2 tree node -->
+                    <div class="nav-tree nav-tree-l2{% if page=='court-import' %} is-open{% endif %}">
+                        <div class="nav-tree-hd">
+                            <a href="{{ url_prefix }}/docs/court-import"
+                               class="nav-child nav-child-node{% if page=='court-import' %} active{% endif %}">🏛️ Court Import</a>
+                            <button class="nav-tree-toggle" onclick="toggleNavTree(this)" title="Expand">▶</button>
+                        </div>
+                        <div class="nav-tree-ch">
+                            <a href="{{ url_prefix }}/docs/court-import#court-credentials" class="nav-child nav-child-deep">↳ Credentials</a>
+                            <a href="{{ url_prefix }}/docs/court-import#court-federal" class="nav-child nav-child-deep">↳ Federal Courts</a>
+                            <a href="{{ url_prefix }}/docs/court-import#court-nyscef" class="nav-child nav-child-deep">↳ NYSCEF</a>
+                            <a href="{{ url_prefix }}/docs/court-import#court-history" class="nav-child nav-child-deep">↳ Import History</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- AI Chat -->
+            <div class="nav-tree{% if page=='chat' %} is-open{% endif %}">
+                <div class="nav-tree-hd">
+                    <a href="{{ url_prefix }}/docs/chat"
+                       class="nav-tree-label{% if page=='chat' %} active{% endif %}">💬 AI Chat</a>
+                    <button class="nav-tree-toggle" onclick="toggleNavTree(this)" title="Expand">▶</button>
+                </div>
+                <div class="nav-tree-ch">
+                    <a href="{{ url_prefix }}/docs/chat#starting-session" class="nav-child">↳ Sessions</a>
+                    <a href="{{ url_prefix }}/docs/chat#editing-messages" class="nav-child">↳ Edit &amp; Stop</a>
+                    <a href="{{ url_prefix }}/docs/chat#compare-mode" class="nav-child">↳ Compare LLMs</a>
+                    <a href="{{ url_prefix }}/docs/chat#sharing-sessions" class="nav-child">↳ Export &amp; Share</a>
+                </div>
+            </div>
+
+            <!-- Case Intelligence -->
+            <div class="nav-tree{% if page=='case-intelligence' %} is-open{% endif %}">
+                <div class="nav-tree-hd">
+                    <a href="{{ url_prefix }}/docs/case-intelligence"
+                       class="nav-tree-label{% if page=='case-intelligence' %} active{% endif %}">⚖️ Case Intelligence</a>
+                    <button class="nav-tree-toggle" onclick="toggleNavTree(this)" title="Expand">▶</button>
+                </div>
+                <div class="nav-tree-ch">
+                    <a href="{{ url_prefix }}/docs/case-intelligence#ci-setup" class="nav-child">↳ Setup</a>
+                    <a href="{{ url_prefix }}/docs/case-intelligence#ci-findings" class="nav-child">↳ Findings</a>
+                    <a href="{{ url_prefix }}/docs/case-intelligence#ci-report" class="nav-child">↳ Report Builder</a>
+                </div>
+            </div>
+
+            <a href="{{ url_prefix }}/docs/search"
+               class="nav-leaf{% if page=='search' %} active{% endif %}">🔍 Search &amp; Analysis</a>
+            <a href="{{ url_prefix }}/docs/anomaly-detection"
+               class="nav-leaf{% if page=='anomaly-detection' %} active{% endif %}">⚠️ Anomaly Detection</a>
 
             <div class="nav-section">Administration</div>
-            <a href="{{ url_prefix }}/docs/configuration"   {% if page=='configuration' %}class="active"{% endif %}>Configuration</a>
-            <a href="{{ url_prefix }}/docs/users"           {% if page=='users' %}class="active"{% endif %}>User Management</a>
-            <a href="{{ url_prefix }}/docs/llm-usage"       {% if page=='llm-usage' %}class="active"{% endif %}>LLM Usage &amp; Cost</a>
-            <a href="{{ url_prefix }}/docs/api"             {% if page=='api' %}class="active"{% endif %}>API Reference</a>
+
+            <!-- Configuration -->
+            <div class="nav-tree{% if page in ['configuration','users'] %} is-open{% endif %}">
+                <div class="nav-tree-hd">
+                    <a href="{{ url_prefix }}/docs/configuration"
+                       class="nav-tree-label{% if page=='configuration' %} active{% endif %}">⚙️ Configuration</a>
+                    <button class="nav-tree-toggle" onclick="toggleNavTree(this)" title="Expand">▶</button>
+                </div>
+                <div class="nav-tree-ch">
+                    <a href="{{ url_prefix }}/docs/configuration#ai-settings" class="nav-child">↳ AI Settings</a>
+                    <a href="{{ url_prefix }}/docs/configuration#ai-usage" class="nav-child">↳ AI Usage</a>
+                    <a href="{{ url_prefix }}/docs/configuration#profiles" class="nav-child">↳ Profiles</a>
+                    <a href="{{ url_prefix }}/docs/configuration#vector-store-config" class="nav-child">↳ Vector Store</a>
+                    <a href="{{ url_prefix }}/docs/configuration#smtp-settings" class="nav-child">↳ Notifications</a>
+                    <a href="{{ url_prefix }}/docs/configuration#users-config" class="nav-child">↳ Users</a>
+                </div>
+            </div>
+
+            <!-- User Management -->
+            <div class="nav-tree{% if page=='users' %} is-open{% endif %}">
+                <div class="nav-tree-hd">
+                    <a href="{{ url_prefix }}/docs/users"
+                       class="nav-tree-label{% if page=='users' %} active{% endif %}">👤 User Management</a>
+                    <button class="nav-tree-toggle" onclick="toggleNavTree(this)" title="Expand">▶</button>
+                </div>
+                <div class="nav-tree-ch">
+                    <a href="{{ url_prefix }}/docs/users#roles" class="nav-child">↳ Roles</a>
+                    <a href="{{ url_prefix }}/docs/users#my-profile" class="nav-child">↳ My Profile</a>
+                </div>
+            </div>
+
+            <a href="{{ url_prefix }}/docs/llm-usage"
+               class="nav-leaf{% if page=='llm-usage' %} active{% endif %}">💰 LLM Usage &amp; Cost</a>
+            <a href="{{ url_prefix }}/docs/api"
+               class="nav-leaf{% if page=='api' %} active{% endif %}">🔌 API Reference</a>
+
+            <div class="nav-section">Debug &amp; Tools</div>
+
+            <!-- Debug & Tools -->
+            <div class="nav-tree{% if page=='tools' %} is-open{% endif %}">
+                <div class="nav-tree-hd">
+                    <a href="{{ url_prefix }}/docs/tools"
+                       class="nav-tree-label{% if page=='tools' %} active{% endif %}">🛠️ Debug &amp; Tools</a>
+                    <button class="nav-tree-toggle" onclick="toggleNavTree(this)" title="Expand">▶</button>
+                </div>
+                <div class="nav-tree-ch">
+                    <a href="{{ url_prefix }}/docs/tools#health" class="nav-child">↳ Health</a>
+                    <a href="{{ url_prefix }}/docs/tools#containers" class="nav-child">↳ Containers</a>
+                    <a href="{{ url_prefix }}/docs/tools#reprocess-all" class="nav-child">↳ Reprocess</a>
+                    <a href="{{ url_prefix }}/docs/tools#reconcile" class="nav-child">↳ Reconcile</a>
+                    <a href="{{ url_prefix }}/docs/tools#live-logs" class="nav-child">↳ Logs</a>
+                </div>
+            </div>
 
             <div class="nav-section">Resources</div>
-            <a href="{{ github_url }}" target="_blank">GitHub / README ↗</a>
-            <a href="{{ github_url }}/issues" target="_blank">Report an Issue ↗</a>
+            <a href="{{ github_url }}" target="_blank" class="nav-leaf">GitHub / README ↗</a>
+            <a href="{{ github_url }}/issues" target="_blank" class="nav-leaf">Report an Issue ↗</a>
         </nav>
     </aside>
 
@@ -765,6 +985,43 @@
         <h1 class="page-title">Debug &amp; Tools</h1>
         <p class="subtitle">Live logs, manual reprocess controls, and diagnostic utilities. Admin access recommended for most operations.</p>
 
+        <h2 id="health">System Health</h2>
+        <p>The <strong>Health</strong> sub-tab shows real-time status of every system component. Each card refreshes every 30 seconds automatically while the tab is open. Click <strong>Refresh</strong> to force an immediate re-check.</p>
+        <table>
+            <tr><th>Component</th><th>What it checks</th></tr>
+            <tr><td><strong>Paperless API</strong></td><td>HTTP connectivity to the Paperless-ngx instance; queries <code>/api/documents/</code> to confirm authentication and reachability.</td></tr>
+            <tr><td><strong>ChromaDB</strong></td><td>Vector store connection; verifies the current project's collection exists and is queryable.</td></tr>
+            <tr><td><strong>LLM</strong></td><td>At least one AI provider key is configured and a test completion call succeeds.</td></tr>
+            <tr><td><strong>Analyzer Loop</strong></td><td>Confirms the background polling thread is alive and ran within the last 5 minutes.</td></tr>
+            <tr><td><strong>PostgreSQL</strong></td><td>Verifies the Paperless database is reachable from inside the analyzer container.</td></tr>
+            <tr><td><strong>Redis</strong></td><td>Checks that the Paperless Redis broker responds to PING.</td></tr>
+        </table>
+        <p>The six colored dots in the dashboard header bar mirror these checks and auto-update every 30 seconds regardless of which tab is open.</p>
+
+        <h2 id="containers">Container Management</h2>
+        <p>The <strong>Containers</strong> sub-tab lists all managed Docker containers — the core analyzer stack plus any provisioned per-project Paperless instances. Requires the Docker socket mounted at <code>/var/run/docker.sock</code>.</p>
+        <ul>
+            <li><strong>Restart</strong> <span class="badge badge-blue">Admin</span> — gracefully restarts the selected container. Use this after code or config changes applied via volume mount (no image rebuild needed).</li>
+            <li><strong>View Logs</strong> — opens a live log drawer showing the last 200 lines from that container. Useful for diagnosing startup failures or integration errors in per-project Paperless instances.</li>
+            <li><strong>Status indicator</strong> — shows <code>running</code>, <code>exited</code>, or <code>restarting</code> with the container uptime.</li>
+        </ul>
+        <p>The container list auto-refreshes every 60 seconds while the Containers sub-tab is visible.</p>
+        <div class="callout callout-warn">
+            <strong>Docker socket required.</strong> If the socket is unavailable, a warning banner is shown and all container controls are disabled. Health and other sub-tabs are not affected.
+        </div>
+
+        <h2 id="reconcile">Reconcile</h2>
+        <p>The <strong>Reconcile</strong> sub-tab compares the analyzer's records against Paperless-ngx and ChromaDB, then reports and fixes discrepancies. It is a safe, read-first operation.</p>
+        <ul>
+            <li>Documents in Paperless that are missing from <code>processed_documents</code> are queued for analysis.</li>
+            <li>Embeddings in ChromaDB for documents that no longer exist in Paperless are removed from the vector store.</li>
+            <li>Orphaned <code>project:slug</code> tags for deleted projects are logged for manual review.</li>
+        </ul>
+        <p>Click <strong>Reconcile Now</strong>. The result panel shows added, removed, and unchanged record counts. Nothing is deleted without first being identified in the report.</p>
+        <div class="callout callout-tip">
+            <strong>When to use:</strong> After a Paperless database restore, after manual DB changes, or when document counts in the Overview tab don't match Paperless.
+        </div>
+
         <h2 id="live-logs">Live Logs</h2>
         <p>The log viewer shows the last 200 log lines from the analyzer process. Click <strong>Refresh Logs</strong> to reload. Logs include:</p>
         <ul>
@@ -1353,5 +1610,198 @@
 
     </main>
 </div>
+
+<!-- ── AI Help Widget ── -->
+<button class="docs-ai-btn" onclick="toggleAiPanel()" title="Ask AI about this manual">💬</button>
+<div id="docs-ai-panel" class="docs-ai-panel hidden">
+    <div class="docs-ai-hd">
+        <span class="docs-ai-hd-title">💬 Ask AI Help</span>
+        <button class="docs-ai-close" onclick="closeAiPanel()" title="Close">✕</button>
+    </div>
+    <div id="docs-ai-msgs" class="docs-ai-msgs"></div>
+    <div class="docs-ai-foot">
+        <textarea id="docs-ai-inp" placeholder="Ask anything about the app…" rows="1"></textarea>
+        <button id="docs-ai-send" onclick="sendAiHelp()">↑</button>
+    </div>
+</div>
+
+<script>
+// ── Tree nav toggle ──────────────────────────────────────────────────────
+function toggleNavTree(btn) {
+    btn.closest('.nav-tree').classList.toggle('is-open');
+}
+
+// ── Search ───────────────────────────────────────────────────────────────
+const _URL_PFX = '{{ url_prefix }}';
+
+const SEARCH_INDEX = [
+    {p:'overview',a:'',t:'Overview',k:'overview introduction features how it works dashboard tabs'},
+    {p:'getting-started',a:'',t:'Quick Start',k:'quick start login upload chat search setup first steps'},
+    {p:'projects',a:'',t:'Projects',k:'project workspace create slug name description color'},
+    {p:'projects',a:'auto-provision',t:'Auto-Provision Paperless',k:'provision paperless docker nginx automated instance'},
+    {p:'projects',a:'connect-instance',t:'Connect Paperless Instance',k:'connect paperless url token api dedicated'},
+    {p:'projects',a:'migrate-documents-new',t:'Migrate Documents',k:'migrate move documents between projects transfer'},
+    {p:'projects',a:'assign-documents',t:'Assign Documents to Project',k:'assign document project tag bulk orphan'},
+    {p:'upload',a:'',t:'Smart Upload',k:'smart upload modes file url cloud link'},
+    {p:'upload',a:'file-upload',t:'File Upload',k:'file upload pdf drag drop browse png jpg docx heic'},
+    {p:'upload',a:'url-upload',t:'URL Upload',k:'url upload https link basic auth bearer token directory scan'},
+    {p:'upload',a:'cloud-links',t:'Cloud Share Links',k:'google drive dropbox onedrive cloud share link transform'},
+    {p:'upload',a:'smart-metadata',t:'Smart Metadata',k:'smart metadata ai title date type project suggestion auto'},
+    {p:'upload',a:'upload-history',t:'Upload History',k:'upload history recent imports view error link paperless'},
+    {p:'court-import',a:'',t:'Court Import',k:'court pacer nyscef federal import case docket recap'},
+    {p:'court-import',a:'court-credentials',t:'Court Credentials',k:'pacer nyscef credentials login wizard setup ai paste'},
+    {p:'court-import',a:'court-wizard',t:'Credentials Wizard',k:'wizard setup step credential test connection'},
+    {p:'court-import',a:'court-federal',t:'Federal Courts (PACER/RECAP)',k:'federal pacer recap courtlistener case api token'},
+    {p:'court-import',a:'court-nyscef',t:'NYSCEF — New York Courts',k:'nyscef new york state court playwright attorney pro se'},
+    {p:'court-import',a:'court-dedup',t:'Deduplication',k:'deduplication duplicate sha256 url hash paperless title'},
+    {p:'court-import',a:'court-import',t:'Running a Court Import',k:'import run docket select filter progress cancel counters'},
+    {p:'court-import',a:'court-history',t:'Court Import History',k:'history past jobs sync again re-import'},
+    {p:'chat',a:'',t:'AI Chat',k:'chat ai question answer rag retrieval session history'},
+    {p:'chat',a:'starting-session',t:'Starting a Chat Session',k:'new session chat start title rename keyboard'},
+    {p:'chat',a:'editing-messages',t:'Edit & Stop Messages',k:'edit message resend stop abort truncate undo'},
+    {p:'chat',a:'compare-mode',t:'Compare LLMs Side-by-Side',k:'compare llm dual openai anthropic tabs side by side toggle'},
+    {p:'chat',a:'sharing-sessions',t:'Share & Export Chat Session',k:'share session export pdf user download'},
+    {p:'chat',a:'document-links',t:'Document Links in Chat',k:'document link clickable paperless reference format'},
+    {p:'search',a:'',t:'Search & Analysis',k:'search semantic vector full text anomaly filter risk score'},
+    {p:'search',a:'search-filters',t:'Search Filters',k:'filter anomaly only risk score min max range'},
+    {p:'anomaly-detection',a:'',t:'Anomaly Detection',k:'anomaly detection balance mismatch duplicate no transactions risk'},
+    {p:'anomaly-detection',a:'anomaly-tags',t:'Anomaly Tags',k:'tags balance mismatch duplicate no transactions forensic aianomaly'},
+    {p:'anomaly-detection',a:'risk-score',t:'Risk Score',k:'risk score 0 100 high medium low forensic composite'},
+    {p:'case-intelligence',a:'',t:'Case Intelligence AI',k:'case intelligence ci director manager worker legal analysis rag'},
+    {p:'case-intelligence',a:'ci-setup',t:'CI Setup',k:'setup role plaintiff defendant neutral jurisdiction goal budget orchestration'},
+    {p:'case-intelligence',a:'ci-clarifying',t:'Clarifying Questions',k:'clarifying questions assumptions proceed skip'},
+    {p:'case-intelligence',a:'ci-findings',t:'CI Findings & Domains',k:'findings entities timeline financial contradictions theories authorities domains'},
+    {p:'case-intelligence',a:'ci-report',t:'Report Builder',k:'report builder pdf download attorney memo chronology financial custom'},
+    {p:'case-intelligence',a:'ci-cost',t:'CI Cost Management',k:'budget cost management checkpoint alert over under track'},
+    {p:'configuration',a:'ai-settings',t:'AI Settings',k:'openai anthropic cohere api key model provider per-project use-case'},
+    {p:'configuration',a:'profiles',t:'Document Profiles',k:'yaml profile document type active staging activate rename delete'},
+    {p:'configuration',a:'vector-store-config',t:'Vector Store Controls',k:'vector store chroma embed reprocess clear unanalyzed stale delete'},
+    {p:'configuration',a:'ai-usage',t:'AI Usage Chart',k:'usage cost tokens chart daily bar hover provider'},
+    {p:'configuration',a:'smtp-settings',t:'SMTP & Notifications',k:'smtp email notification gmail sendgrid case intelligence alert'},
+    {p:'users',a:'',t:'User Management',k:'users admin basic advanced create deactivate password role account'},
+    {p:'users',a:'roles',t:'User Roles & Permissions',k:'role admin advanced basic permissions access control'},
+    {p:'users',a:'my-profile',t:'My Profile',k:'profile password change email name phone timezone social'},
+    {p:'llm-usage',a:'',t:'LLM Usage & Cost',k:'llm usage cost tokens api pricing gpt claude cohere breakdown per-call'},
+    {p:'api',a:'',t:'API Reference',k:'api rest endpoints integration automation scripting curl'},
+    {p:'api',a:'api-chat',t:'Chat API Endpoints',k:'api chat post session messages history share export'},
+    {p:'api',a:'api-upload',t:'Upload API Endpoints',k:'api upload file url submit transform scan history'},
+    {p:'api',a:'api-projects',t:'Projects API Endpoints',k:'api projects create get update delete archive assign'},
+    {p:'tools',a:'health',t:'System Health Checks',k:'health check paperless chromadb llm redis postgres status dots'},
+    {p:'tools',a:'containers',t:'Container Management',k:'docker containers restart logs status socket per-project'},
+    {p:'tools',a:'reprocess-all',t:'Reprocess All Documents',k:'reprocess all documents re-analyze reset state profiles'},
+    {p:'tools',a:'reprocess-single',t:'Reprocess Single Document',k:'reprocess single document id force test profile'},
+    {p:'tools',a:'reconcile',t:'Reconcile DB & Vector Store',k:'reconcile database chromadb sync discrepancy orphan missing'},
+    {p:'tools',a:'live-logs',t:'Live Logs Viewer',k:'logs live viewer color info warning error refresh tail'},
+];
+
+const _PAGE_LABELS = {
+    'overview':'Overview','getting-started':'Quick Start','projects':'Projects',
+    'upload':'Smart Upload','court-import':'Court Import','chat':'AI Chat',
+    'search':'Search & Analysis','anomaly-detection':'Anomaly Detection',
+    'case-intelligence':'Case Intelligence','configuration':'Configuration',
+    'users':'User Management','llm-usage':'LLM Usage','api':'API Reference',
+    'tools':'Debug & Tools',
+};
+
+let _searchTimer = null;
+function docsSearchInput(val) {
+    clearTimeout(_searchTimer);
+    const drop = document.getElementById('docs-search-drop');
+    if (!val.trim()) { drop.style.display='none'; return; }
+    _searchTimer = setTimeout(()=>_runDocsSearch(val.trim()), 130);
+}
+function docsSearchBlur() {
+    setTimeout(()=>{ document.getElementById('docs-search-drop').style.display='none'; }, 220);
+}
+function _runDocsSearch(q) {
+    const lq = q.toLowerCase();
+    const results = SEARCH_INDEX.filter(r =>
+        r.t.toLowerCase().includes(lq) || r.k.toLowerCase().includes(lq)
+    ).slice(0, 8);
+    const drop = document.getElementById('docs-search-drop');
+    if (!results.length) {
+        drop.innerHTML = '<div class="s-no-results">No results for &ldquo;'+q+'&rdquo;</div>';
+        drop.style.display = 'block'; return;
+    }
+    drop.innerHTML = results.map(r => {
+        const href = _URL_PFX+'/docs/'+r.p+(r.a?'#'+r.a:'');
+        const pg = _PAGE_LABELS[r.p]||r.p;
+        return `<a href="${href}"><div class="s-res-title">${r.t}</div><div class="s-res-page">${pg}</div></a>`;
+    }).join('');
+    drop.style.display = 'block';
+}
+
+// ── AI Help widget ────────────────────────────────────────────────────────
+let _aiHistory = [];
+let _aiPanelOpen = false;
+
+function toggleAiPanel() {
+    _aiPanelOpen = !_aiPanelOpen;
+    document.getElementById('docs-ai-panel').classList.toggle('hidden', !_aiPanelOpen);
+    if (_aiPanelOpen) {
+        if (_aiHistory.length === 0) {
+            _appendAiMsg('assistant', 'Hi! Ask me anything about how to use Paperless AI Analyzer.');
+        }
+        document.getElementById('docs-ai-inp').focus();
+    }
+}
+function closeAiPanel() {
+    _aiPanelOpen = false;
+    document.getElementById('docs-ai-panel').classList.add('hidden');
+}
+function _appendAiMsg(role, text) {
+    const msgs = document.getElementById('docs-ai-msgs');
+    const d = document.createElement('div');
+    d.className = 'docs-ai-msg ' + (role==='error' ? 'ai-error' : role);
+    d.textContent = text;
+    msgs.appendChild(d);
+    msgs.scrollTop = msgs.scrollHeight;
+    return d;
+}
+async function sendAiHelp() {
+    const inp = document.getElementById('docs-ai-inp');
+    const q = inp.value.trim();
+    if (!q) return;
+    inp.value = ''; inp.style.height = 'auto';
+    inp.disabled = true;
+    document.getElementById('docs-ai-send').disabled = true;
+    _appendAiMsg('user', q);
+    _aiHistory.push({role:'user', content:q});
+    const typing = _appendAiMsg('assistant', '');
+    typing.innerHTML = '<span class="docs-ai-typing-dot">●</span> <span class="docs-ai-typing-dot" style="animation-delay:.2s">●</span> <span class="docs-ai-typing-dot" style="animation-delay:.4s">●</span>';
+    try {
+        const r = await fetch(_URL_PFX+'/api/docs/ask', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({question:q, history:_aiHistory.slice(-8)}),
+        });
+        const d = await r.json();
+        typing.remove();
+        if (d.answer) {
+            _appendAiMsg('assistant', d.answer);
+            _aiHistory.push({role:'assistant', content:d.answer});
+        } else {
+            _appendAiMsg('error', 'Error: '+(d.error||'No response'));
+        }
+    } catch(e) {
+        typing.remove();
+        _appendAiMsg('error', 'Network error: '+e.message);
+    } finally {
+        inp.disabled = false;
+        document.getElementById('docs-ai-send').disabled = false;
+        inp.focus();
+    }
+}
+document.addEventListener('DOMContentLoaded', function() {
+    const inp = document.getElementById('docs-ai-inp');
+    if (!inp) return;
+    inp.addEventListener('keydown', function(e) {
+        if (e.key==='Enter' && !e.shiftKey) { e.preventDefault(); sendAiHelp(); }
+    });
+    inp.addEventListener('input', function() {
+        this.style.height = 'auto';
+        this.style.height = Math.min(this.scrollHeight, 80)+'px';
+    });
+});
+</script>
 </body>
 </html>
