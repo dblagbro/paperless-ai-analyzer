@@ -583,6 +583,29 @@
             <tr><td><kbd class="kbd">Ctrl+Enter</kbd></td><td>Insert a new line (multi-paragraph messages)</td></tr>
         </table>
 
+        <h2 id="editing-messages">Editing past messages</h2>
+        <p>Hover over any of your own messages to reveal the ✏️ pencil button. Clicking it replaces the message bubble with an editable textarea. You have two options:</p>
+        <ul>
+            <li><strong>↩ Resend</strong> — saves the edited text, removes the old assistant response (and any messages after it), and sends the edited message as a new query. The conversation continues from the edit point.</li>
+            <li><strong>✕ Cancel</strong> — discards the edit and restores the original text.</li>
+        </ul>
+        <p>Edited messages are persisted to the session — if you reload the page or restore the session, the edited text appears (not the original).</p>
+
+        <h2 id="stop-request">Stopping a request</h2>
+        <p>A red <strong>■ Stop</strong> button appears next to the Send button while the AI is generating a response. Click it to abort the request immediately. A "⚠️ Request stopped" notice replaces the typing indicator. The input is re-enabled instantly.</p>
+
+        <h2 id="compare-mode">Dual LLM compare mode</h2>
+        <p>Click the <strong>⚖️</strong> button in the chat input bar to enable compare mode (the button turns purple). In compare mode, each message is sent to <em>both</em> configured LLM providers simultaneously and the responses are displayed side-by-side as tabs.</p>
+        <ul>
+            <li>Tabs are labelled with the provider name (e.g. <strong>🤖 Anthropic</strong> | <strong>🤖 Openai</strong>). Click to switch between them.</li>
+            <li>The <strong>primary provider's</strong> response is saved to the session history so follow-up questions remain coherent.</li>
+            <li>If the secondary provider errors, the tab shows the error message in red.</li>
+            <li>Requires both a primary <em>and</em> a fallback provider to be configured in <strong>⚙️ Configuration → AI Settings</strong>.</li>
+        </ul>
+
+        <h2 id="document-links">Clickable document links</h2>
+        <p>When the AI references a document using the format <code>[Document #NNN]</code>, it is automatically converted to a clickable "View in Paperless" link that opens the document directly in your Paperless instance. The AI is instructed to always use this format, but the linkifier also catches informal variants like <code>Doc 123</code>.</p>
+
         <h2 id="sharing-sessions">Sharing sessions</h2>
         <ol>
             <li>Open a session.</li>

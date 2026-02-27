@@ -249,15 +249,33 @@ def get_messages(session_id: str):
         ).fetchall()
 
 
-def append_message(session_id: str, role: str, content: str):
+def append_message(session_id: str, role: str, content: str) -> int:
     with _get_conn() as conn:
-        conn.execute(
+        cur = conn.execute(
             "INSERT INTO chat_messages (session_id, role, content) VALUES (?, ?, ?)",
             (session_id, role, content)
         )
         conn.execute(
             "UPDATE chat_sessions SET updated_at = datetime('now') WHERE id = ?",
             (session_id,)
+        )
+        return cur.lastrowid
+
+
+def update_message_content(message_id: int, session_id: str, new_content: str) -> None:
+    with _get_conn() as conn:
+        conn.execute(
+            "UPDATE chat_messages SET content = ? WHERE id = ? AND session_id = ?",
+            (new_content, message_id, session_id)
+        )
+
+
+def delete_messages_from(session_id: str, from_message_id: int) -> None:
+    """Delete this message and all subsequent messages in the session."""
+    with _get_conn() as conn:
+        conn.execute(
+            "DELETE FROM chat_messages WHERE session_id = ? AND id >= ?",
+            (session_id, from_message_id)
         )
 
 
