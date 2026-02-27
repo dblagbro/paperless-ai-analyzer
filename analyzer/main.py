@@ -38,6 +38,53 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def _poll_project_loop(slug: str, paperless_client, state_manager,
+                       analyzer_ref, poll_interval: int) -> None:
+    """
+    v3.6.0: Daemon thread target for per-project Paperless polling.
+
+    Mirrors poll_and_analyze() but uses a dedicated PaperlessClient for the
+    project's own Paperless-ngx instance and the project's own StateManager.
+    """
+    logger.info(f"[{slug}] Per-project polling thread started (interval={poll_interval}s)")
+    while True:
+        try:
+            state_stats = state_manager.get_stats()
+            modified_after = state_stats.get('last_seen_modified')
+
+            documents = []
+            page = 1
+            while True:
+                response = paperless_client.get_documents(
+                    ordering='-modified',
+                    page_size=100,
+                    page=page,
+                    modified_after=modified_after
+                )
+                documents.extend(response.get('results', []))
+                if not response.get('next'):
+                    break
+                page += 1
+
+            new_docs = [d for d in documents
+                        if state_manager.should_process_document(d['modified'], d['id'])]
+
+            if new_docs:
+                logger.info(f"[{slug}] {len(new_docs)} new document(s) to analyze")
+                for doc in new_docs:
+                    try:
+                        full_doc = paperless_client.get_document(doc['id'])
+                        analyzer_ref.analyze_document(full_doc)
+                        state_manager.update_last_seen(doc['modified'], {doc['id']})
+                    except Exception as _e:
+                        logger.warning(f"[{slug}] Failed to analyze doc {doc['id']}: {_e}")
+
+        except Exception as e:
+            logger.error(f"[{slug}] Per-project poll error: {e}", exc_info=True)
+
+        time.sleep(poll_interval)
+
+
 class DocumentAnalyzer:
     """Main analyzer orchestrator."""
 
@@ -428,6 +475,50 @@ Format the output as structured text that preserves the layout and relationships
         except Exception as e:
             logger.error(f"Failed to re-analyze project '{project_slug}': {e}", exc_info=True)
 
+    def start_project_pollers(self) -> None:
+        """
+        v3.6.0: Start dedicated polling threads for each project that has its
+        own Paperless-ngx instance configured (paperless_url + token set).
+
+        Projects without per-project config continue to be served by the
+        default poll_and_analyze() loop.
+        """
+        try:
+            projects = self.project_manager.list_projects(include_archived=False)
+        except Exception as e:
+            logger.warning(f"start_project_pollers: could not list projects: {e}")
+            return
+
+        poll_interval = self.config.get('poll_interval_seconds', 30)
+
+        for proj in projects:
+            slug = proj['slug']
+            if slug == 'default':
+                continue  # default project uses the main loop
+
+            cfg = self.project_manager.get_paperless_config(slug)
+            if not cfg.get('url') or not cfg.get('token'):
+                continue  # no dedicated instance configured
+
+            try:
+                pc = PaperlessClient(base_url=cfg['url'], api_token=cfg['token'])
+                state_mgr = StateManager(
+                    state_dir=self.config.get('state_dir', '/app/data'),
+                    project_slug=slug
+                )
+                import threading as _t
+                t = _t.Thread(
+                    target=_poll_project_loop,
+                    args=(slug, pc, state_mgr, self, poll_interval),
+                    daemon=True,
+                    name=f"poller-{slug}"
+                )
+                t.start()
+                logger.info(f"Started polling thread for project '{slug}' "
+                            f"→ {cfg['url']}")
+            except Exception as e:
+                logger.error(f"Failed to start poller for project '{slug}': {e}")
+
     def run_polling_loop(self) -> None:
         """Main polling loop."""
         poll_interval = self.config.get('poll_interval_seconds', 30)
@@ -491,6 +582,9 @@ Format the output as structured text that preserves the layout and relationships
 
         import threading as _threading
         _threading.Thread(target=_auto_fill_gap, daemon=True).start()
+
+        # v3.6.0: Start per-project polling threads for projects with dedicated instances
+        self.start_project_pollers()
 
         while True:
             try:
