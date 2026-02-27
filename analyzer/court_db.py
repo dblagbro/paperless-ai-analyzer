@@ -93,6 +93,16 @@ def init_court_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_cij_proj ON court_import_jobs(project_slug, created_at DESC);
         """)
         conn.commit()
+
+        # v3.5.5 migration: add paperless_task_id column if missing
+        try:
+            conn.execute(
+                "ALTER TABLE court_imported_docs ADD COLUMN paperless_task_id TEXT"
+            )
+            conn.commit()
+        except Exception:
+            pass  # column already exists
+
         logger.info("Court import DB schema ready")
     finally:
         conn.close()
@@ -266,6 +276,7 @@ def log_court_doc(job_id: str, project_slug: str, court_system: str,
                   doc_sequence: str = '', source_url: str = '',
                   sha256_hash: str = '', filename: str = '',
                   paperless_doc_id: int | None = None,
+                  paperless_task_id: str = '',
                   skip_reason: str = '', error_msg: str = '') -> None:
     conn = _get_conn()
     try:
@@ -273,11 +284,12 @@ def log_court_doc(job_id: str, project_slug: str, court_system: str,
             INSERT INTO court_imported_docs
                 (job_id, project_slug, court_system, case_number, doc_sequence,
                  source_url, sha256_hash, filename, paperless_doc_id,
-                 status, skip_reason, error_msg)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 paperless_task_id, status, skip_reason, error_msg)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (job_id, project_slug, court_system, case_number,
               doc_sequence, source_url, sha256_hash, filename,
-              paperless_doc_id, status, skip_reason, error_msg))
+              paperless_doc_id, paperless_task_id or None,
+              status, skip_reason, error_msg))
         conn.commit()
     finally:
         conn.close()
@@ -299,6 +311,21 @@ def url_already_imported(project_slug: str, source_url: str) -> bool:
         conn.close()
 
 
+def get_court_doc_count(project_slug: str) -> int:
+    """Return count of successfully imported court docs for a project."""
+    conn = _get_conn()
+    try:
+        row = conn.execute(
+            "SELECT COUNT(*) FROM court_imported_docs WHERE project_slug = ? AND status = 'imported'",
+            (project_slug,)
+        ).fetchone()
+        return row[0] if row else 0
+    except Exception:
+        return 0
+    finally:
+        conn.close()
+
+
 def hash_already_imported(project_slug: str, sha256_hash: str) -> bool:
     """Tier-2 dedup: check if a doc with this hash was already imported."""
     if not sha256_hash:
@@ -311,5 +338,36 @@ def hash_already_imported(project_slug: str, sha256_hash: str) -> bool:
             LIMIT 1
         """, (project_slug, sha256_hash)).fetchone()
         return row is not None
+    finally:
+        conn.close()
+
+
+def get_pending_ocr_count(project_slug: str) -> int:
+    """Count docs uploaded (task_id recorded) but not yet resolved to a Paperless doc_id."""
+    conn = _get_conn()
+    try:
+        row = conn.execute("""
+            SELECT COUNT(*) FROM court_imported_docs
+            WHERE project_slug = ?
+              AND status = 'imported'
+              AND paperless_task_id IS NOT NULL
+              AND paperless_doc_id IS NULL
+        """, (project_slug,)).fetchone()
+        return row[0] if row else 0
+    except Exception:
+        return 0
+    finally:
+        conn.close()
+
+
+def update_court_doc_task_resolved(task_id: str, doc_id: int) -> None:
+    """Mark a court_imported_doc resolved: store the Paperless doc_id for a given task_id."""
+    conn = _get_conn()
+    try:
+        conn.execute(
+            "UPDATE court_imported_docs SET paperless_doc_id = ? WHERE paperless_task_id = ?",
+            (doc_id, task_id)
+        )
+        conn.commit()
     finally:
         conn.close()

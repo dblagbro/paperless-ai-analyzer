@@ -88,10 +88,18 @@ def _parse_pacer_docket_html(html: str, ecf_base: str) -> 'List[DocketEntry]':
         if not seq and not source_url:
             continue  # Not a real docket row
 
+        # Normalise date to ISO (YYYY-MM-DD) so callers don't have to
+        # know that PACER returns MM/DD/YYYY.
+        try:
+            import datetime as _ddt
+            iso_date = _ddt.datetime.strptime(date_str, '%m/%d/%Y').strftime('%Y-%m-%d')
+        except (ValueError, TypeError):
+            iso_date = date_str  # keep whatever we got
+
         entries.append(DocketEntry(
             seq=seq,
             title=desc[:600],
-            date=date_str,
+            date=iso_date,
             source_url=source_url,
             source='pacer',
             doc_type='pdf',
@@ -496,8 +504,12 @@ class PACERConnector(CourtConnector):
                 }""")
                 logger.info("PACER: submitting docket options form (all dates)")
                 submit_btn.click()
-                page.wait_for_load_state('domcontentloaded', timeout=30000)
-
+                # Use 'load' (all resources) rather than 'domcontentloaded' so
+                # PACER has time to write the full docket HTML before we parse it.
+                try:
+                    page.wait_for_load_state('load', timeout=30000)
+                except Exception:
+                    page.wait_for_load_state('domcontentloaded', timeout=10000)
 
             import re as _re
             m = _re.match(r'(https?://[^/]+)', page.url)
@@ -616,7 +628,10 @@ class PACERConnector(CourtConnector):
                 if btn and btn.is_visible():
                     btn.click()
                     break
-            page.wait_for_load_state('domcontentloaded', timeout=15000)
+            try:
+                page.wait_for_load_state('load', timeout=15000)
+            except Exception:
+                page.wait_for_load_state('domcontentloaded', timeout=10000)
 
             # ── 5. Navigate to docket report ──────────────────────────────────
             if 'DktRpt' not in page.url:
@@ -702,6 +717,11 @@ class PACERConnector(CourtConnector):
         Download a single PACER document to a temp file.
 
         entry.source_url should be a full PACER CM/ECF doc URL.
+
+        PACER serves a fee-receipt HTML confirmation page before delivering
+        the actual PDF.  We handle this by sniffing the first bytes of the
+        response: if HTML is detected we parse the form and POST it to obtain
+        the real PDF.
         """
         if not entry.source_url:
             return None
@@ -712,26 +732,225 @@ class PACERConnector(CourtConnector):
         time.sleep(self._rate_limit)
 
         try:
-            resp = self._session.get(entry.source_url, timeout=60, stream=True)
+            resp = self._session.get(entry.source_url, timeout=60)
             resp.raise_for_status()
 
-            # Check content type — should be PDF
-            content_type = resp.headers.get('Content-Type', '')
-            if 'html' in content_type.lower():
-                # PACER sometimes redirects to a CAPTCHA or fee confirmation page
-                logger.warning(f"PACER returned HTML for seq {entry.seq} — possible fee gate")
-                return None
+            content_type = resp.headers.get('Content-Type', '').lower()
+            content = resp.content  # read into memory so we can sniff
+
+            # Detect HTML by content-type OR magic bytes
+            is_html = 'html' in content_type or content.lstrip()[:15].lower().startswith((b'<!doctype', b'<html'))
+
+            if is_html:
+                # PACER fee-receipt confirmation page requires browser-level
+                # interaction.  Use Playwright to navigate, click the confirmation
+                # button, and capture the PDF response.
+                logger.info(f"PACER: fee-gate HTML for seq {entry.seq} — using Playwright to confirm")
+                pdf_content = self._download_via_playwright(entry.source_url, str(entry.seq))
+                if pdf_content is None:
+                    logger.warning(f"PACER: Playwright download failed for seq {entry.seq}")
+                    return None
+                content = pdf_content
 
             suffix = '.pdf'
             tmp = tempfile.NamedTemporaryFile(
                 delete=False, suffix=suffix,
                 prefix=f"court_pacer_{entry.seq}_"
             )
-            for chunk in resp.iter_content(chunk_size=65536):
-                tmp.write(chunk)
+            tmp.write(content)
             tmp.flush()
             tmp.close()
             return Path(tmp.name)
         except Exception as e:
             logger.error(f"PACER download failed for seq {entry.seq}: {e}")
             return None
+
+    def _download_via_playwright(self, doc_url: str, seq: str) -> Optional[bytes]:
+        """
+        Use Playwright to download a PACER document through the fee-receipt
+        confirmation page that requires browser-level JavaScript.
+
+        PACER flow:
+          1. GET /doc1/<old_id>       → HTML fee-confirmation page (submit button)
+          2. Click "View Document"    → browser navigates to /doc1/<new_id> (HTML wrapper)
+          3. The HTML wrapper embeds  → /cgi-bin/show_temp.pl?file=<random>.pdf (actual PDF)
+
+        Strategy:
+          - Set up a response interceptor to capture the show_temp.pl PDF response.
+          - Navigate to doc URL, click the submit button, wait for page+PDF to load.
+          - Return the captured PDF bytes.  If response.body() fails (timing), fall back
+            to context.request.get(pdf_url) which shares the browser's cookies.
+
+        Returns the raw PDF bytes, or None on failure.
+        """
+        if not _check_playwright():
+            return None
+        from playwright.sync_api import sync_playwright
+
+        pw = sync_playwright().start()
+        browser = pw.chromium.launch(headless=True, args=_STEALTH_ARGS)
+        context = browser.new_context(
+            user_agent=_STEALTH_UA,
+            viewport={'width': 1280, 'height': 900},
+        )
+        context.add_init_script(_STEALTH_SCRIPT)
+
+        # Inject PACER session cookies so the browser is authenticated
+        for ck in self._session.cookies:
+            try:
+                context.add_cookies([{
+                    'name':   ck.name,
+                    'value':  ck.value,
+                    'domain': ck.domain or '.uscourts.gov',
+                    'path':   ck.path or '/',
+                }])
+            except Exception:
+                pass
+
+        pdf_bytes: Optional[bytes] = None
+        page = context.new_page()
+        try:
+            # Intercept responses; capture PDF bytes or URL for fallback download
+            captured_pdf_url: list = []   # [(url, body_or_None), ...]
+
+            def _handle_response(response):
+                ct = response.headers.get('content-type', '').lower()
+                if 'pdf' in ct:
+                    try:
+                        body = response.body()
+                        if body and body[:4] == b'%PDF':
+                            logger.debug(
+                                f"PACER: intercepted PDF response "
+                                f"{len(body)} bytes from {response.url!r}"
+                            )
+                            captured_pdf_url.append((response.url, body))
+                        else:
+                            captured_pdf_url.append((response.url, None))
+                    except Exception:
+                        captured_pdf_url.append((response.url, None))
+
+            page.on('response', _handle_response)
+
+            page.goto(doc_url, wait_until='domcontentloaded', timeout=30000)
+            logger.debug(f"PACER Playwright: loaded {page.url!r} for seq {seq}")
+
+            if 'login' in page.url.lower():
+                logger.warning(
+                    f"PACER: doc URL redirected to login for seq {seq} — session expired"
+                )
+                return None
+
+            # Detect fee-confirmation page: PACER shows an intermediate receipt
+            # page with a single "View Document" submit button before delivering
+            # the actual PDF.
+            submit_btn = None
+            for sel in [
+                'input[value="View Document"]',
+                'input[value*="View"]',
+                'input[value*="view"]',
+                'input[type="submit"]',
+                'button[type="submit"]',
+            ]:
+                el = page.query_selector(sel)
+                if el and el.is_visible():
+                    submit_btn = el
+                    break
+
+            if submit_btn:
+                original_url = page.url
+                logger.info(
+                    f"PACER: clicking submit on fee-confirmation page for seq {seq} "
+                    f"(url={original_url!r})"
+                )
+                submit_btn.click()
+
+                # Wait for navigation to the HTML wrapper page
+                try:
+                    page.wait_for_function(
+                        f"() => window.location.href !== {repr(original_url)}",
+                        timeout=20000,
+                    )
+                except Exception:
+                    page.wait_for_load_state('domcontentloaded', timeout=20000)
+
+                # Wait for the embedded PDF resource to be requested and received
+                try:
+                    page.wait_for_load_state('networkidle', timeout=10000)
+                except Exception:
+                    page.wait_for_timeout(2000)
+
+                new_url = page.url
+                logger.info(f"PACER: page at {new_url!r} for seq {seq}")
+            else:
+                # No fee gate — page may already have embedded PDF
+                logger.debug(f"PACER: no fee-confirmation button on {page.url!r} for seq {seq}")
+                try:
+                    page.wait_for_load_state('networkidle', timeout=5000)
+                except Exception:
+                    pass
+
+            # ── Resolve the PDF ─────────────────────────────────────────────
+            # Priority 1: captured body from response interceptor
+            for pdf_url, body in captured_pdf_url:
+                if body and body[:4] == b'%PDF':
+                    pdf_bytes = body
+                    logger.info(
+                        f"PACER: got {len(pdf_bytes)} PDF bytes "
+                        f"(intercepted) for seq {seq}"
+                    )
+                    break
+
+            # Priority 2: download from captured PDF URL using context.request
+            # (shares browser cookies/session, so PACER temp file is accessible)
+            if not pdf_bytes and captured_pdf_url:
+                for pdf_url, _ in captured_pdf_url:
+                    logger.info(
+                        f"PACER: downloading PDF from {pdf_url!r} "
+                        f"via context.request for seq {seq}"
+                    )
+                    try:
+                        api_resp = context.request.get(pdf_url, timeout=60000)
+                        logger.info(
+                            f"PACER: context.request status={api_resp.status} "
+                            f"ct={api_resp.headers.get('content-type','?')!r} "
+                            f"for seq {seq}"
+                        )
+                        if api_resp.ok:
+                            body = api_resp.body()
+                            if body and body[:4] == b'%PDF':
+                                pdf_bytes = body
+                                logger.info(
+                                    f"PACER: got {len(pdf_bytes)} PDF bytes "
+                                    f"(context.request) for seq {seq}"
+                                )
+                                break
+                            else:
+                                logger.warning(
+                                    f"PACER: context.request body not PDF for seq {seq}: "
+                                    f"{len(body) if body else 0} bytes, "
+                                    f"start={(body[:20] if body else b'')!r}"
+                                )
+                        else:
+                            logger.warning(
+                                f"PACER: context.request returned {api_resp.status} "
+                                f"for {pdf_url!r}, seq {seq}"
+                            )
+                    except Exception as re_err:
+                        logger.warning(
+                            f"PACER: context.request failed for {pdf_url!r}: {re_err}"
+                        )
+
+            if not pdf_bytes:
+                logger.warning(
+                    f"PACER: Playwright found no PDF for seq {seq} "
+                    f"(captured_pdf_url={[u for u,_ in captured_pdf_url]})"
+                )
+
+        except Exception as e:
+            logger.error(f"PACER: Playwright download failed for seq {seq}: {e}")
+        finally:
+            page.close()
+            browser.close()
+            pw.stop()
+
+        return pdf_bytes if pdf_bytes else None

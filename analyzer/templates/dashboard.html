@@ -290,6 +290,7 @@
             display: block;
         }
 
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         @keyframes fadeIn {
             from { opacity: 0; transform: translateY(-10px); }
             to { opacity: 1; transform: translateY(0); }
@@ -1391,12 +1392,13 @@
             <div id="header-health" style="flex-shrink:0; text-align:center;">
                 <div style="color:#aabbcc;font-size:11px;margin-bottom:4px;letter-spacing:.5px;text-transform:uppercase;">Systems</div>
                 <div style="display:flex;gap:6px;align-items:center;justify-content:center;">
-                    <span class="hh-dot hh-loading" data-comp="paperless_api"  title="Paperless API"></span>
-                    <span class="hh-dot hh-loading" data-comp="chromadb"       title="ChromaDB"></span>
-                    <span class="hh-dot hh-loading" data-comp="llm"            title="LLM"></span>
-                    <span class="hh-dot hh-loading" data-comp="analyzer_loop"  title="Analyzer Loop"></span>
-                    <span class="hh-dot hh-loading" data-comp="postgres"       title="PostgreSQL"></span>
-                    <span class="hh-dot hh-loading" data-comp="redis"          title="Redis"></span>
+                    <span class="hh-dot hh-loading" data-comp="paperless_api"       title="Paperless API"></span>
+                    <span class="hh-dot hh-loading" data-comp="chromadb"            title="ChromaDB"></span>
+                    <span class="hh-dot hh-loading" data-comp="llm"                 title="LLM"></span>
+                    <span class="hh-dot hh-loading" data-comp="analyzer_loop"       title="Analyzer Loop"></span>
+                    <span class="hh-dot hh-loading" data-comp="postgres"            title="PostgreSQL"></span>
+                    <span class="hh-dot hh-loading" data-comp="redis"               title="Redis"></span>
+                    <span class="hh-dot hh-loading" data-comp="projects_containers" title="Project Instances"></span>
                 </div>
                 <div id="hh-overall" onclick="switchTab('tools')"
                      style="font-size:10px;color:#aabbcc;margin-top:3px;cursor:pointer;" title="View Health Details">Checking…</div>
@@ -1523,7 +1525,9 @@
                 <div class="tab-help-panel" id="help-overview">
                     <strong>📊 Overview</strong> — At a glance, this tab shows the live status of the analyzer and key stats.
                     <ul style="margin:8px 0 0 0; padding-left:18px;">
-                        <li><strong>Documents Analyzed</strong> — Total documents the AI has processed.</li>
+                        <li><strong>AI Analyzed</strong> — Total documents the AI has processed and embedded in ChromaDB.</li>
+                        <li><strong>Awaiting OCR</strong> — Uploaded to Paperless but OCR not yet complete (resolves automatically).</li>
+                        <li><strong>Awaiting AI</strong> — OCR complete in Paperless but not yet run through AI analysis. Click <strong>🔍 Analyze Missing</strong> in Manage Projects to recover these.</li>
                         <li><strong>Anomalies Detected</strong> — Documents flagged with any anomaly (balance mismatch, layout issues, etc.).</li>
                         <li><strong>High Risk</strong> — Documents with critical or high-severity anomalies requiring review.</li>
                         <li><strong>Recent Activity</strong> — The latest processed documents and their results.</li>
@@ -1538,7 +1542,7 @@
                         <div class="value" id="status">Running</div>
                     </div>
                     <div class="stat-card">
-                        <h3>Documents Analyzed</h3>
+                        <h3>AI Analyzed</h3>
                         <div class="value" id="total-analyzed">0</div>
                     </div>
                     <div class="stat-card">
@@ -1556,6 +1560,18 @@
                     <div class="stat-card">
                         <h3>Embedded (RAG)</h3>
                         <div class="value" id="embedded-docs">0</div>
+                    </div>
+                    <div class="stat-card" id="awaiting-ocr-card" style="display:none;">
+                        <h3>Awaiting OCR</h3>
+                        <div class="value" id="awaiting-ocr-count">0</div>
+                    </div>
+                    <div class="stat-card" id="awaiting-ai-card" style="display:none;">
+                        <h3>Awaiting AI</h3>
+                        <div class="value" id="awaiting-ai-count">0</div>
+                    </div>
+                    <div class="stat-card" id="court-imported-card" style="display:none;">
+                        <h3>Court Imported</h3>
+                        <div class="value" id="court-imported-count">0</div>
                     </div>
                     <div class="stat-card">
                         <h3>Last Update</h3>
@@ -1577,6 +1593,13 @@
                         <li>Use <strong>🗄️ Archive</strong> to hide completed projects without deleting them.</li>
                         <li>The <strong>Current Project</strong> selector in the header controls which project context the AI Chat uses.</li>
                         <li>Deleting a project removes it from the analyzer but does <em>not</em> delete documents from Paperless.</li>
+                        <li><strong>⚙️ Paperless</strong> (v3.6.1) — configure a dedicated Paperless-ngx instance for total document isolation:
+                            <ul style="margin:4px 0 0 0; padding-left:16px;">
+                                <li><strong>Provision</strong> tab — click <strong>⚡ Auto-Provision Now</strong> to fully automate container startup, DB creation, nginx config, and project wiring. New projects trigger this automatically on creation. Manual snippets still available under "Manual Setup (Advanced)".</li>
+                                <li><strong>Connect</strong> tab — save the internal URL, API token, and public base URL. Token is AES-256 encrypted. Use <em>Test Connection</em> to verify before saving.</li>
+                                <li><strong>Migrate</strong> tab — one-click migration of all existing documents from the shared Paperless instance to the new dedicated one. Rewires ChromaDB embeddings, SQLite records, and chat history references.</li>
+                            </ul>
+                        </li>
                     </ul>
                     <div style="margin-top:8px; font-size:12px;"><a href="{{ request.script_root }}/docs/projects" target="_blank" style="color:#5dade2;">📖 Full manual for this section →</a></div>
                 </div>
@@ -1669,6 +1692,158 @@
             </div>
 
             <!-- ── Delete Confirm Modal ──────────────────────────────── -->
+            <!-- ── Configure Paperless Modal (v3.6.0) ─────────────────────────── -->
+            <div id="paperless-modal" onclick="if(event.target===this)closePaperlessModal()"
+                 style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:1050; align-items:flex-start; justify-content:center; overflow-y:auto; padding:40px 16px;">
+                <div style="background:#fff; border-radius:10px; padding:28px; width:100%; max-width:680px; box-shadow:0 8px 30px rgba(0,0,0,.25); position:relative;">
+                    <div style="display:flex; align-items:center; gap:12px; margin-bottom:20px;">
+                        <span style="font-size:22px;">⚙️</span>
+                        <h3 style="margin:0; font-size:18px; color:#111;">Configure Paperless Instance</h3>
+                        <span id="paperless-modal-slug" style="font-family:monospace; font-size:12px; background:#f3f4f6; padding:2px 8px; border-radius:4px; color:#6b7280;"></span>
+                        <button onclick="closePaperlessModal()" style="margin-left:auto; background:none; border:none; font-size:22px; cursor:pointer; color:#9ca3af; line-height:1;">×</button>
+                    </div>
+
+                    <!-- Tab bar -->
+                    <div style="display:flex; border-bottom:2px solid #e5e7eb; margin-bottom:20px; gap:0;">
+                        <button id="pl-tab-provision" onclick="showPaperlessTab('provision')"
+                            style="padding:8px 18px; border:none; border-bottom:2px solid #3b82f6; background:none; cursor:pointer; font-size:14px; font-weight:600; color:#3b82f6; margin-bottom:-2px;">
+                            🚀 Provision
+                        </button>
+                        <button id="pl-tab-connect" onclick="showPaperlessTab('connect')"
+                            style="padding:8px 18px; border:none; border-bottom:2px solid transparent; background:none; cursor:pointer; font-size:14px; font-weight:500; color:#6b7280; margin-bottom:-2px;">
+                            🔌 Connect
+                        </button>
+                        <button id="pl-tab-migrate" onclick="showPaperlessTab('migrate')"
+                            style="padding:8px 18px; border:none; border-bottom:2px solid transparent; background:none; cursor:pointer; font-size:14px; font-weight:500; color:#6b7280; margin-bottom:-2px;">
+                            📦 Migrate
+                        </button>
+                    </div>
+
+                    <!-- Provision tab -->
+                    <div id="pl-pane-provision">
+                        <!-- Auto-provision section -->
+                        <div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:8px; padding:14px 16px; margin-bottom:16px; display:flex; align-items:center; gap:14px;">
+                            <div style="flex:1;">
+                                <div style="font-weight:600; font-size:14px; color:#15803d; margin-bottom:3px;">Auto-Provision (Recommended)</div>
+                                <div style="font-size:12px; color:#166534;">Automatically start containers, create the Postgres DB, configure nginx, and connect this project — no manual steps needed.</div>
+                            </div>
+                            <button id="pl-autoprovision-btn" onclick="triggerReprovision()"
+                                style="padding:9px 18px; background:#16a34a; color:#fff; border:none; border-radius:6px; font-size:14px; font-weight:600; cursor:pointer; white-space:nowrap;">
+                                ⚡ Auto-Provision Now
+                            </button>
+                        </div>
+                        <div id="pl-provision-status" style="display:none; margin-bottom:16px; padding:12px 14px; border-radius:6px; font-size:13px;"></div>
+                        <details>
+                        <summary style="cursor:pointer; font-size:12px; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.05em; user-select:none; margin-bottom:10px;">Manual Setup Snippets (Advanced)</summary>
+                        <p style="font-size:13px; color:#6b7280; margin:0 0 14px 0;">
+                            Copy the snippets below into your <code>docker-compose.yml</code> and <code>nginx.conf</code>, then run the SQL on your Postgres instance.
+                        </p>
+                        <div style="margin-bottom:14px;">
+                            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
+                                <label style="font-size:12px; font-weight:600; color:#374151; text-transform:uppercase; letter-spacing:.05em;">Docker Compose Services</label>
+                                <button onclick="copySnippet('pl-compose-snippet')" style="font-size:11px; padding:3px 10px; border:1px solid #d1d5db; border-radius:4px; background:#f9fafb; cursor:pointer;">📋 Copy</button>
+                            </div>
+                            <pre id="pl-compose-snippet" style="background:#1e1e2e; color:#cdd6f4; border-radius:6px; padding:12px; font-size:11px; overflow-x:auto; margin:0; white-space:pre; max-height:200px;"></pre>
+                        </div>
+                        <div style="margin-bottom:14px;">
+                            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
+                                <label style="font-size:12px; font-weight:600; color:#374151; text-transform:uppercase; letter-spacing:.05em;">Nginx Location Block</label>
+                                <button onclick="copySnippet('pl-nginx-snippet')" style="font-size:11px; padding:3px 10px; border:1px solid #d1d5db; border-radius:4px; background:#f9fafb; cursor:pointer;">📋 Copy</button>
+                            </div>
+                            <pre id="pl-nginx-snippet" style="background:#1e1e2e; color:#cdd6f4; border-radius:6px; padding:12px; font-size:11px; overflow-x:auto; margin:0;"></pre>
+                        </div>
+                        <div style="margin-bottom:14px;">
+                            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
+                                <label style="font-size:12px; font-weight:600; color:#374151; text-transform:uppercase; letter-spacing:.05em;">Postgres SQL</label>
+                                <button onclick="copySnippet('pl-postgres-snippet')" style="font-size:11px; padding:3px 10px; border:1px solid #d1d5db; border-radius:4px; background:#f9fafb; cursor:pointer;">📋 Copy</button>
+                            </div>
+                            <pre id="pl-postgres-snippet" style="background:#1e1e2e; color:#cdd6f4; border-radius:6px; padding:12px; font-size:11px; overflow-x:auto; margin:0;"></pre>
+                        </div>
+                        <div style="background:#f0f9ff; border:1px solid #bae6fd; border-radius:6px; padding:12px 14px; font-size:12px; color:#0369a1; line-height:1.6;">
+                            <strong>Manual Steps:</strong><br>
+                            1. Add the compose snippet to <code>docker-compose.yml</code> and the nginx snippet to your site config.<br>
+                            2. Run: <code>sudo docker compose up -d <span id="pl-web-svc-name"></span> <span id="pl-consumer-svc-name"></span></code><br>
+                            3. Open the public URL, create the admin user, generate an API token.<br>
+                            4. Switch to the <strong>Connect</strong> tab and enter the URL + token.
+                        </div>
+                        </details>
+                    </div>
+
+                    <!-- Connect tab -->
+                    <div id="pl-pane-connect" style="display:none;">
+                        <p style="font-size:13px; color:#6b7280; margin:0 0 16px 0;">
+                            Enter the connection details for this project's dedicated Paperless instance.
+                        </p>
+                        <div style="display:flex; flex-direction:column; gap:14px;">
+                            <div>
+                                <label style="font-size:13px; font-weight:600; color:#374151; display:block; margin-bottom:4px;">Internal Container URL</label>
+                                <input id="pl-url-input" type="text" placeholder="http://paperless-web-{slug}:8000"
+                                    style="width:100%; padding:8px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:13px; box-sizing:border-box;">
+                                <div style="font-size:11px; color:#9ca3af; margin-top:3px;">Docker internal URL — used by this container for API calls</div>
+                            </div>
+                            <div>
+                                <label style="font-size:13px; font-weight:600; color:#374151; display:block; margin-bottom:4px;">API Token</label>
+                                <input id="pl-token-input" type="password" placeholder="Leave blank to keep existing token"
+                                    style="width:100%; padding:8px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:13px; box-sizing:border-box;">
+                                <div style="font-size:11px; color:#9ca3af; margin-top:3px;">Get from Paperless → Admin → Auth Tokens</div>
+                            </div>
+                            <div>
+                                <label style="font-size:13px; font-weight:600; color:#374151; display:block; margin-bottom:4px;">Public Base URL</label>
+                                <input id="pl-base-url-input" type="text" placeholder="https://home.example.com/paperless-{slug}"
+                                    style="width:100%; padding:8px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:13px; box-sizing:border-box;">
+                                <div style="font-size:11px; color:#9ca3af; margin-top:3px;">Public URL shown in "View in Paperless" links (no trailing slash)</div>
+                            </div>
+                        </div>
+                        <div id="pl-connect-status" style="display:none; margin-top:12px; font-size:13px;"></div>
+                        <div style="display:flex; gap:10px; margin-top:20px;">
+                            <button onclick="savePaperlessConfig()"
+                                style="padding:9px 22px; background:#3b82f6; color:#fff; border:none; border-radius:6px; font-size:14px; font-weight:600; cursor:pointer;">
+                                💾 Save
+                            </button>
+                            <button onclick="testPaperlessConnection()"
+                                style="padding:9px 18px; background:#fff; border:1px solid #d1d5db; border-radius:6px; font-size:14px; cursor:pointer; color:#374151;">
+                                🔌 Test Connection
+                            </button>
+                            <button onclick="closePaperlessModal()"
+                                style="padding:9px 16px; background:#fff; border:1px solid #d1d5db; border-radius:6px; font-size:14px; cursor:pointer; color:#374151;">
+                                Cancel
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Migrate tab -->
+                    <div id="pl-pane-migrate" style="display:none;">
+                        <p style="font-size:13px; color:#6b7280; margin:0 0 14px 0;">
+                            Migrate all documents from the <strong>shared</strong> Paperless instance (tagged <code>project:<span class="pl-slug-inline"></span></code>) into this project's own dedicated instance.
+                            ChromaDB embeddings, SQLite records, and chat history references will all be updated.
+                        </p>
+                        <div id="pl-migrate-prereq" style="background:#fef9c3; border:1px solid #fde047; border-radius:6px; padding:10px 14px; font-size:12px; color:#713f12; margin-bottom:14px; display:none;">
+                            ⚠️ You must save a valid connection config on the <strong>Connect</strong> tab before migrating.
+                        </div>
+                        <div id="pl-migrate-status-wrap" style="display:none; margin-bottom:14px;">
+                            <div style="display:flex; align-items:center; gap:10px; margin-bottom:6px;">
+                                <span id="pl-migrate-status-text" style="font-size:13px; font-weight:600; color:#374151;">Migrating…</span>
+                                <span id="pl-migrate-count" style="font-size:12px; color:#6b7280;"></span>
+                            </div>
+                            <div style="background:#e5e7eb; border-radius:4px; height:8px; overflow:hidden;">
+                                <div id="pl-migrate-bar" style="background:#3b82f6; height:100%; width:0%; transition:width .3s;"></div>
+                            </div>
+                        </div>
+                        <div id="pl-migrate-result" style="display:none; font-size:13px; margin-bottom:14px;"></div>
+                        <div style="display:flex; gap:10px;">
+                            <button id="pl-migrate-btn" onclick="startMigration()"
+                                style="padding:9px 22px; background:#f59e0b; color:#fff; border:none; border-radius:6px; font-size:14px; font-weight:600; cursor:pointer;">
+                                📦 Start Migration
+                            </button>
+                            <button onclick="closePaperlessModal()"
+                                style="padding:9px 16px; background:#fff; border:1px solid #d1d5db; border-radius:6px; font-size:14px; cursor:pointer; color:#374151;">
+                                Close
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <div id="del-proj-modal" onclick="if(event.target===this)closeDelProjModal()" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:1000; align-items:center; justify-content:center;">
                 <div style="background:#fff; border-radius:10px; padding:28px; width:100%; max-width:420px; box-shadow:0 8px 30px rgba(0,0,0,.2);">
                     <h3 style="margin:0 0 12px 0; color:#b91c1c;">Delete Project</h3>
@@ -3955,6 +4130,25 @@
                     document.getElementById('embedded-docs').textContent = 'Disabled';
                 }
 
+                // Update awaiting OCR count
+                const awaitingOcr = data.awaiting_ocr || 0;
+                document.getElementById('awaiting-ocr-count').textContent = awaitingOcr;
+                document.getElementById('awaiting-ocr-card').style.display = awaitingOcr > 0 ? '' : 'none';
+
+                // Update awaiting AI count
+                const awaitingAi = data.awaiting_ai || 0;
+                document.getElementById('awaiting-ai-count').textContent = awaitingAi;
+                document.getElementById('awaiting-ai-card').style.display = awaitingAi > 0 ? '' : 'none';
+
+                // Update court imported count
+                const courtCount = data.court_doc_count || 0;
+                if (courtCount > 0) {
+                    document.getElementById('court-imported-count').textContent = courtCount;
+                    document.getElementById('court-imported-card').style.display = '';
+                } else {
+                    document.getElementById('court-imported-card').style.display = 'none';
+                }
+
                 // Format last update time
                 if (data.last_update) {
                     const date = new Date(data.last_update);
@@ -4018,7 +4212,7 @@
                         <div class="${classes.join(' ')}">
                             <div class="title">${analysis.document_title || analysis.title}</div>
                             <div class="meta">
-                                <span>📄 <a href="https://www.voipguru.org/paperless/documents/${analysis.document_id || analysis.doc_id}" target="_blank" style="color: #3498db; text-decoration: none;">Doc #${analysis.document_id || analysis.doc_id}</a></span>
+                                <span>📄 ${(() => { const _did = analysis.document_id || analysis.doc_id; const _lnk = analysis.paperless_link || (_globalPaperlessBase ? `${_globalPaperlessBase}/documents/${_did}/details` : null); return _lnk ? `<a href="${_lnk}" target="_blank" style="color:#3498db;text-decoration:none;">Doc #${_did}</a>` : `<span>Doc #${_did}</span>`; })()}</span>
                                 <span>⚠️ Risk: ${analysis.risk_score}%</span>
                                 ${analysis.profile_matched ? `<span>📋 ${analysis.profile_matched}</span>` : '<span>❓ No profile</span>'}
                                 <span>⏱️ ${new Date(analysis.timestamp).toLocaleString()}</span>
@@ -4097,7 +4291,21 @@
         // ── Manage Projects ───────────────────────────────────────────────
         const PROJ_COLORS = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#06b6d4','#84cc16','#f97316','#64748b'];
         let _projEditSlug = null;   // null = new project, slug string = edit
-        let _projCache = [];        // last fetched project list
+        let _projCache = [];           // last fetched project list
+        let _globalPaperlessBase = ''; // PAPERLESS_PUBLIC_BASE_URL from server
+
+        /**
+         * Build a public Paperless document URL for a given project slug + doc ID.
+         * Uses paperless_doc_base_url from _projCache if available.
+         * Returns null if no base URL is configured for the project.
+         */
+        function _paperlessDocUrl(slug, docId) {
+            if (!docId) return null;
+            const proj = _projCache.find(p => p.slug === slug);
+            // Use per-project URL if configured, else fall back to global base
+            const base = ((proj && proj.paperless_doc_base_url) ? proj.paperless_doc_base_url : _globalPaperlessBase).replace(/\/$/, '');
+            return base ? `${base}/documents/${docId}/details` : null;
+        }
 
         function _renderProjectCard(p) {
             const color    = p.color || '#3b82f6';
@@ -4105,6 +4313,7 @@
             const cardId   = `proj-docs-${p.slug}`;
             return `
             <div style="background:#fff; border:1px solid #e5e7eb; border-left:4px solid ${color}; border-radius:8px; margin-bottom:12px; ${archived ? 'opacity:.6;' : ''}">
+                <div id="provision-banner-${p.slug}" style="display:none; padding:8px 20px; font-size:12px; border-bottom:1px solid; border-radius:8px 8px 0 0;"></div>
                 <div style="padding:18px 20px; display:flex; align-items:center; gap:16px;">
                     <div style="flex:1; min-width:0;">
                         <div style="display:flex; align-items:center; gap:8px; margin-bottom:3px;">
@@ -4112,7 +4321,8 @@
                         </div>
                         <div style="font-size:13px; color:#6b7280; margin-bottom:6px;">${p.description || '<em style="color:#aaa;">No description</em>'}</div>
                         <div style="font-size:12px; color:#9ca3af;">
-                            📄 <strong style="color:#374151;">${p.document_count}</strong> docs &nbsp;·&nbsp;
+                            📄 <strong style="color:#374151;">${p.document_count}</strong> analyzed &nbsp;·&nbsp;
+                            ${p.court_doc_count > 0 ? `🏛️ <strong style="color:#374151;">${p.court_doc_count}</strong> court &nbsp;·&nbsp; ` : ''}
                             💾 ${(p.storage_size_mb||0).toFixed(2)} MB &nbsp;·&nbsp;
                             📅 ${new Date(p.created_at).toLocaleDateString()} &nbsp;·&nbsp;
                             <span style="font-family:monospace; font-size:11px; background:#f3f4f6; padding:1px 6px; border-radius:4px;">${p.slug}</span>
@@ -4128,6 +4338,10 @@
                                 style="padding:6px 11px; border:1px solid #6b7280; border-radius:6px; background:#fff; cursor:pointer; font-size:13px;">📂 Restore</button>`
                             : `<button onclick="toggleArchiveProject('${p.slug}', true)" title="Archive"
                                 style="padding:6px 11px; border:1px solid #d1d5db; border-radius:6px; background:#fff; cursor:pointer; font-size:13px;">🗄️ Archive</button>`}
+                        <button onclick="analyzeProjectMissing('${p.slug}')" title="Scan for unanalyzed docs"
+                            style="padding:6px 11px; border:1px solid #93c5fd; border-radius:6px; background:#fff; cursor:pointer; font-size:13px; color:#1d4ed8;">🔍 Analyze Missing</button>
+                        <button onclick="openPaperlessModal('${p.slug}')" title="Configure Paperless instance"
+                            style="padding:6px 11px; border:1px solid ${p.paperless_configured ? '#bbf7d0' : '#d1d5db'}; border-radius:6px; background:${p.paperless_configured ? '#f0fdf4' : '#fff'}; cursor:pointer; font-size:13px; color:${p.paperless_configured ? '#15803d' : '#374151'};">⚙️ Paperless</button>
                         ${p.slug !== 'default'
                             ? `<button onclick="openDelProjModal('${p.slug}', '${p.name.replace(/'/g,"\\'")}', ${p.document_count})" title="Delete project"
                                 style="padding:6px 11px; border:1px solid #fca5a5; border-radius:6px; background:#fff; cursor:pointer; font-size:13px; color:#dc2626;">🗑️</button>`
@@ -4154,6 +4368,7 @@
                 if (!res.ok) throw new Error('HTTP ' + res.status);
                 const data = await res.json();
                 _projCache = data.projects || [];
+                _globalPaperlessBase = (data.global_paperless_base_url || '').replace(/\/$/, '');
 
                 const active   = _projCache.filter(p => !p.is_archived);
                 const archived = _projCache.filter(p =>  p.is_archived);
@@ -4175,6 +4390,14 @@
                 }
 
                 list.innerHTML = html;
+
+                // Restore card banners for any actively-polling slugs
+                Object.keys(_cardProvisionTimers).forEach(slug => {
+                    apiFetch(apiUrl(`/api/projects/${slug}/provision-status`))
+                        .then(r => r.json())
+                        .then(d => _updateCardBanner(slug, d))
+                        .catch(() => {});
+                });
             } catch (e) {
                 list.innerHTML = `<div style="color:#e74c3c; padding:20px; text-align:center;"><strong>Error loading projects:</strong><br>${e.message}</div>`;
             }
@@ -4281,8 +4504,13 @@
                 const data = await res.json();
                 if (!res.ok) throw new Error(data.error || 'Request failed');
                 closeProjModal();
-                loadProjectsList();
+                await loadProjectsList();
                 loadProjectSelector();
+                // If new project was created, start background card-level provision polling
+                if (!_projEditSlug && data.slug) {
+                    showToast('Project created — provisioning Paperless instance in the background…', 'info', 6000);
+                    _startCardProvisionPoll(data.slug);
+                }
             } catch (e) {
                 errDiv.textContent = e.message;
                 errDiv.style.display = '';
@@ -4303,6 +4531,392 @@
                 loadProjectSelector();
             } catch (e) {
                 alert('Error: ' + e.message);
+            }
+        }
+
+        // ── Analyze Missing ────────────────────────────────────────────
+
+        async function analyzeProjectMissing(slug) {
+            try {
+                const res = await apiFetch(apiUrl(`/api/projects/${slug}/analyze-missing`), {method: 'POST'});
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Request failed');
+                showToast('Scanning for unanalyzed documents… check logs for progress.', 'info');
+            } catch (e) {
+                showToast('Error: ' + e.message, 'error');
+            }
+        }
+
+        // ── Configure Paperless modal (v3.6.0) ────────────────────────────
+
+        let _plCurrentSlug = null;
+        let _migratePollerTimer = null;
+
+        function showPaperlessTab(tab) {
+            ['provision', 'connect', 'migrate'].forEach(t => {
+                document.getElementById('pl-pane-' + t).style.display = t === tab ? 'block' : 'none';
+                const btn = document.getElementById('pl-tab-' + t);
+                btn.style.borderBottomColor = t === tab ? '#3b82f6' : 'transparent';
+                btn.style.color = t === tab ? '#3b82f6' : '#6b7280';
+                btn.style.fontWeight = t === tab ? '600' : '500';
+            });
+        }
+
+        async function openPaperlessModal(slug) {
+            _plCurrentSlug = slug;
+            document.getElementById('paperless-modal-slug').textContent = slug;
+            document.querySelectorAll('.pl-slug-inline').forEach(el => el.textContent = slug);
+            document.getElementById('pl-connect-status').style.display = 'none';
+            showPaperlessTab('provision');
+
+            // Load provision snippets
+            try {
+                const r = await apiFetch(apiUrl(`/api/projects/${slug}/provision-snippets`));
+                const d = await r.json();
+                document.getElementById('pl-compose-snippet').textContent = d.compose || '';
+                document.getElementById('pl-nginx-snippet').textContent = d.nginx || '';
+                document.getElementById('pl-postgres-snippet').textContent = d.postgres_sql || '';
+                document.getElementById('pl-web-svc-name').textContent = d.web_service || '';
+                document.getElementById('pl-consumer-svc-name').textContent = d.consumer_service || '';
+            } catch(e) {
+                document.getElementById('pl-compose-snippet').textContent = 'Error loading snippets: ' + e.message;
+            }
+
+            // Load existing connect config
+            try {
+                const r2 = await apiFetch(apiUrl(`/api/projects/${slug}/paperless-config`));
+                const d2 = await r2.json();
+                document.getElementById('pl-url-input').value = d2.url || '';
+                document.getElementById('pl-token-input').value = '';
+                document.getElementById('pl-token-input').placeholder = d2.token_set ? '(token saved — leave blank to keep)' : 'Paste API token here';
+                document.getElementById('pl-base-url-input').value = d2.doc_base_url || '';
+            } catch(e) { /* ignore */ }
+
+            document.getElementById('paperless-modal').style.display = 'flex';
+
+            // Resume polling if provisioning is in progress
+            try {
+                const rs = await apiFetch(apiUrl(`/api/projects/${slug}/provision-status`));
+                const ds = await rs.json();
+                const st = ds.status || 'idle';
+                if (st === 'running' || st === 'queued') {
+                    _showProvisionStatus('⏳ ' + (ds.phase || 'Provisioning…'), 'running');
+                    const btn = document.getElementById('pl-autoprovision-btn');
+                    if (btn) { btn.disabled = true; btn.textContent = '⏳ Provisioning…'; }
+                    startProvisionPoll(slug, () => { loadProjectsList(); loadProjectSelector(); });
+                } else if (st === 'complete') {
+                    _showProvisionStatus('✅ Provisioned — Paperless is running. <a href="' + (ds.doc_base_url || '#') + '" target="_blank" style="color:inherit;font-weight:600;">Open →</a>', 'success');
+                } else if (st === 'error') {
+                    _showProvisionStatus('❌ Last provision failed: ' + (ds.error || ''), 'error');
+                }
+            } catch(e) { /* ignore */ }
+
+            // Resume migration progress bar if a migration is already running
+            try {
+                const rm = await apiFetch(apiUrl(`/api/projects/${slug}/migration-status`));
+                const dm = await rm.json();
+                if (dm.status === 'running') {
+                    const statusWrap = document.getElementById('pl-migrate-status-wrap');
+                    const resultEl   = document.getElementById('pl-migrate-result');
+                    const btn        = document.getElementById('pl-migrate-btn');
+                    const total    = dm.total || 0;
+                    const migrated = dm.migrated || 0;
+                    const pct      = total > 0 ? Math.round(migrated / total * 100) : 0;
+                    statusWrap.style.display = 'block';
+                    resultEl.style.display = 'none';
+                    btn.disabled = true;
+                    document.getElementById('pl-migrate-bar').style.width = pct + '%';
+                    document.getElementById('pl-migrate-status-text').textContent =
+                        `Migrating… ${migrated}/${total} docs (${pct}%)`;
+                    document.getElementById('pl-migrate-count').textContent = dm.phase || '';
+                    if (!_migratePollerTimer) {
+                        _migratePollerTimer = setInterval(() => _pollMigrationStatus(slug), 2000);
+                    }
+                } else if (dm.status === 'done') {
+                    document.getElementById('pl-migrate-status-wrap').style.display = 'block';
+                    document.getElementById('pl-migrate-bar').style.width = '100%';
+                    document.getElementById('pl-migrate-status-text').textContent = '✅ Migration complete';
+                    const m = dm.migrated || 0, f = dm.failed || 0;
+                    document.getElementById('pl-migrate-count').textContent =
+                        `${m} docs moved${f > 0 ? `, ${f} failed` : ''}`;
+                }
+            } catch(e) { /* ignore */ }
+        }
+
+        function closePaperlessModal() {
+            document.getElementById('paperless-modal').style.display = 'none';
+            if (_migratePollerTimer) { clearInterval(_migratePollerTimer); _migratePollerTimer = null; }
+            if (_provisionPollerTimer) { clearInterval(_provisionPollerTimer); _provisionPollerTimer = null; }
+        }
+
+        // ── Auto-provisioning (v3.6.1) ─────────────────────────────────────────────
+        let _provisionPollerTimer = null;
+        const _cardProvisionTimers = {};  // slug -> intervalId
+
+        // Update the provision-status banner on a project card (outside any modal)
+        function _updateCardBanner(slug, d) {
+            const el = document.getElementById(`provision-banner-${slug}`);
+            if (!el) return;
+            const st = d.status || 'idle';
+            if (st === 'idle') { el.style.display = 'none'; return; }
+            el.style.display = 'block';
+            if (st === 'queued' || st === 'running') {
+                el.style.background = '#fefce8'; el.style.borderColor = '#fde047'; el.style.color = '#92400e';
+                el.innerHTML = `<span style="animation:spin 1s linear infinite;display:inline-block;">⏳</span> Provisioning Paperless instance… <em style="font-weight:500;">${d.phase || ''}</em>`;
+            } else if (st === 'complete') {
+                el.style.background = '#f0fdf4'; el.style.borderColor = '#86efac'; el.style.color = '#15803d';
+                el.innerHTML = `✅ Paperless instance ready — <a href="${d.doc_base_url || '#'}" target="_blank" style="color:inherit;font-weight:600;">Open Paperless →</a>`;
+            } else if (st === 'error') {
+                el.style.background = '#fef2f2'; el.style.borderColor = '#fca5a5'; el.style.color = '#dc2626';
+                el.innerHTML = `❌ Provisioning failed: ${d.error || 'Unknown error'} — <button onclick="openPaperlessModal('${slug}')" style="background:none;border:none;color:inherit;text-decoration:underline;cursor:pointer;font-size:inherit;">Retry in modal</button>`;
+            }
+        }
+
+        function _startCardProvisionPoll(slug) {
+            if (_cardProvisionTimers[slug]) clearInterval(_cardProvisionTimers[slug]);
+            _cardProvisionTimers[slug] = setInterval(async () => {
+                try {
+                    const r = await apiFetch(apiUrl(`/api/projects/${slug}/provision-status`));
+                    const d = await r.json();
+                    _updateCardBanner(slug, d);
+                    const st = d.status || 'idle';
+                    if (st === 'complete' || st === 'error' || st === 'idle') {
+                        clearInterval(_cardProvisionTimers[slug]);
+                        delete _cardProvisionTimers[slug];
+                        if (st === 'complete') {
+                            // Refresh card after short delay so doc counts etc update
+                            setTimeout(() => { loadProjectsList(); loadProjectSelector(); }, 1500);
+                        }
+                    }
+                } catch(e) { /* ignore transient */ }
+            }, 3000);
+        }
+
+        function _showProvisionStatus(msg, type) {
+            const el = document.getElementById('pl-provision-status');
+            if (!el) return;
+            el.style.display = 'block';
+            const colors = {
+                info:    {bg:'#eff6ff', border:'#bfdbfe', text:'#1d4ed8'},
+                success: {bg:'#f0fdf4', border:'#bbf7d0', text:'#15803d'},
+                error:   {bg:'#fef2f2', border:'#fecaca', text:'#dc2626'},
+                running: {bg:'#fefce8', border:'#fef08a', text:'#92400e'},
+            };
+            const c = colors[type] || colors.info;
+            el.style.background = c.bg;
+            el.style.border = `1px solid ${c.border}`;
+            el.style.color = c.text;
+            el.innerHTML = msg;
+        }
+
+        function startProvisionPoll(slug, onComplete) {
+            if (_provisionPollerTimer) clearInterval(_provisionPollerTimer);
+            _provisionPollerTimer = setInterval(async () => {
+                try {
+                    const r = await apiFetch(apiUrl(`/api/projects/${slug}/provision-status`));
+                    const d = await r.json();
+                    const st = d.status || 'idle';
+                    if (st === 'idle') {
+                        clearInterval(_provisionPollerTimer);
+                        _provisionPollerTimer = null;
+                        return;
+                    }
+                    if (st === 'complete') {
+                        clearInterval(_provisionPollerTimer);
+                        _provisionPollerTimer = null;
+                        _showProvisionStatus('✅ Provisioning complete! Paperless instance is ready. <a href="' + (d.doc_base_url || '#') + '" target="_blank" style="color:inherit;font-weight:600;">Open Paperless →</a>', 'success');
+                        const btn = document.getElementById('pl-autoprovision-btn');
+                        if (btn) { btn.disabled = false; btn.textContent = '⚡ Re-Provision'; }
+                        if (onComplete) onComplete(d);
+                    } else if (st === 'error') {
+                        clearInterval(_provisionPollerTimer);
+                        _provisionPollerTimer = null;
+                        _showProvisionStatus('❌ Provisioning failed: ' + (d.error || 'Unknown error'), 'error');
+                        const btn = document.getElementById('pl-autoprovision-btn');
+                        if (btn) { btn.disabled = false; btn.textContent = '⚡ Retry Provision'; }
+                    } else {
+                        _showProvisionStatus('⏳ ' + (d.phase || 'Working…'), 'running');
+                    }
+                } catch(e) { /* ignore transient errors */ }
+            }, 3000);
+        }
+
+        async function triggerReprovision() {
+            const slug = _plCurrentSlug;
+            if (!slug) return;
+            const btn = document.getElementById('pl-autoprovision-btn');
+            if (btn) { btn.disabled = true; btn.textContent = '⏳ Starting…'; }
+            _showProvisionStatus('⏳ Queuing provisioning…', 'running');
+            try {
+                const r = await apiFetch(apiUrl(`/api/projects/${slug}/reprovision`), {method: 'POST'});
+                const d = await r.json();
+                if (!r.ok) throw new Error(d.error || 'Request failed');
+                // Poll inside the modal
+                startProvisionPoll(slug, () => {
+                    loadProjectsList();
+                    loadProjectSelector();
+                });
+                // Also poll on the card (visible after modal close)
+                _startCardProvisionPoll(slug);
+            } catch(e) {
+                _showProvisionStatus('❌ ' + e.message, 'error');
+                if (btn) { btn.disabled = false; btn.textContent = '⚡ Auto-Provision Now'; }
+            }
+        }
+
+        function copySnippet(elemId) {
+            const text = document.getElementById(elemId).textContent;
+            navigator.clipboard.writeText(text).then(() => showToast('Copied to clipboard', 'success', 2000));
+        }
+
+        async function savePaperlessConfig() {
+            const slug = _plCurrentSlug;
+            const url  = document.getElementById('pl-url-input').value.trim();
+            const tok  = document.getElementById('pl-token-input').value.trim();
+            const base = document.getElementById('pl-base-url-input').value.trim();
+            const statusEl = document.getElementById('pl-connect-status');
+            statusEl.style.display = 'block';
+            statusEl.style.color = '#6b7280';
+            statusEl.textContent = 'Saving…';
+            try {
+                const body = { url, doc_base_url: base };
+                if (tok) body.token = tok;
+                const r = await apiFetch(apiUrl(`/api/projects/${slug}/paperless-config`), {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(body)
+                });
+                const d = await r.json();
+                if (!r.ok) throw new Error(d.error || 'Save failed');
+                statusEl.style.color = '#15803d';
+                statusEl.textContent = '✅ Saved! Polling thread will pick up new credentials within 5 minutes.';
+                // Refresh project list so button colour updates
+                loadProjectsList();
+            } catch(e) {
+                statusEl.style.color = '#dc2626';
+                statusEl.textContent = '❌ ' + e.message;
+            }
+        }
+
+        async function testPaperlessConnection() {
+            const url = document.getElementById('pl-url-input').value.trim();
+            const tok = document.getElementById('pl-token-input').value.trim();
+            // token_set: true means a token is already saved server-side — allow testing without re-entering
+            const tokenSaved = document.getElementById('pl-token-input').placeholder.includes('token saved');
+            const statusEl = document.getElementById('pl-connect-status');
+            if (!url || (!tok && !tokenSaved)) {
+                statusEl.style.display = 'block';
+                statusEl.style.color = '#d97706';
+                statusEl.textContent = '⚠️ Enter the URL (and token if not already saved) to test.';
+                return;
+            }
+            statusEl.style.display = 'block';
+            statusEl.style.color = '#6b7280';
+            statusEl.textContent = 'Testing connection…';
+            try {
+                const body = {url};
+                if (tok) body.token = tok;  // only send if user entered a new one; server uses saved token otherwise
+                const r = await apiFetch(apiUrl(`/api/projects/${_plCurrentSlug}/paperless-health-check`), {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(body)
+                });
+                const d = await r.json();
+                if (d.ok) {
+                    statusEl.style.color = '#15803d';
+                    statusEl.textContent = '✅ Connection OK — ' + (d.message || 'Paperless responded');
+                } else {
+                    statusEl.style.color = '#dc2626';
+                    statusEl.textContent = '❌ ' + (d.error || 'Connection failed');
+                }
+            } catch(e) {
+                statusEl.style.color = '#dc2626';
+                statusEl.textContent = '❌ ' + e.message;
+            }
+        }
+
+        async function startMigration() {
+            const slug = _plCurrentSlug;
+            if (!slug) return;
+
+            const btn = document.getElementById('pl-migrate-btn');
+            const statusWrap = document.getElementById('pl-migrate-status-wrap');
+            const resultEl   = document.getElementById('pl-migrate-result');
+            const prereqEl   = document.getElementById('pl-migrate-prereq');
+
+            btn.disabled = true;
+            prereqEl.style.display = 'none';
+            resultEl.style.display = 'none';
+            statusWrap.style.display = 'block';
+            document.getElementById('pl-migrate-status-text').textContent = 'Starting migration…';
+            document.getElementById('pl-migrate-count').textContent = '';
+            document.getElementById('pl-migrate-bar').style.width = '0%';
+
+            try {
+                const r = await apiFetch(apiUrl(`/api/projects/${slug}/migrate-to-own-paperless`), { method: 'POST' });
+                const d = await r.json();
+                if (!r.ok) {
+                    if (r.status === 409) {
+                        document.getElementById('pl-migrate-status-text').textContent = 'Migration already running';
+                    } else if (d.error && d.error.includes('No dedicated')) {
+                        statusWrap.style.display = 'none';
+                        prereqEl.style.display = 'block';
+                        btn.disabled = false;
+                        return;
+                    } else {
+                        throw new Error(d.error || 'Start failed');
+                    }
+                }
+                // Start polling for status
+                _migratePollerTimer = setInterval(() => _pollMigrationStatus(slug), 2000);
+            } catch(e) {
+                statusWrap.style.display = 'none';
+                resultEl.style.display = 'block';
+                resultEl.style.color = '#dc2626';
+                resultEl.textContent = '❌ ' + e.message;
+                btn.disabled = false;
+            }
+        }
+
+        async function _pollMigrationStatus(slug) {
+            try {
+                const r = await apiFetch(apiUrl(`/api/projects/${slug}/migration-status`));
+                const d = await r.json();
+                const statusWrap = document.getElementById('pl-migrate-status-wrap');
+                const resultEl   = document.getElementById('pl-migrate-result');
+                const btn = document.getElementById('pl-migrate-btn');
+
+                const total    = d.total || 0;
+                const migrated = d.migrated || 0;
+                const failed   = d.failed || 0;
+                const pct      = total > 0 ? Math.round(migrated / total * 100) : 0;
+
+                document.getElementById('pl-migrate-bar').style.width = pct + '%';
+                document.getElementById('pl-migrate-status-text').textContent =
+                    d.status === 'done' ? '✅ Migration complete' :
+                    d.status === 'error' ? '❌ Migration failed' :
+                    `Migrating… (${d.phase || ''})`;
+                document.getElementById('pl-migrate-count').textContent =
+                    total > 0 ? `${migrated}/${total} docs${failed > 0 ? `, ${failed} failed` : ''}` : '';
+
+                if (d.status === 'done' || d.status === 'error') {
+                    if (_migratePollerTimer) { clearInterval(_migratePollerTimer); _migratePollerTimer = null; }
+                    btn.disabled = false;
+                    if (d.status === 'done') {
+                        resultEl.style.display = 'block';
+                        resultEl.style.color = '#15803d';
+                        resultEl.textContent =
+                            `✅ Migration complete: ${migrated} document(s) moved to dedicated instance.` +
+                            (failed > 0 ? ` (${failed} failed — check logs)` : '');
+                        loadProjectsList();
+                    } else {
+                        resultEl.style.display = 'block';
+                        resultEl.style.color = '#dc2626';
+                        resultEl.textContent = '❌ ' + (d.error || 'Migration error — check logs');
+                    }
+                }
+            } catch(e) {
+                // Ignore transient errors during polling
             }
         }
 
@@ -4493,6 +5107,8 @@
                                 style="margin-left:4px;font-size:11px;color:#3b82f6;background:none;border:none;cursor:pointer;padding:0;">more</button>` : ''}
                         </td>
                         <td style="padding:6px 8px;white-space:nowrap;">
+                            ${d.paperless_link ? `<a href="${d.paperless_link}" target="_blank" title="Open in Paperless"
+                                style="display:inline-block;padding:3px 7px;border:1px solid #bfdbfe;border-radius:5px;background:#eff6ff;color:#1d4ed8;font-size:12px;text-decoration:none;margin-right:4px;">↗ View</a>` : ''}
                             <button onclick="confirmDeleteDoc('${slug}', ${d.doc_id}, ${_escHtml(JSON.stringify(d.title))})"
                                 style="padding:3px 8px;border:1px solid #fca5a5;border-radius:5px;background:#fff;cursor:pointer;font-size:12px;color:#dc2626;">
                                 🗑️ Delete
@@ -5583,7 +6199,9 @@
                 const rowBg = anomList.length ? '#fff8f8' : (idx % 2 === 0 ? '#fff' : '#f9fafb');
                 return `<tr style="background:${rowBg}; border-bottom:1px solid #e5e7eb;">
                     <td style="padding:7px 8px; white-space:nowrap; font-size:12px; text-align:center;">
-                        <a href="https://www.voipguru.org/paperless/documents/${d.doc_id}" target="_blank" style="color:#3b82f6;text-decoration:none;">#${d.doc_id}</a>
+                        ${d.paperless_link
+                            ? `<a href="${d.paperless_link}" target="_blank" style="color:#3b82f6;text-decoration:none;">#${d.doc_id}</a>`
+                            : `<span style="color:#6b7280;">#${d.doc_id}</span>`}
                     </td>
                     <td style="padding:7px 10px; font-size:13px; word-wrap:break-word; overflow-wrap:break-word;">${_escHtml(d.title || '—')}</td>
                     <td style="padding:7px 8px; white-space:nowrap; font-size:12px; color:#6b7280;">${dateStr}</td>
@@ -6727,6 +7345,22 @@
         // Chat functionality
         let chatHistory = [];
 
+        /**
+         * Replace [Document #NNN] / Document #NNN references in rendered HTML
+         * with clickable "View in Paperless" links for the current project.
+         */
+        function _linkifyDocRefs(html, slug) {
+            // Match [Document #NNN], Document #NNN, doc #NNN (case-insensitive)
+            return html.replace(/(?:\[Document #(\d+)\]|Document #(\d+)|\bdoc(?:ument)? #(\d+))/gi, (match, id1, id2, id3) => {
+                const did = parseInt(id1 || id2 || id3, 10);
+                const url = _paperlessDocUrl(slug, did);
+                if (url) {
+                    return `<a href="${url}" target="_blank" style="color:#1d4ed8;text-decoration:underline;" title="Open Document #${did} in Paperless">${match} ↗</a>`;
+                }
+                return match;
+            });
+        }
+
         function addChatMessage(role, content) {
             const messagesDiv = document.getElementById('chat-messages');
             const messageDiv = document.createElement('div');
@@ -6744,7 +7378,8 @@
                     headerIds: false,
                     mangle: false
                 });
-                bubble.innerHTML = marked.parse(content);
+                const slug = document.getElementById('project-selector')?.value || 'default';
+                bubble.innerHTML = _linkifyDocRefs(marked.parse(content), slug);
             } else {
                 bubble.textContent = content;
             }
@@ -6918,6 +7553,7 @@
                     analyzer_loop: 'Analyzer Loop',
                     postgres: 'PostgreSQL',
                     redis: 'Redis',
+                    projects_containers: 'Project Instances',
                 };
                 container.innerHTML = '';
                 for (const [id, label] of Object.entries(labels)) {
@@ -6959,6 +7595,7 @@
                 const labels = {
                     paperless_api: 'Paperless API', chromadb: 'ChromaDB', llm: 'LLM',
                     analyzer_loop: 'Analyzer Loop', postgres: 'PostgreSQL', redis: 'Redis',
+                    projects_containers: 'Project Instances',
                 };
                 dot.title = `${labels[comp] || comp}: ${result.status} — ${result.detail || ''}`;
             }
@@ -8331,10 +8968,14 @@
                 const did  = ev.paperless_doc_id;
                 const info = did ? (docMap[did] || {}) : {};
                 const titleTxt = info.title || (did ? `Document #${did}` : 'Unspecified document');
+                const _ciSlug = document.getElementById('project-selector')?.value || 'default';
+                const _ciDocUrl = _paperlessDocUrl(_ciSlug, did);
                 const titleEl  = did
-                    ? `<a href="https://www.voipguru.org/paperless/documents/${did}" target="_blank"
-                          style="color:#2980b9; text-decoration:none; font-weight:600;"
-                          title="Open in Paperless">📄 ${escapeHtml(titleTxt)}</a> <span style="color:#aaa; font-size:10px;">#${did}</span>`
+                    ? (_ciDocUrl
+                        ? `<a href="${_ciDocUrl}" target="_blank"
+                              style="color:#2980b9; text-decoration:none; font-weight:600;"
+                              title="Open in Paperless">📄 ${escapeHtml(titleTxt)}</a> <span style="color:#aaa; font-size:10px;">#${did}</span>`
+                        : `<span style="font-weight:600; color:#555;">📄 ${escapeHtml(titleTxt)}</span> <span style="color:#aaa; font-size:10px;">#${did}</span>`)
                     : `<span style="font-weight:600; color:#555;">📄 ${escapeHtml(titleTxt)}</span>`;
                 const summaryEl = info.summary
                     ? `<div style="font-size:10px; color:#777; margin:2px 0 4px 0; font-style:italic;">${escapeHtml(info.summary.substring(0,200))}…</div>`

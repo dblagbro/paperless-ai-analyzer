@@ -470,7 +470,54 @@ class PaperlessClient:
                 return result
 
         except Exception as e:
-            logger.error(f"Failed to upload document: {e}")
+            # Include response body in error for HTTP errors so callers can
+            # see exactly what Paperless rejected (e.g. bad date format, invalid tag)
+            try:
+                body = e.response.text[:400] if hasattr(e, 'response') and e.response is not None else ''
+            except Exception:
+                body = ''
+            logger.error(f"Failed to upload document: {e}{' — response: ' + body if body else ''}")
+            return None
+
+    def upload_document_bytes(self, filename: str, content: bytes,
+                              title: str = None, tag_ids: List[int] = None,
+                              created: str = None) -> Optional[str]:
+        """
+        Upload raw bytes to Paperless-ngx without needing a temp file on disk.
+
+        Returns:
+            Task UUID string (Paperless-ngx v2+) or None on failure.
+        """
+        try:
+            url = f'{self.base_url}/api/documents/post_document/'
+            files = {'document': (filename, content, 'application/octet-stream')}
+            form_data = {}
+            if title:
+                form_data['title'] = title
+            if tag_ids:
+                # multipart form sends repeated fields for multiple values
+                form_data['tags'] = tag_ids
+            if created:
+                form_data['created'] = created
+
+            saved_ct = self.session.headers.pop('Content-Type', None)
+            try:
+                response = self.session.post(url, files=files, data=form_data)
+            finally:
+                if saved_ct is not None:
+                    self.session.headers['Content-Type'] = saved_ct
+
+            response.raise_for_status()
+            result = response.json()
+            # Paperless-ngx v2+ returns a task UUID string
+            if isinstance(result, str):
+                return result
+            if isinstance(result, dict):
+                return result.get('task_id') or result.get('id')
+            return None
+
+        except Exception as e:
+            logger.error(f"Failed to upload document bytes ({filename}): {e}")
             return None
 
     def get_documents_by_tag(self, tag_id: int) -> List[Dict[str, Any]]:
@@ -514,6 +561,78 @@ class PaperlessClient:
         except Exception as e:
             logger.error(f"Failed to get documents by tag: {e}")
             return []
+
+    def resolve_task_to_doc_id(self, task_id: str, timeout: int = 120,
+                               poll_interval: int = 4) -> Optional[int]:
+        """
+        Poll the Paperless tasks API until OCR completes and return the document ID.
+
+        Args:
+            task_id: UUID returned by Paperless post_document upload
+            timeout: Maximum seconds to wait before giving up
+            poll_interval: Seconds between polls
+
+        Returns:
+            int doc ID on SUCCESS, None on FAILURE or timeout
+        """
+        import time
+        url = f'{self.base_url}/api/tasks/'
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                response = self.session.get(url, params={'task_id': task_id})
+                response.raise_for_status()
+                tasks = response.json()
+                if isinstance(tasks, list) and tasks:
+                    task = tasks[0]
+                elif isinstance(tasks, dict) and tasks.get('results'):
+                    task = tasks['results'][0]
+                else:
+                    task = None
+
+                if task:
+                    status = task.get('status', '')
+                    if status == 'SUCCESS':
+                        doc_id = task.get('related_document')
+                        if doc_id is not None:
+                            return int(doc_id)
+                    elif status in ('FAILURE', 'REVOKED'):
+                        logger.warning(f"Paperless task {task_id} failed: {task.get('result')}")
+                        return None
+            except Exception as e:
+                logger.warning(f"resolve_task_to_doc_id poll error: {e}")
+
+            time.sleep(poll_interval)
+
+        logger.warning(f"resolve_task_to_doc_id timed out for task {task_id}")
+        return None
+
+    def get_project_document_count(self, project_slug: str) -> int:
+        """
+        Return the total document count in Paperless tagged with project:<slug>.
+        Uses tags__id__all (the only reliable filter in all Paperless-ngx versions).
+        tags__name is NOT used — it is ignored by some versions and returns all docs.
+
+        Args:
+            project_slug: Project identifier
+
+        Returns:
+            Total document count (0 on error or tag not found)
+        """
+        try:
+            tag_id = self.get_or_create_tag(f"project:{project_slug}")
+            if not tag_id:
+                return 0
+            url = f'{self.base_url}/api/documents/'
+            response = self.session.get(url, params={
+                'tags__id__all': tag_id,
+                'page_size': 1,
+            })
+            response.raise_for_status()
+            return response.json().get('count', 0)
+        except Exception as e:
+            logger.warning(f"get_project_document_count failed for {project_slug}: {e}")
+            return 0
 
     def update_document(self, document_id: int, data: Dict[str, Any]) -> bool:
         """
