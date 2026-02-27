@@ -4,6 +4,26 @@ All notable changes to Paperless AI Analyzer are documented here.
 
 ---
 
+## v3.6.2 — 2026-02-27
+
+### Added
+- **Chat message editing** — hover over any user message to reveal a ✏️ pencil button; click to edit the message in-place with a textarea. "↩ Resend" truncates the conversation at that point and regenerates the assistant response.
+- **Stop button** — a red "■ Stop" button appears next to Send while a request is in-flight; clicking it aborts the request via AbortController and shows "⚠️ Request stopped."
+- **Dual LLM comparison** — ⚖️ toggle button in the chat input bar enables compare mode. Sends the query to both configured LLM providers in parallel; results shown as tabbed Anthropic / OpenAI panels side-by-side. Primary response is saved to session history for conversation continuity.
+- **Court import log drawer** — each row in the Court Import History table now has a 📋 button that expands an inline log drawer showing duration, error message (if any), and the last 15 log lines from `job_log_json`.
+- **Upload history improvements** — added "Link" column with 🔗 View links to Paperless for successfully uploaded documents; failed imports show ❌ with error tooltip on hover; filenames linked to `original_url` when available.
+
+### Changed
+- **AI document references** — system prompt now formats document lists as `[Document #NNN]` and explicitly instructs the AI to use this format for all references, enabling consistent click-to-open links.
+- **Linkify regex expanded** — `_linkifyDocRefs` now also catches `Doc NNN` and `Doc. #NNN` fallback patterns in addition to the canonical `[Document #NNN]` format.
+- **`append_message()`** — now returns the `lastrowid` of the inserted message so the frontend can attach edit buttons to user bubbles.
+- **`api_chat_session_get`** — messages now include `id` field so the edit endpoint can be targeted correctly after session restore.
+
+### Fixed
+- Removed test projects (playwright-test, banner-test, banner-test2, court-import-test): containers stopped/removed, Postgres DBs dropped, nginx confs deleted, host data dirs removed, DB records deleted.
+
+---
+
 ## v3.6.1 — 2026-02-27
 
 ### Added

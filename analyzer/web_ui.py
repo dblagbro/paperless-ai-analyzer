@@ -142,6 +142,7 @@ from analyzer.db import (
     init_db, get_user_by_username, get_user_by_id, update_last_login,
     get_sessions, get_all_sessions_by_user, create_session, get_session,
     get_messages, append_message, update_session_title, delete_session,
+    update_message_content, delete_messages_from,
     share_session, unshare_session, get_session_shares, can_access_session,
     list_users, create_user as db_create_user, update_user as db_update_user,
     log_import, get_import_history,
@@ -227,15 +228,12 @@ def _ci_can_write(run) -> bool:
 def inject_user():
     is_admin = current_user.is_authenticated and current_user.is_admin
     is_advanced = current_user.is_authenticated and current_user.role in ('advanced', 'admin')
-    import os
-    ci_enabled = os.environ.get('CASE_INTELLIGENCE_ENABLED', 'false').lower() == 'true'
-    court_import_enabled = os.environ.get('COURT_IMPORT_ENABLED', 'false').lower() == 'true'
     return {
         'current_user': current_user,
         'is_admin': is_admin,
         'is_advanced': is_advanced,
-        'CI_ENABLED': ci_enabled,
-        'COURT_IMPORT_ENABLED': court_import_enabled,
+        'CI_ENABLED': True,
+        'COURT_IMPORT_ENABLED': True,
     }
 
 
@@ -1364,7 +1362,7 @@ Recent Analyses:
             doc_title = analysis.get('document_title', 'Unknown')
             anomalies = analysis.get('anomalies_found', [])
             risk = analysis.get('risk_score', 0)
-            context += f"\n- Doc {doc_id}: {doc_title}"
+            context += f"\n- [Document #{doc_id}]: {doc_title}"
             if anomalies:
                 context += f" | Anomalies: {', '.join(anomalies)}"
             context += f" | Risk: {risk}%"
@@ -1431,7 +1429,7 @@ Current Statistics (for available documents):
                 # Get content - vector store uses 'content', fallback uses 'ai_analysis'
                 content = analysis.get('content', analysis.get('ai_analysis', ''))
 
-                system_prompt += f"\n\n--- Document {doc_id} ---"
+                system_prompt += f"\n\n--- [Document #{doc_id}] ---"
                 system_prompt += f"\nTitle: {doc_title}"
                 system_prompt += f"\nRisk Score: {risk}%"
                 if anomalies:
@@ -1457,6 +1455,8 @@ CRITICAL - NEVER HALLUCINATE DATA:
 - Only report numbers and facts that are EXPLICITLY stated in the document content provided above.
 - If content is still empty or very short after enrichment, say: "This document's content could not be extracted even with Vision AI. I cannot analyze specific figures without the source file being accessible."
 - Do NOT claim you lack access to PDFs — Vision AI has already been applied where needed.
+
+DOCUMENT REFERENCES: When mentioning any document, ALWAYS use the exact format [Document #NNN] where NNN is the document ID. This enables clickable links. Never write "Doc NNN" without the brackets and #.
 
 IMPORTANT INSTRUCTIONS:
 When users ask for summaries or "all documents":
@@ -1629,7 +1629,7 @@ Only include a docs link when it is genuinely relevant to the user's question.""
         logger.info(f"Chat query: {user_message[:100]}")
 
         # Persist messages to the session
-        append_message(session_id, 'user', user_message)
+        user_msg_id = append_message(session_id, 'user', user_message)
         append_message(session_id, 'assistant', ai_response)
 
         # Auto-title: set from first user message if still 'New Chat'
@@ -1643,10 +1643,132 @@ Only include a docs link when it is genuinely relevant to the user's question.""
             'response': ai_response,
             'success': True,
             'session_id': session_id,
+            'user_message_id': user_msg_id,
         })
 
     except Exception as e:
         logger.error(f"Chat error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/chat/compare', methods=['POST'])
+@login_required
+def api_chat_compare():
+    """Call both configured LLM providers in parallel and return both responses."""
+    try:
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        data = request.json or {}
+        user_message = data.get('message', '').strip()
+        if not user_message:
+            return jsonify({'error': 'Message required'}), 400
+
+        # Resolve session
+        session_id = data.get('session_id') or None
+        if session_id:
+            sess = get_session(session_id)
+            if not sess or not can_access_session(session_id, current_user.id):
+                session_id = None
+        if not session_id:
+            session_id = create_session(current_user.id, title='New Chat')
+
+        # Build provider list (same logic as api_chat)
+        project_slug = session.get('current_project', 'default')
+        chat_cfg = get_project_ai_config(project_slug, 'chat')
+        _full_cfg = load_ai_config()
+
+        def _global_key(pname):
+            return _full_cfg.get('global', {}).get(pname, {}).get('api_key', '').strip()
+
+        providers = []
+        prov = chat_cfg.get('provider', 'openai')
+        pkey = (chat_cfg.get('api_key') or '').strip() or _global_key(prov)
+        if pkey:
+            providers.append({'name': prov, 'api_key': pkey,
+                              'model': chat_cfg.get('model', 'gpt-4o')})
+        fb_prov = chat_cfg.get('fallback_provider')
+        fb_model = chat_cfg.get('fallback_model')
+        if fb_prov and fb_model and fb_prov != prov:
+            fb_key = _global_key(fb_prov)
+            if fb_key:
+                providers.append({'name': fb_prov, 'api_key': fb_key, 'model': fb_model})
+
+        if len(providers) < 2:
+            return jsonify({'error': 'Two configured AI providers are required for compare mode. Please add both a primary and a fallback provider in AI Configuration.'}), 400
+
+        # Build messages list (last 10 from history)
+        history = data.get('history', [])
+        messages = [{'role': m['role'], 'content': m['content']}
+                    for m in history[-10:] if m.get('role') in ('user', 'assistant')]
+        messages.append({'role': 'user', 'content': user_message})
+
+        # Build system prompt (reuse simple version without full RAG for speed)
+        system_prompt = "You are an AI assistant helping analyze documents. Answer helpfully and accurately. When mentioning any document, ALWAYS use the format [Document #NNN] to enable clickable links."
+
+        def _call_provider(pconf):
+            name = pconf['name']
+            key = pconf['api_key']
+            model = pconf['model']
+            try:
+                if name == 'openai':
+                    import openai as _oai
+                    client = _oai.OpenAI(api_key=key)
+                    resp = client.chat.completions.create(
+                        model=model,
+                        messages=[{"role": "system", "content": system_prompt}] + messages,
+                        max_tokens=4096
+                    )
+                    return name, resp.choices[0].message.content, None
+                elif name == 'anthropic':
+                    import anthropic as _ant
+                    client = _ant.Anthropic(api_key=key)
+                    resp = client.messages.create(
+                        model=model, max_tokens=4096,
+                        system=system_prompt, messages=messages
+                    )
+                    return name, resp.content[0].text, None
+                else:
+                    return name, None, f"Unsupported provider: {name}"
+            except Exception as e:
+                return name, None, str(e)
+
+        results = {}
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futs = {executor.submit(_call_provider, p): p['name'] for p in providers[:2]}
+            for fut in as_completed(futs):
+                name, text, err = fut.result()
+                results[name] = {'text': text, 'error': err}
+
+        primary = providers[0]
+        secondary = providers[1]
+        prim_name = primary['name']
+        sec_name = secondary['name']
+        prim_result = results.get(prim_name, {})
+        sec_result = results.get(sec_name, {})
+
+        primary_response = prim_result.get('text') or f"Error: {prim_result.get('error', 'No response')}"
+        secondary_response = sec_result.get('text') or f"Error: {sec_result.get('error', 'No response')}"
+        secondary_error = bool(sec_result.get('error'))
+
+        # Save primary response to DB for conversation continuity
+        user_msg_id = append_message(session_id, 'user', user_message)
+        append_message(session_id, 'assistant', primary_response)
+
+        # Auto-title
+        cur_sess = get_session(session_id)
+        if cur_sess and cur_sess['title'] == 'New Chat':
+            update_session_title(session_id, user_message[:60].strip())
+
+        return jsonify({
+            'primary_provider': prim_name.capitalize(),
+            'primary_response': primary_response,
+            'secondary_provider': sec_name.capitalize(),
+            'secondary_response': secondary_response,
+            'secondary_error': secondary_error,
+            'session_id': session_id,
+            'user_message_id': user_msg_id,
+        })
+    except Exception as e:
+        logger.error(f"Compare chat error: {e}")
         return jsonify({'error': str(e)}), 500
 
 
@@ -2488,7 +2610,7 @@ def api_logs():
         logs.append(f"Last run: {state_stats.get('last_run', 'Never')}")
         logs.append(f"Documents processed: {state_stats.get('total_documents_processed', 0)}")
         logs.append(f"Active profiles: {len(app.profile_loader.profiles)}")
-        logs.append(f"LLM enabled: {os.environ.get('LLM_ENABLED', 'false')}")
+        logs.append(f"LLM enabled: {os.environ.get('LLM_ENABLED', 'true')}")
         logs.append("")
 
         # Get logs from in-memory buffer
@@ -2716,7 +2838,7 @@ def api_change_password():
 def api_llm_status():
     """Get LLM configuration status."""
     import os
-    enabled = os.environ.get('LLM_ENABLED', 'false').lower() == 'true'
+    enabled = os.environ.get('LLM_ENABLED', 'true').lower() == 'true'
     provider = os.environ.get('LLM_PROVIDER', 'anthropic')
     has_key = bool(os.environ.get('LLM_API_KEY'))
 
@@ -5766,15 +5888,25 @@ def _check_chromadb():
 
 
 def _check_llm():
-    """Check LLM configuration (env vars only — no live API call)."""
-    enabled = os.environ.get('LLM_ENABLED', 'false').lower() == 'true'
-    provider = os.environ.get('LLM_PROVIDER', 'anthropic')
-    has_key = bool(os.environ.get('LLM_API_KEY'))
-    if not enabled:
-        return {'status': 'warning', 'latency_ms': 0, 'detail': 'LLM not enabled'}
-    if not has_key:
-        return {'status': 'error', 'latency_ms': 0, 'detail': f'{provider}: no API key configured'}
-    return {'status': 'ok', 'latency_ms': 0, 'detail': f'{provider} configured'}
+    """Check LLM configuration — reads stored AI config to report all providers."""
+    try:
+        cfg = load_ai_config()
+        global_keys = cfg.get('global', {})
+        configured = [p for p, v in global_keys.items() if v.get('api_key', '').strip()]
+    except Exception:
+        configured = []
+
+    # Fallback: also honour env-var key in case config file is missing
+    env_provider = os.environ.get('LLM_PROVIDER', 'anthropic')
+    env_key = os.environ.get('LLM_API_KEY', '').strip()
+    if env_key and env_provider not in configured:
+        configured.append(env_provider)
+
+    if not configured:
+        return {'status': 'error', 'latency_ms': 0, 'detail': 'No AI provider keys configured'}
+
+    detail = ', '.join(f'{p} ✓' for p in configured)
+    return {'status': 'ok', 'latency_ms': 0, 'detail': detail}
 
 
 def _check_analyzer_loop():
@@ -6072,7 +6204,7 @@ def api_chat_session_get(session_id):
                 'user_id': session['user_id'],
                 'is_owner': session['user_id'] == current_user.id,
             },
-            'messages': [{'role': m['role'], 'content': m['content'], 'created_at': m['created_at']} for m in msgs],
+            'messages': [{'id': m['id'], 'role': m['role'], 'content': m['content'], 'created_at': m['created_at']} for m in msgs],
             'shared_with': [{'id': s['id'], 'username': s['username']} for s in shares],
         })
     except Exception as e:
@@ -6115,6 +6247,28 @@ def api_chat_session_rename(session_id):
         return jsonify({'success': True, 'title': title})
     except Exception as e:
         logger.error(f"Rename session error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/chat/sessions/<session_id>/messages/<int:message_id>/edit', methods=['PATCH'])
+@login_required
+def api_chat_message_edit(session_id, message_id):
+    """Edit a user message and delete subsequent messages so the conversation can be resent."""
+    try:
+        sess = get_session(session_id)
+        if not sess:
+            return jsonify({'error': 'Session not found'}), 404
+        if not can_access_session(session_id, current_user.id):
+            return jsonify({'error': 'Access denied'}), 403
+        data = request.json or {}
+        new_content = data.get('content', '').strip()
+        if not new_content:
+            return jsonify({'error': 'Content required'}), 400
+        update_message_content(message_id, session_id, new_content)
+        delete_messages_from(session_id, message_id + 1)
+        return jsonify({'ok': True})
+    except Exception as e:
+        logger.error(f"Edit message error: {e}")
         return jsonify({'error': str(e)}), 500
 
 
@@ -7464,13 +7618,7 @@ def _build_ci_llm_clients() -> dict:
 # =============================================================================
 
 def _court_gate():
-    """
-    Check Court Import feature flag. Returns (True, None) if allowed,
-    or (False, response) if the request should be rejected.
-    """
-    import os as _os
-    if _os.environ.get('COURT_IMPORT_ENABLED', 'false').lower() != 'true':
-        return False, (jsonify({'error': 'Court Document Importer is not enabled'}), 404)
+    """Always returns (True, None) — Court Import is always enabled."""
     return True, None
 
 
@@ -8154,8 +8302,15 @@ def court_import_history():
     project_slug = request.args.get('project_slug', 'default')
     limit = int(request.args.get('limit', 20))
     try:
+        import json as _json
         from analyzer.court_db import get_import_history
         jobs = get_import_history(project_slug, limit=limit)
+        for job in jobs:
+            raw = job.pop('job_log_json', '[]') or '[]'
+            try:
+                job['log_tail'] = _json.loads(raw)[-15:]
+            except Exception:
+                job['log_tail'] = []
         return jsonify({'jobs': jobs})
     except Exception as e:
         return jsonify({'error': str(e)}), 500

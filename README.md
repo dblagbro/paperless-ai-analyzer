@@ -10,6 +10,28 @@ Advanced AI-powered anomaly detection and risk analysis microservice for [Paperl
 
 ---
 
+## What's New in v3.6.2
+
+### Chat Editing, Dual LLM, Log Details — and All Features Now Built-In
+
+v3.6.2 adds quality-of-life improvements to AI Chat and import history, and removes all feature-flag gates so every feature works out of the box.
+
+**AI Chat improvements:**
+- **Edit past messages** — hover any user message to reveal a ✏️ pencil; click to edit the text in-place. "↩ Resend" discards the old assistant response and regenerates from the edited message.
+- **Stop button** — a red ■ Stop button appears while a request is in-flight. Clicking it aborts immediately via `AbortController`.
+- **Dual LLM compare ⚖️** — toggle compare mode to send the same question to both configured providers simultaneously. Results appear as tabbed panels (e.g. Anthropic | OpenAI) side-by-side. The primary response is saved to session history for continuity.
+- **Clickable document links** — the system prompt now instructs the AI to always write `[Document #NNN]` so every document reference becomes a clickable "View in Paperless" link. The linkifier also catches fallback formats like `Doc 123`.
+
+**Import history improvements:**
+- **Court import log drawer** — click 📋 on any past import job to expand an inline log showing duration and the last 15 log lines.
+- **Upload history "Link" column** — successfully uploaded files now show a 🔗 View link directly to Paperless. Failed imports show ❌ with an error tooltip on hover. Filenames link to the source URL when available.
+
+**All features now standard (no env-var gating):**
+- `COURT_IMPORT_ENABLED` and `CASE_INTELLIGENCE_ENABLED` flags removed — both features are always on.
+- `LLM_ENABLED` now defaults to `true` — LLM runs automatically when an API key is present.
+
+---
+
 ## What's New in v3.6.1
 
 ### Fully Automated Per-Project Paperless Provisioning
@@ -329,7 +351,7 @@ After that, log in at the dashboard URL. Additional users can be created via the
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `LLM_ENABLED` | `false` | Set `"true"` to enable AI-assisted analysis |
+| `LLM_ENABLED` | `true` | Set `"false"` to disable AI-assisted analysis entirely |
 | `LLM_PROVIDER` | `anthropic` | `anthropic` or `openai` |
 | `LLM_API_KEY` | — | Your Anthropic (`sk-ant-...`) or OpenAI (`sk-...`) API key |
 | `LLM_MODEL` | *(auto)* | Override the model, e.g. `claude-sonnet-4-5-20250929` or `gpt-4o` |

@@ -258,7 +258,8 @@ def get_import_history(project_slug: str, limit: int = 20) -> List[Dict[str, Any
         rows = conn.execute("""
             SELECT id, court_system, case_number, case_title, status,
                    total_docs, imported_docs, skipped_docs, failed_docs,
-                   created_at, started_at, completed_at, error_message
+                   created_at, started_at, completed_at, error_message,
+                   job_log_json
             FROM court_import_jobs
             WHERE project_slug = ?
             ORDER BY created_at DESC
