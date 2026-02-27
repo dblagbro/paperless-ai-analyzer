@@ -1520,7 +1520,7 @@ def load_config() -> Dict[str, Any]:
         'profiles_dir': os.getenv('PROFILES_DIR', '/app/profiles'),
         # NOTE: archive_path, balance_tolerance, forensics_dpi no longer needed
         # Deterministic checks and forensics handled by paperless-anomaly-detector
-        'llm_enabled': os.getenv('LLM_ENABLED', 'false').lower() == 'true',
+        'llm_enabled': os.getenv('LLM_ENABLED', 'true').lower() == 'true',
         'llm_provider': os.getenv('LLM_PROVIDER', 'anthropic'),
         'llm_api_key': os.getenv('LLM_API_KEY'),
         'llm_model': os.getenv('LLM_MODEL'),

@@ -735,6 +735,83 @@
             cursor: not-allowed;
         }
 
+        .chat-stop-btn {
+            padding: 10px 18px;
+            background: #dc2626;
+            color: white;
+            border: none;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: background 0.2s;
+        }
+
+        .chat-stop-btn:hover { background: #b91c1c; }
+
+        .compare-toggle-btn {
+            padding: 8px 14px;
+            background: #f3f4f6;
+            color: #374151;
+            border: 1px solid #d1d5db;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: all 0.2s;
+        }
+
+        .compare-toggle-btn.active-compare {
+            background: #7c3aed;
+            color: #fff;
+            border-color: #7c3aed;
+        }
+
+        .msg-edit-btn {
+            opacity: 0;
+            transition: opacity 0.15s;
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 13px;
+            color: #6b7280;
+            padding: 2px 4px;
+            margin-left: 4px;
+            border-radius: 4px;
+        }
+
+        .chat-message:hover .msg-edit-btn { opacity: 0.6; }
+        .msg-edit-btn:hover { opacity: 1 !important; background: #f3f4f6; }
+
+        .msg-edit-area {
+            width: 100%;
+            padding: 6px 8px;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            font-size: 13px;
+            font-family: inherit;
+            resize: vertical;
+            min-height: 60px;
+            box-sizing: border-box;
+            margin-bottom: 6px;
+        }
+
+        .compare-message .ctab {
+            padding: 5px 14px;
+            background: #f9fafb;
+            border: 1px solid #e5e7eb;
+            border-bottom: none;
+            border-radius: 6px 6px 0 0;
+            cursor: pointer;
+            font-size: 12px;
+            color: #6b7280;
+        }
+
+        .compare-message .ctab.active {
+            background: #fff;
+            color: #1d4ed8;
+            font-weight: 600;
+        }
+
         .typing-indicator {
             display: flex;
             gap: 4px;
@@ -2268,8 +2345,11 @@
                     <ul style="margin:8px 0 0 0; padding-left:18px;">
                         <li>The AI has access to all analyzed documents in the <strong>Current Project</strong> selected in the header.</li>
                         <li>Ask things like: <em>"Are there any documents with balance mismatches?"</em> or <em>"Summarize documents from March 2024."</em></li>
-                        <li>Use <strong>+ New Chat</strong> to start a fresh conversation.</li>
-                        <li>Chat sessions can be <strong>shared</strong> with other users using the share button above the chat.</li>
+                        <li><strong>Edit messages</strong> — hover a user bubble to reveal ✏️; click to edit and resend. Old responses are discarded and regenerated.</li>
+                        <li><strong>Stop</strong> — click the red <strong>■ Stop</strong> button (appears while waiting) to abort the current request.</li>
+                        <li><strong>Compare ⚖️</strong> — toggle compare mode to send the same query to both configured LLM providers; results appear in side-by-side tabs. Requires a fallback provider configured in AI Settings.</li>
+                        <li>Document references like <code>[Document #NNN]</code> are clickable links to Paperless.</li>
+                        <li>Use <strong>+ New Chat</strong> to start a fresh conversation. Sessions can be <strong>shared</strong> with other users.</li>
                         <li>Requires an AI API key — configure one under <strong>⚙️ Configuration → AI Settings</strong>.</li>
                     </ul>
                     <div style="margin-top:8px; font-size:12px;"><a href="{{ request.script_root }}/docs/chat" target="_blank" style="color:#5dade2;">📖 Full manual for this section →</a></div>
@@ -2339,6 +2419,8 @@
                                 </div>
                                 <div class="chat-input-container">
                                     <textarea class="chat-input" id="chat-input" rows="1" placeholder="Ask me anything about your documents… (Enter to send, Ctrl+Enter for new line)" onkeydown="handleChatKeypress(event)"></textarea>
+                                    <button class="compare-toggle-btn" id="compare-toggle-btn" onclick="toggleCompareMode()" title="Compare both LLMs side-by-side">⚖️</button>
+                                    <button class="chat-stop-btn" id="chat-stop-btn" onclick="stopChatRequest()" style="display:none;">■ Stop</button>
                                     <button class="chat-send-btn" id="chat-send-btn" onclick="sendChatMessage()">Send</button>
                                 </div>
                             </div>
@@ -5562,16 +5644,38 @@
                     file: '#6366f1', url: '#0284c7',
                     google_drive: '#16a34a', dropbox: '#2563eb', onedrive: '#0ea5e9'
                 };
+                const slug = document.getElementById('project-selector')?.value || 'default';
                 const rows_html = rows.map(r => {
                     const color = badgeColors[r.source] || '#6b7280';
                     const badge = `<span style="background:${color}; color:#fff; padding:2px 8px; border-radius:12px; font-size:11px; font-weight:600;">${(r.source || 'unknown').replace('_', '\u00a0')}</span>`;
-                    const statusIcon = r.status === 'uploaded' ? '✅' : '❌';
                     const ts = r.created_at ? r.created_at.replace('T', ' ').slice(0, 16) : '';
+                    // Filename cell — link if original_url present
+                    const fname = r.filename || r.original_url || '—';
+                    const fnameCell = r.original_url
+                        ? `<a href="${escapeHtml(r.original_url)}" target="_blank" title="${escapeHtml(r.original_url)}" style="color:#2563eb; text-decoration:none; font-size:13px;">${escapeHtml(fname)}</a>`
+                        : `<span style="font-size:13px;">${escapeHtml(fname)}</span>`;
+                    // Status cell — tooltip on error
+                    let statusCell;
+                    if (r.status === 'uploaded') {
+                        statusCell = '✅ uploaded';
+                    } else {
+                        const errTip = r.error_msg ? ` title="${escapeHtml(r.error_msg)}"` : '';
+                        statusCell = `<span${errTip} style="cursor:${r.error_msg ? 'help' : 'default'}; color:#dc2626;">❌ ${escapeHtml(r.status || 'error')}</span>`;
+                    }
+                    // Paperless link cell
+                    let linkCell = '—';
+                    if (r.paperless_doc_id) {
+                        const docUrl = _paperlessDocUrl(slug, r.paperless_doc_id);
+                        linkCell = docUrl
+                            ? `<a href="${docUrl}" target="_blank" style="color:#2563eb; text-decoration:none;" title="View in Paperless">🔗 View</a>`
+                            : `<span style="color:#9ca3af;">Doc #${r.paperless_doc_id}</span>`;
+                    }
                     return `<tr style="border-top:1px solid #f3f4f6;">
-                        <td style="padding:8px 12px; font-size:13px; max-width:300px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${r.filename || r.original_url || '—'}</td>
+                        <td style="padding:8px 12px; max-width:280px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${fnameCell}</td>
                         <td style="padding:8px 12px;">${badge}</td>
                         <td style="padding:8px 12px; font-size:12px; color:#6b7280; white-space:nowrap;">${ts}</td>
-                        <td style="padding:8px 12px; font-size:13px;">${statusIcon} ${r.status}</td>
+                        <td style="padding:8px 12px; font-size:13px;">${statusCell}</td>
+                        <td style="padding:8px 12px; font-size:13px;">${linkCell}</td>
                     </tr>`;
                 }).join('');
                 body.innerHTML = `<table style="width:100%; border-collapse:collapse;">
@@ -5580,6 +5684,7 @@
                         <th style="padding:8px 12px; text-align:left; font-size:12px; color:#6b7280; font-weight:600;">Source</th>
                         <th style="padding:8px 12px; text-align:left; font-size:12px; color:#6b7280; font-weight:600;">Uploaded</th>
                         <th style="padding:8px 12px; text-align:left; font-size:12px; color:#6b7280; font-weight:600;">Status</th>
+                        <th style="padding:8px 12px; text-align:left; font-size:12px; color:#6b7280; font-weight:600;">Link</th>
                     </tr></thead>
                     <tbody>${rows_html}</tbody>
                 </table>`;
@@ -7032,7 +7137,7 @@
                 const messagesDiv = document.getElementById('chat-messages');
                 messagesDiv.innerHTML = '';
                 data.messages.forEach(m => {
-                    addChatMessage(m.role, m.content);
+                    addChatMessage(m.role, m.content, m.role === 'user' ? m.id : null);
                     chatHistory.push({role: m.role, content: m.content});
                 });
 
@@ -7344,15 +7449,17 @@
 
         // Chat functionality
         let chatHistory = [];
+        let _chatAbortController = null;
+        let _compareMode = false;
 
         /**
          * Replace [Document #NNN] / Document #NNN references in rendered HTML
          * with clickable "View in Paperless" links for the current project.
          */
         function _linkifyDocRefs(html, slug) {
-            // Match [Document #NNN], Document #NNN, doc #NNN (case-insensitive)
-            return html.replace(/(?:\[Document #(\d+)\]|Document #(\d+)|\bdoc(?:ument)? #(\d+))/gi, (match, id1, id2, id3) => {
-                const did = parseInt(id1 || id2 || id3, 10);
+            // Match [Document #NNN], Document #NNN, [Doc #NNN], doc #NNN, Doc NNN (case-insensitive)
+            return html.replace(/(?:\[Document #(\d+)\]|\[Doc #(\d+)\]|Document #(\d+)|Doc\.?\s+#?(\d+)(?=\b)|\bdoc(?:ument)? #(\d+))/gi, (match, id1, id2, id3, id4, id5) => {
+                const did = parseInt(id1 || id2 || id3 || id4 || id5, 10);
                 const url = _paperlessDocUrl(slug, did);
                 if (url) {
                     return `<a href="${url}" target="_blank" style="color:#1d4ed8;text-decoration:underline;" title="Open Document #${did} in Paperless">${match} ↗</a>`;
@@ -7361,10 +7468,11 @@
             });
         }
 
-        function addChatMessage(role, content) {
+        function addChatMessage(role, content, messageId = null) {
             const messagesDiv = document.getElementById('chat-messages');
             const messageDiv = document.createElement('div');
             messageDiv.className = `chat-message ${role}`;
+            if (messageId) messageDiv.dataset.msgId = messageId;
 
             const bubble = document.createElement('div');
             bubble.className = 'message-bubble';
@@ -7382,6 +7490,15 @@
                 bubble.innerHTML = _linkifyDocRefs(marked.parse(content), slug);
             } else {
                 bubble.textContent = content;
+                // Add pencil edit button for user messages with a tracked ID
+                if (role === 'user' && messageId) {
+                    const editBtn = document.createElement('button');
+                    editBtn.className = 'msg-edit-btn';
+                    editBtn.title = 'Edit and resend';
+                    editBtn.textContent = '✏️';
+                    editBtn.onclick = () => startEditMessage(messageId);
+                    bubble.appendChild(editBtn);
+                }
             }
 
             messageDiv.appendChild(bubble);
@@ -7391,6 +7508,153 @@
             messagesDiv.scrollTop = messagesDiv.scrollHeight;
 
             chatHistory.push({role, content});
+        }
+
+        function startEditMessage(messageId) {
+            const msgDiv = document.querySelector(`[data-msg-id="${messageId}"]`);
+            if (!msgDiv) return;
+            const bubble = msgDiv.querySelector('.message-bubble');
+            const originalText = chatHistory.find((_, i) => {
+                // Find matching user message by walking DOM order
+                const allUserDivs = [...document.querySelectorAll('.chat-message.user[data-msg-id]')];
+                const idx = allUserDivs.findIndex(d => d.dataset.msgId == messageId);
+                // Map to chatHistory: count user messages before this one
+                if (idx < 0) return false;
+                let userCount = 0;
+                for (let ci = 0; ci < chatHistory.length; ci++) {
+                    if (chatHistory[ci].role === 'user') {
+                        if (userCount === idx) return ci === i;
+                        userCount++;
+                    }
+                }
+                return false;
+            })?.content || bubble.textContent.replace('✏️', '').trim();
+
+            bubble.innerHTML = '';
+            const ta = document.createElement('textarea');
+            ta.className = 'msg-edit-area';
+            ta.value = originalText;
+            const resendBtn = document.createElement('button');
+            resendBtn.style.cssText = 'padding:4px 12px; background:#3498db; color:#fff; border:none; border-radius:4px; cursor:pointer; font-size:12px; margin-right:6px;';
+            resendBtn.textContent = '↩ Resend';
+            resendBtn.onclick = () => confirmEditMessage(messageId, ta.value.trim());
+            const cancelBtn = document.createElement('button');
+            cancelBtn.style.cssText = 'padding:4px 10px; background:#f3f4f6; color:#374151; border:1px solid #d1d5db; border-radius:4px; cursor:pointer; font-size:12px;';
+            cancelBtn.textContent = '✕ Cancel';
+            cancelBtn.onclick = () => {
+                bubble.textContent = originalText;
+                const editBtn = document.createElement('button');
+                editBtn.className = 'msg-edit-btn';
+                editBtn.title = 'Edit and resend';
+                editBtn.textContent = '✏️';
+                editBtn.onclick = () => startEditMessage(messageId);
+                bubble.appendChild(editBtn);
+            };
+            bubble.appendChild(ta);
+            const btnRow = document.createElement('div');
+            btnRow.style.marginTop = '4px';
+            btnRow.appendChild(resendBtn);
+            btnRow.appendChild(cancelBtn);
+            bubble.appendChild(btnRow);
+            ta.focus();
+        }
+
+        async function confirmEditMessage(messageId, newText) {
+            if (!newText || !currentSessionId) return;
+            try {
+                await apiFetch(apiUrl(`/api/chat/sessions/${currentSessionId}/messages/${messageId}/edit`), {
+                    method: 'PATCH',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({content: newText})
+                });
+            } catch (_) { /* non-fatal — UI still truncates */ }
+
+            // Remove all message divs at or after the edited user message
+            const messagesDiv = document.getElementById('chat-messages');
+            const allMsgDivs = [...messagesDiv.querySelectorAll('.chat-message')];
+            const editedIdx = allMsgDivs.findIndex(d => d.dataset.msgId == messageId);
+            if (editedIdx >= 0) {
+                allMsgDivs.slice(editedIdx).forEach(d => d.remove());
+            }
+
+            // Truncate chatHistory to just before the edited message
+            const userDivsBefore = allMsgDivs.slice(0, editedIdx).filter(d => d.classList.contains('user')).length;
+            let userSeen = 0;
+            let cutIdx = 0;
+            for (let i = 0; i < chatHistory.length; i++) {
+                if (chatHistory[i].role === 'user') {
+                    if (userSeen === userDivsBefore) { cutIdx = i; break; }
+                    userSeen++;
+                }
+            }
+            chatHistory = chatHistory.slice(0, cutIdx);
+
+            // Send the edited text as a new message
+            document.getElementById('chat-input').value = newText;
+            sendChatMessage();
+        }
+
+        function toggleCompareMode() {
+            _compareMode = !_compareMode;
+            const btn = document.getElementById('compare-toggle-btn');
+            if (_compareMode) {
+                btn.classList.add('active-compare');
+                btn.title = 'Compare mode ON — click to disable';
+            } else {
+                btn.classList.remove('active-compare');
+                btn.title = 'Compare both LLMs side-by-side';
+            }
+        }
+
+        function stopChatRequest() {
+            if (_chatAbortController) _chatAbortController.abort();
+            document.getElementById('chat-stop-btn').style.display = 'none';
+            hideTypingIndicator();
+            const msgDiv = document.createElement('div');
+            msgDiv.className = 'chat-message assistant';
+            msgDiv.innerHTML = '<div class="message-bubble" style="color:#d97706;">⚠️ Request stopped.</div>';
+            document.getElementById('chat-messages').appendChild(msgDiv);
+            const input = document.getElementById('chat-input');
+            const sendBtn = document.getElementById('chat-send-btn');
+            input.disabled = false;
+            sendBtn.disabled = false;
+            input.focus();
+        }
+
+        function addCompareMessage(primaryProv, primaryResp, secProv, secResp, secError) {
+            const messagesDiv = document.getElementById('chat-messages');
+            const slug = document.getElementById('project-selector')?.value || 'default';
+            const renderMd = (txt) => {
+                if (typeof marked === 'undefined') return escapeHtml(txt);
+                marked.setOptions({breaks: true, gfm: true, headerIds: false, mangle: false});
+                return _linkifyDocRefs(marked.parse(txt), slug);
+            };
+            const secHtml = secError
+                ? `<div style="color:#dc2626; font-size:13px;">⚠️ ${escapeHtml(secResp)}</div>`
+                : renderMd(secResp);
+            const uid = 'cmp-' + Date.now();
+            const msgDiv = document.createElement('div');
+            msgDiv.className = 'chat-message assistant compare-message';
+            msgDiv.innerHTML = `
+                <div class="message-bubble" style="padding:0;">
+                    <div style="display:flex; gap:0; border-bottom:1px solid #e5e7eb; padding:6px 10px 0;">
+                        <button class="ctab active" onclick="switchCompareTab('${uid}','primary',this)">🤖 ${escapeHtml(primaryProv)}</button>
+                        <button class="ctab" onclick="switchCompareTab('${uid}','secondary',this)">🤖 ${escapeHtml(secProv)}</button>
+                    </div>
+                    <div id="${uid}-primary" class="ctab-pane" style="padding:10px 14px;">${renderMd(primaryResp)}</div>
+                    <div id="${uid}-secondary" class="ctab-pane" style="display:none; padding:10px 14px;">${secHtml}</div>
+                </div>`;
+            messagesDiv.appendChild(msgDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            chatHistory.push({role: 'assistant', content: primaryResp});
+        }
+
+        function switchCompareTab(uid, which, btn) {
+            const box = btn.closest('.compare-message');
+            box.querySelectorAll('.ctab').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            box.querySelectorAll('.ctab-pane').forEach(p => p.style.display = 'none');
+            document.getElementById(`${uid}-${which}`).style.display = '';
         }
 
         function showTypingIndicator() {
@@ -7413,19 +7677,29 @@
         async function sendChatMessage() {
             const input = document.getElementById('chat-input');
             const sendBtn = document.getElementById('chat-send-btn');
+            const stopBtn = document.getElementById('chat-stop-btn');
             const documentTypeFilter = document.getElementById('document-type-filter');
             const message = input.value.trim();
 
             if (!message) return;
 
-            // Add user message
+            // If compare mode is active, delegate to compare handler
+            if (_compareMode) {
+                await sendCompareMessage(message);
+                return;
+            }
+
+            // Add user message (no ID yet — will get it from response)
             addChatMessage('user', message);
             input.value = '';
 
             // Disable input while processing
             input.disabled = true;
             sendBtn.disabled = true;
+            stopBtn.style.display = '';
             showTypingIndicator();
+
+            _chatAbortController = new AbortController();
 
             try {
                 const requestBody = {
@@ -7442,7 +7716,8 @@
                 const response = await apiFetch(apiUrl('/api/chat'), {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify(requestBody)
+                    body: JSON.stringify(requestBody),
+                    signal: _chatAbortController.signal,
                 });
 
                 // Detect session expiry: redirected to login page
@@ -7463,6 +7738,23 @@
                 hideTypingIndicator();
 
                 if (data.response) {
+                    // Attach message ID to the last user bubble so it can be edited
+                    if (data.user_message_id) {
+                        const allUserDivs = document.querySelectorAll('.chat-message.user');
+                        const lastUser = allUserDivs[allUserDivs.length - 1];
+                        if (lastUser && !lastUser.dataset.msgId) {
+                            lastUser.dataset.msgId = data.user_message_id;
+                            const bubble = lastUser.querySelector('.message-bubble');
+                            if (bubble) {
+                                const editBtn = document.createElement('button');
+                                editBtn.className = 'msg-edit-btn';
+                                editBtn.title = 'Edit and resend';
+                                editBtn.textContent = '✏️';
+                                editBtn.onclick = () => startEditMessage(data.user_message_id);
+                                bubble.appendChild(editBtn);
+                            }
+                        }
+                    }
                     addChatMessage('assistant', data.response);
                     // Track session and update sidebar
                     if (data.session_id) {
@@ -7479,9 +7771,75 @@
                     addChatMessage('assistant', 'Sorry, I encountered an error: ' + (data.error || 'Unknown error'));
                 }
             } catch (error) {
+                if (error.name === 'AbortError') return; // Stopped by user — stopChatRequest() handles UI
                 hideTypingIndicator();
                 addChatMessage('assistant', 'Sorry, I encountered an error: ' + error.message);
             } finally {
+                stopBtn.style.display = 'none';
+                input.disabled = false;
+                sendBtn.disabled = false;
+                input.focus();
+            }
+        }
+
+        async function sendCompareMessage(message) {
+            const input = document.getElementById('chat-input');
+            const sendBtn = document.getElementById('chat-send-btn');
+            const stopBtn = document.getElementById('chat-stop-btn');
+            const documentTypeFilter = document.getElementById('document-type-filter');
+
+            addChatMessage('user', message);
+            input.value = '';
+            input.disabled = true;
+            sendBtn.disabled = true;
+            stopBtn.style.display = '';
+            showTypingIndicator();
+
+            _chatAbortController = new AbortController();
+
+            try {
+                const requestBody = {
+                    message,
+                    history: chatHistory.slice(-10),
+                    session_id: currentSessionId,
+                };
+                if (documentTypeFilter && documentTypeFilter.value !== 'all') {
+                    requestBody.document_type = documentTypeFilter.value;
+                }
+
+                const response = await apiFetch(apiUrl('/api/chat/compare'), {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(requestBody),
+                    signal: _chatAbortController.signal,
+                });
+
+                hideTypingIndicator();
+                const data = await response.json();
+
+                if (data.primary_response) {
+                    addCompareMessage(
+                        data.primary_provider || 'Primary',
+                        data.primary_response,
+                        data.secondary_provider || 'Secondary',
+                        data.secondary_response || '(no response)',
+                        data.secondary_error || false
+                    );
+                    if (data.session_id) {
+                        const wasNew = !currentSessionId;
+                        currentSessionId = data.session_id;
+                        if (wasNew) document.getElementById('active-session-title').textContent = message.slice(0, 60);
+                        loadSessions();
+                    }
+                } else {
+                    addChatMessage('assistant', 'Compare error: ' + (data.error || 'Unknown error'));
+                }
+            } catch (error) {
+                if (error.name === 'AbortError') return;
+                hideTypingIndicator();
+                addChatMessage('assistant', 'Sorry, I encountered an error: ' + error.message);
+            } finally {
+                stopBtn.style.display = 'none';
                 input.disabled = false;
                 sendBtn.disabled = false;
                 input.focus();
@@ -9777,6 +10135,22 @@
     }
 
     // ── History ──────────────────────────────────────────────────────────────
+    function _fmtDuration(start, end) {
+        if (!start || !end) return null;
+        const s = Math.round((new Date(end) - new Date(start)) / 1000);
+        if (s < 1) return '< 1s';
+        const m = Math.floor(s / 60), ss = s % 60;
+        return m > 0 ? `${m}m ${ss}s` : `${ss}s`;
+    }
+
+    function toggleCourtJobLogs(jobId, btn) {
+        const row = document.getElementById('court-log-' + jobId);
+        if (!row) return;
+        const hidden = row.style.display === 'none' || !row.style.display;
+        row.style.display = hidden ? '' : 'none';
+        btn.textContent = hidden ? '▲' : '📋';
+    }
+
     async function loadCourtHistory() {
         const slug = _courtProjectSlug();
         const el = document.getElementById('court-history-table');
@@ -9787,17 +10161,17 @@
             const jobs = d.jobs || [];
             if (!jobs.length) { el.innerHTML = '<span style="color:#555;">No import jobs yet.</span>'; return; }
             const statusColor = {completed:'#16a34a', failed:'#dc2626', cancelled:'#d97706', running:'#2563eb', queued:'#6b7280'};
-            el.innerHTML = `<table style="width:100%; border-collapse:collapse; font-size:12px;">
-                <thead><tr style="background:#f6f8fa; color:#6b7280; text-transform:uppercase; font-size:11px; text-align:left;">
-                    <th style="padding:6px 8px; border-bottom:1px solid #e5e7eb;">Case</th>
-                    <th style="padding:6px 8px; border-bottom:1px solid #e5e7eb;">System</th>
-                    <th style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;">↑ Skip ✗</th>
-                    <th style="padding:6px 8px; border-bottom:1px solid #e5e7eb;">Date</th>
-                    <th style="padding:6px 8px; border-bottom:1px solid #e5e7eb;">Status</th>
-                    <th style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:center;">Actions</th>
-                </tr></thead>
-                <tbody>
-                ${jobs.map(j=>`<tr style="border-bottom:1px solid #f3f4f6;">
+            const rows = jobs.map(j => {
+                const dur = _fmtDuration(j.started_at, j.completed_at);
+                const logLines = (j.log_tail || []).join('\n');
+                const detailRow = `<tr id="court-log-${j.id}" style="display:none; background:#f9fafb;">
+                    <td colspan="6" style="padding:8px 14px; font-size:12px;">
+                        ${j.error_message ? `<div style="color:#dc2626; margin-bottom:4px;">⚠️ ${escapeHtml(j.error_message)}</div>` : ''}
+                        ${dur ? `<div style="color:#6b7280; margin-bottom:4px;">Duration: ${dur}</div>` : ''}
+                        ${logLines ? `<pre style="margin:0; font-size:11px; color:#374151; white-space:pre-wrap; max-height:200px; overflow-y:auto; background:#f1f5f9; padding:6px 8px; border-radius:4px;">${escapeHtml(logLines)}</pre>` : '<span style="color:#9ca3af;">No log data.</span>'}
+                    </td>
+                </tr>`;
+                const mainRow = `<tr style="border-bottom:1px solid #f3f4f6;">
                     <td style="padding:6px 8px; color:#374151; font-weight:500;" title="${escapeHtml(j.case_title||'')}">
                         ${escapeHtml(j.case_number)}</td>
                     <td style="padding:6px 8px; color:#6b7280;">${escapeHtml(j.court_system)}</td>
@@ -9811,14 +10185,27 @@
                     <td style="padding:6px 8px;">
                         <span style="color:${statusColor[j.status]||'#6b7280'}; font-weight:500;">${escapeHtml(j.status)}</span>
                     </td>
-                    <td style="padding:6px 8px; text-align:center;">
+                    <td style="padding:6px 8px; text-align:center; white-space:nowrap;">
+                        <button style="padding:3px 6px; font-size:11px; background:#f3f4f6; color:#374151; border:1px solid #d1d5db; border-radius:4px; cursor:pointer; margin-right:4px;"
+                            title="Show log" onclick="toggleCourtJobLogs(${j.id}, this)">📋</button>
                         <button style="padding:3px 10px; font-size:11px; background:#f3f4f6; color:#374151; border:1px solid #d1d5db; border-radius:4px; cursor:pointer;"
                             onclick="loadDocket('${escapeHtml(j.court_system)}','${escapeHtml(j.case_number)}','${escapeHtml(j.case_number)}','${escapeHtml((j.case_title||'').replace(/'/g,"\\'"))}')">
                             ↺ Sync Again
                         </button>
                     </td>
-                </tr>`).join('')}
-                </tbody></table>`;
+                </tr>`;
+                return mainRow + detailRow;
+            }).join('');
+            el.innerHTML = `<table style="width:100%; border-collapse:collapse; font-size:12px;">
+                <thead><tr style="background:#f6f8fa; color:#6b7280; text-transform:uppercase; font-size:11px; text-align:left;">
+                    <th style="padding:6px 8px; border-bottom:1px solid #e5e7eb;">Case</th>
+                    <th style="padding:6px 8px; border-bottom:1px solid #e5e7eb;">System</th>
+                    <th style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;">↑ Skip ✗</th>
+                    <th style="padding:6px 8px; border-bottom:1px solid #e5e7eb;">Date</th>
+                    <th style="padding:6px 8px; border-bottom:1px solid #e5e7eb;">Status</th>
+                    <th style="padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:center;">Actions</th>
+                </tr></thead>
+                <tbody>${rows}</tbody></table>`;
         } catch(e) { el.innerHTML = `<span style="color:#e74c3c;">Error: ${escapeHtml(e.message)}</span>`; }
     }
     </script>
