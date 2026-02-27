@@ -4,6 +4,17 @@ All notable changes to Paperless AI Analyzer are documented here.
 
 ---
 
+## v3.6.3 — 2026-02-27
+
+### Fixed
+- **Chat edit button always visible** — ✏️ Edit button is now permanently visible to the left of each user message bubble (no hover required, not hidden behind opacity:0). Works on both current-session messages and restored sessions.
+- **Edit button placement** — moved outside the message bubble as a flex sibling, so it appears cleanly to the left of the blue bubble instead of inside it.
+- **Edit mode visual** — the message bubble switches to a white background with gray border when in edit mode, making the textarea clearly readable instead of sitting on a blue background.
+- **Compare LLMs button label** — button now reads "⚖️ Compare LLMs" (was an unlabelled ⚖️ icon) and shows "⚖️ Comparing — ON" when active, making its purpose obvious.
+- **Edit button after Stop** — stopping a request now immediately attaches a ✏️ Edit button to the stopped message, so you can fix and resend without retyping the whole message.
+
+---
+
 ## v3.6.2 — 2026-02-27
 
 ### Added

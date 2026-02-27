@@ -584,18 +584,18 @@
         </table>
 
         <h2 id="editing-messages">Editing past messages</h2>
-        <p>Hover over any of your own messages to reveal the ✏️ pencil button. Clicking it replaces the message bubble with an editable textarea. You have two options:</p>
+        <p>Each of your own messages has a visible <strong>✏️ Edit</strong> button to its left — no hovering required. Clicking it turns the bubble into an editable textarea (white background). You have two options:</p>
         <ul>
             <li><strong>↩ Resend</strong> — saves the edited text, removes the old assistant response (and any messages after it), and sends the edited message as a new query. The conversation continues from the edit point.</li>
             <li><strong>✕ Cancel</strong> — discards the edit and restores the original text.</li>
         </ul>
-        <p>Edited messages are persisted to the session — if you reload the page or restore the session, the edited text appears (not the original).</p>
+        <p>The Edit button appears on both current-session messages and on messages restored from a saved session. Edited messages are persisted to the session — if you reload the page or restore the session, the edited text appears (not the original).</p>
 
         <h2 id="stop-request">Stopping a request</h2>
-        <p>A red <strong>■ Stop</strong> button appears next to the Send button while the AI is generating a response. Click it to abort the request immediately. A "⚠️ Request stopped" notice replaces the typing indicator. The input is re-enabled instantly.</p>
+        <p>A red <strong>■ Stop</strong> button appears next to the Send button while the AI is generating a response. Click it to abort the request immediately. A "⚠️ Request stopped" notice replaces the typing indicator, the input is re-enabled instantly, and a <strong>✏️ Edit</strong> button is attached to the stopped message so you can fix it and resend without retyping.</p>
 
         <h2 id="compare-mode">Dual LLM compare mode</h2>
-        <p>Click the <strong>⚖️</strong> button in the chat input bar to enable compare mode (the button turns purple). In compare mode, each message is sent to <em>both</em> configured LLM providers simultaneously and the responses are displayed side-by-side as tabs.</p>
+        <p>Click the <strong>⚖️ Compare LLMs</strong> button in the chat input bar to enable compare mode (the button turns purple and reads "⚖️ Comparing — ON"). In compare mode, each message is sent to <em>both</em> configured LLM providers simultaneously and the responses are displayed side-by-side as tabs.</p>
         <ul>
             <li>Tabs are labelled with the provider name (e.g. <strong>🤖 Anthropic</strong> | <strong>🤖 Openai</strong>). Click to switch between them.</li>
             <li>The <strong>primary provider's</strong> response is saved to the session history so follow-up questions remain coherent.</li>

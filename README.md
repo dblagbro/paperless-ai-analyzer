@@ -10,6 +10,20 @@ Advanced AI-powered anomaly detection and risk analysis microservice for [Paperl
 
 ---
 
+## What's New in v3.6.3
+
+### Chat UX Polish
+
+v3.6.3 is a focused UX fix release for the AI Chat features introduced in v3.6.2.
+
+- **Edit button always visible** — ✏️ Edit sits permanently to the left of every user message bubble (no hover required). Works in current sessions and after restoring old sessions.
+- **Edit button placement** — moved outside the message bubble so it's never obscured by the blue background.
+- **Edit mode visual** — the bubble switches to a white background with a gray border while editing, making the textarea clearly readable.
+- **⚖️ Compare LLMs label** — the compare toggle now shows its purpose ("⚖️ Compare LLMs" / "⚖️ Comparing — ON") instead of an unlabelled icon.
+- **Edit after Stop** — clicking Stop now immediately attaches an ✏️ Edit button to the stopped message so you can fix and resend without retyping.
+
+---
+
 ## What's New in v3.6.2
 
 ### Chat Editing, Dual LLM, Log Details — and All Features Now Built-In
@@ -17,7 +31,7 @@ Advanced AI-powered anomaly detection and risk analysis microservice for [Paperl
 v3.6.2 adds quality-of-life improvements to AI Chat and import history, and removes all feature-flag gates so every feature works out of the box.
 
 **AI Chat improvements:**
-- **Edit past messages** — hover any user message to reveal a ✏️ pencil; click to edit the text in-place. "↩ Resend" discards the old assistant response and regenerates from the edited message.
+- **Edit past messages** — each user message has a visible ✏️ Edit button to its left; click to edit in-place. "↩ Resend" discards the old assistant response and regenerates from the edited message.
 - **Stop button** — a red ■ Stop button appears while a request is in-flight. Clicking it aborts immediately via `AbortController`.
 - **Dual LLM compare ⚖️** — toggle compare mode to send the same question to both configured providers simultaneously. Results appear as tabbed panels (e.g. Anthropic | OpenAI) side-by-side. The primary response is saved to session history for continuity.
 - **Clickable document links** — the system prompt now instructs the AI to always write `[Document #NNN]` so every document reference becomes a clickable "View in Paperless" link. The linkifier also catches fallback formats like `Doc 123`.
