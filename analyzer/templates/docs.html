@@ -528,7 +528,7 @@
         </div>
 
         <h2 id="upload-history">Upload history</h2>
-        <p>The lower section of the Upload tab shows your personal upload history (last 20 items). Each row shows the filename, project, upload timestamp, and status. Click the document title to open it in Paperless-ngx.</p>
+        <p>The lower section of the Upload tab shows your personal upload history (last 20 items). Each row shows the filename, source, project, upload timestamp, and status. Successful imports show a <strong>🔗 View</strong> link to open the document directly in Paperless-ngx. Failed imports show <strong>❌</strong> — hover over it to see the error message.</p>
 
         <h2 id="after-upload">What happens after upload</h2>
         <ol>
@@ -1152,7 +1152,7 @@
         <p class="subtitle">Proactive, evidence-grounded legal analysis across all documents in a project — powered by a Director → Manager → Worker LLM orchestrator.</p>
 
         <div class="callout callout-warn">
-            Case Intelligence requires the environment variable <code>CASE_INTELLIGENCE_ENABLED=true</code> to be set in the container, and an <span class="badge badge-patch" style="background:#8e44ad;">Advanced</span> or <span class="badge badge-blue">Admin</span> role.
+            Case Intelligence is always enabled — no environment variable is required. It is available to users with an <span class="badge badge-patch" style="background:#8e44ad;">Advanced</span> or <span class="badge badge-blue">Admin</span> role.
         </div>
 
         <h2 id="ci-what">What is Case Intelligence?</h2>
@@ -1270,7 +1270,7 @@
 
 {% elif page == 'court-import' %}
         <h1 class="page-title">Court Document Importer</h1>
-        <p>Pull entire federal or NYS court case files directly into your Paperless-ngx project library without manual downloading. Requires <code>COURT_IMPORT_ENABLED=true</code> in the container environment.</p>
+        <p>Pull entire federal or NYS court case files directly into your Paperless-ngx project library without manual downloading. Court Import is always enabled — no environment variable configuration is required.</p>
 
         <h2 id="court-overview">Overview</h2>
         <p>The Court Import tab (🏛️) lets you:</p>
@@ -1339,11 +1339,6 @@
 
         <h2 id="court-history">Import history</h2>
         <p>The history table shows all past jobs for the current project: case number, court system, imported/skipped/failed counts, date, and status. Click <strong>↺ Sync Again</strong> to reload the docket for a previous case — already-imported documents will be skipped by the deduplication layer.</p>
-
-        <h2 id="court-env">Environment variables</h2>
-        <ul>
-            <li><code>COURT_IMPORT_ENABLED=true</code> — enables the feature (default: false)</li>
-        </ul>
 
         <h2 id="court-docker">Docker build options</h2>
         <ul>
