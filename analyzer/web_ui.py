@@ -6980,6 +6980,12 @@ def ci_create_run():
             notify_on_complete=notify_on_complete,
             notify_on_budget=notify_on_budget,
         )
+        # Store web research config if provided
+        if 'web_research_config' in data:
+            from analyzer.case_intelligence.db import update_ci_run as _ucr
+            wrc = data['web_research_config']
+            if isinstance(wrc, dict):
+                _ucr(run_id, web_research_config=_json.dumps(wrc))
         return jsonify({'run_id': run_id}), 201
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -7032,6 +7038,9 @@ def ci_update_run(run_id):
             kwargs['jurisdiction_json'] = _json.dumps(data['jurisdiction'])
         if 'objectives' in data:
             kwargs['objectives'] = _json.dumps(data['objectives'])
+        if 'web_research_config' in data:
+            wrc = data['web_research_config']
+            kwargs['web_research_config'] = _json.dumps(wrc) if isinstance(wrc, dict) else wrc
         update_ci_run(run_id, **kwargs)
         return jsonify({'status': 'updated'})
     except Exception as e:
@@ -7270,6 +7279,10 @@ def ci_run_findings(run_id):
                 except Exception:
                     doc_map[did] = {'id': did, 'title': f'Document {did}', 'summary': ''}
 
+        # Fetch web research results
+        from analyzer.case_intelligence.db import get_ci_web_research as _gcwr
+        web_research_raw = _gcwr(run_id)
+
         return jsonify({
             'run_id':           run_id,
             'status':           run['status'],
@@ -7282,6 +7295,7 @@ def ci_run_findings(run_id):
             'disputed_facts':   [dict(f) for f in get_ci_disputed_facts(run_id)],
             'theories':         theories_raw,
             'authorities':      [dict(a) for a in get_ci_authorities(run_id)],
+            'web_research':     web_research_raw,
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500

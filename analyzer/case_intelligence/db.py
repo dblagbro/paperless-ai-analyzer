@@ -221,9 +221,22 @@ def init_ci_db():
                 UNIQUE(run_id, shared_with)
             );
             CREATE INDEX IF NOT EXISTS idx_ci_run_shares_user ON ci_run_shares(shared_with);
+
+            -- Web research results (Phase W)
+            CREATE TABLE IF NOT EXISTS ci_web_research (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id       TEXT NOT NULL REFERENCES ci_runs(id) ON DELETE CASCADE,
+                search_type  TEXT NOT NULL,   -- 'legal_authority' | 'entity_background' | 'general'
+                query        TEXT NOT NULL,
+                source       TEXT NOT NULL,   -- 'courtlistener' | 'caselaw_access' | 'web_search' | etc.
+                results_json TEXT,            -- JSON array of result objects
+                entity_name  TEXT,            -- populated for entity_background searches
+                created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_ci_web_research_run ON ci_web_research(run_id, search_type);
         """)
 
-        # Idempotent migrations — new columns for hierarchical orchestrator
+        # Idempotent migrations — new columns for hierarchical orchestrator + web research
         for col in (
             "director_count INTEGER DEFAULT 1",
             "manager_count INTEGER",
@@ -237,6 +250,8 @@ def init_ci_db():
             "tokens_out INTEGER DEFAULT 0",
             "active_managers INTEGER DEFAULT 0",
             "active_workers INTEGER DEFAULT 0",
+            # Web research config (Phase W)
+            "web_research_config TEXT DEFAULT '{}'",
         ):
             try:
                 conn.execute(f"ALTER TABLE ci_runs ADD COLUMN {col}")
@@ -302,6 +317,8 @@ def update_ci_run(run_id: str, **kwargs):
         'last_budget_checkpoint_pct',
         # Enhanced progress bar columns
         'tokens_in', 'tokens_out', 'active_managers', 'active_workers',
+        # Web research config
+        'web_research_config',
     }
     updates = {k: v for k, v in kwargs.items() if k in allowed}
     if not updates:
@@ -733,4 +750,37 @@ def get_manager_reports(run_id: str) -> List[Dict[str, Any]]:
             "SELECT * FROM ci_manager_reports WHERE run_id = ? ORDER BY id",
             (run_id,)
         ).fetchall()
+        return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# ci_web_research CRUD  (Phase W — web research results)
+# ---------------------------------------------------------------------------
+
+def add_ci_web_research(run_id: str, search_type: str, query: str,
+                         source: str, results_json: str = '[]',
+                         entity_name: str = None) -> int:
+    """Insert a web research result set for a CI run. Returns row id."""
+    with _get_conn() as conn:
+        cur = conn.execute("""
+            INSERT INTO ci_web_research (run_id, search_type, query, source, results_json, entity_name)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (run_id, search_type, query, source, results_json, entity_name))
+        return cur.lastrowid
+
+
+def get_ci_web_research(run_id: str,
+                         search_type: str = None) -> List[Dict[str, Any]]:
+    """Return web research rows for a run, optionally filtered by search_type."""
+    with _get_conn() as conn:
+        if search_type:
+            rows = conn.execute(
+                "SELECT * FROM ci_web_research WHERE run_id=? AND search_type=? ORDER BY id",
+                (run_id, search_type)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM ci_web_research WHERE run_id=? ORDER BY id",
+                (run_id,)
+            ).fetchall()
         return [dict(r) for r in rows]
