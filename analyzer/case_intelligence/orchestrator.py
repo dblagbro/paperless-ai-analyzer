@@ -861,12 +861,28 @@ class CIOrchestrator:
         contradictions = get_ci_contradictions(run_id)
         authorities_list = get_ci_authorities(run_id)
 
+        def _first_doc_id(provenance_json):
+            """Return first paperless_doc_id from a provenance JSON string, or None."""
+            try:
+                items = json.loads(provenance_json or '[]')
+                for p in items:
+                    did = p.get('paperless_doc_id')
+                    if did:
+                        return int(did)
+            except Exception:
+                pass
+            return None
+
         entities_summary = '\n'.join(
             f"- [{e['entity_type']}] {e['name']}: {e['role_in_case'] or ''}"
+            + (f" [Doc #{_first_doc_id(e.get('provenance'))}]"
+               if _first_doc_id(e.get('provenance')) else '')
             for e in entities[:20]
         )
         timeline_summary = '\n'.join(
             f"- {ev['event_date'] or 'unknown'} [{ev['significance']}]: {ev['description']}"
+            + (f" [Doc #{_first_doc_id(ev.get('provenance'))}]"
+               if _first_doc_id(ev.get('provenance')) else '')
             for ev in events[:30]
         )
         contradictions_summary = '\n'.join(
@@ -886,6 +902,7 @@ class CIOrchestrator:
             # Also override entities_summary with war room brief (always freshest data)
             ctx_entities = '\n'.join(
                 f"- [{e['type']}] {e['name']}: {e['role']}"
+                + (f" [Doc #{e['doc_id']}]" if e.get('doc_id') else '')
                 for e in case_context['entities'][:40]
             )
             if ctx_entities:
