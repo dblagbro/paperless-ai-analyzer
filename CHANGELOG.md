@@ -4,7 +4,7 @@ All notable changes to Paperless AI Analyzer are documented here.
 
 ---
 
-## v3.6.5 — 2026-02-28
+## v3.6.5 — 2026-02-28 (updated 2026-02-28)
 
 ### Added
 - **CI Web Research (Phase W)** — New phase runs between Phase 1 (extraction) and Phase 2 (synthesis):
@@ -19,6 +19,12 @@ All notable changes to Paperless AI Analyzer are documented here.
   - Web-sourced legal authorities are automatically added to the `ci_authorities` table and injected into the Authorities manager results.
   - Entity background summaries are injected into the Theory Ledger generation prompt as additional context.
   - New DB table `ci_web_research` stores all search results per run with search type, query, source, and JSON results.
+- **Authority Corpus management UI** — New "📚 AUTHORITY CORPUS" collapsible card in the CI Setup sub-tab:
+  - Displays live corpus status (vector count, Cohere availability) on page load and on sub-tab switch.
+  - Per-source checkboxes: NYS Senate Open Legislation (statutes), eCFR federal regulations, CourtListener opinions — all free, no keys required.
+  - "⚡ Populate / Update Corpus" button triggers background ingestion via `/api/ci/authority/ingest`.
+  - "↺ Refresh Status" button re-polls `/api/ci/authority/status` after ingestion completes.
+  - Empty-state message in findings now includes a direct button that switches to the Setup sub-tab and scrolls to the corpus card.
 
 ## v3.6.4 — 2026-02-28
 
