@@ -4,7 +4,7 @@ All notable changes to Paperless AI Analyzer are documented here.
 
 ---
 
-## v3.6.5 — 2026-02-28 (updated 2026-02-28 — pass 3)
+## v3.6.5 — 2026-02-28 (updated 2026-02-28 — pass 4)
 
 ### Added
 - **CI Web Research (Phase W)** — New phase runs between Phase 1 (extraction) and Phase 2 (synthesis):
@@ -42,6 +42,13 @@ All notable changes to Paperless AI Analyzer are documented here.
   - "⚡ Populate / Update Corpus" button triggers background ingestion via `/api/ci/authority/ingest`.
   - "↺ Refresh Status" button re-polls `/api/ci/authority/status` after ingestion completes.
   - Empty-state message in findings now includes a direct button that switches to the Setup sub-tab and scrolls to the corpus card.
+- **API Key Guide modal** — every API key field in the Web Research card and Authority Corpus card now has a "🔑 get key" link that opens a floating modal:
+  - Shows service name, pricing tier, and a brief description of what the source provides.
+  - Direct "🔗 Open Registration Page ↗" button opens the official signup page in a new tab.
+  - "🤖 Get AI Step-by-Step Guide" button calls the new `/api/ci/key-guide` endpoint, which uses the configured LLM to generate concise numbered instructions specific to that service (registration steps, where to find the key, recommended plan for legal research use).
+  - Covers 18 services: Brave, Google CSE, Exa, Perplexity, Tavily, Serper, Docket Alarm, UniCourt, FEC, OpenSanctions, OpenCorporates, CLEAR, NewsAPI, LexisNexis, vLex, Westlaw, NY Senate Open Legislation, CourtListener, and Cohere.
+  - Dismiss with ✕ button, Escape key, or clicking the overlay.
+- **Authority corpus fixed & seeded** — Fixed broken `authority_ingester.py` endpoints (eCFR search API, Federal Register term search, CourtListener v4 citation list); successfully ingested and embedded 195 legal authorities (89 eCFR regulations, 120 Federal Register documents, 1 court opinion) into ChromaDB for semantic retrieval.
 
 ## v3.6.4 — 2026-02-28
 
