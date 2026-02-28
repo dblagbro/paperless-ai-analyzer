@@ -4,6 +4,22 @@ All notable changes to Paperless AI Analyzer are documented here.
 
 ---
 
+## v3.6.5 — 2026-02-28
+
+### Added
+- **CI Web Research (Phase W)** — New phase runs between Phase 1 (extraction) and Phase 2 (synthesis):
+  - **CourtListener** (free): Searches federal case law and opinions via the CourtListener REST API; returns binding/persuasive cases with excerpts and direct links.
+  - **Harvard Caselaw Access Project** (free): Searches 6.7M US state and federal cases; official citations + court details.
+  - **DuckDuckGo web search** (free): General web search for news, background, recent legal developments — no API key required.
+  - **Entity background research** — After extracting entities (persons, orgs), automatically searches court records and news to build character/background profiles that are injected into theory generation. Defense mode looks for impeachment material; plaintiff/prosecution mode looks for prior bad acts and criminal history.
+  - **Role-aware query bias** — All searches are biased toward strengthening the user's litigation position: defense searches favor acquittal/suppression/dismissal precedents; plaintiff/prosecution searches favor judgments/convictions.
+  - **Optional paid sources**: Tavily AI search (free tier: 1k/mo), Serper.dev (Google results), and Lexis-Nexis enterprise integration — each configurable per run with an API key field in the UI.
+  - **Web research section in CI setup** — Collapsible "🌐 WEB RESEARCH" card with individual checkboxes for each free source and key-entry fields for paid sources.
+  - **Web Research accordion in findings** — Dedicated section in CI findings panel showing retrieved case law, entity background profiles (court history + web mentions), and general web results.
+  - Web-sourced legal authorities are automatically added to the `ci_authorities` table and injected into the Authorities manager results.
+  - Entity background summaries are injected into the Theory Ledger generation prompt as additional context.
+  - New DB table `ci_web_research` stores all search results per run with search type, query, source, and JSON results.
+
 ## v3.6.4 — 2026-02-28
 
 ### Fixed

@@ -3296,7 +3296,7 @@
             <div class="ci-form-row">
                 <div class="ci-form-group" style="flex:0 0 200px;">
                     <label>ROLE</label>
-                    <select id="ci-role">
+                    <select id="ci-role" onchange="ciUpdateWrRoleLabel()">
                         <option value="neutral">Neutral</option>
                         <option value="defense">Defense</option>
                         <option value="plaintiff">Plaintiff</option>
@@ -3423,6 +3423,98 @@
                 </div>
             </div>
 
+            <!-- ── WEB RESEARCH ────────────────────────────────────── -->
+            <div class="ci-section-card">
+                <h4 style="cursor:pointer; user-select:none;" onclick="ciToggleWebResearch(this)">
+                    🌐 WEB RESEARCH
+                    <span id="ci-wr-toggle" style="float:right; font-size:12px; color:#888;">▲ hide</span>
+                </h4>
+                <div id="ci-wr-body">
+                    <div style="font-size:12px; color:#666; margin-bottom:10px; line-height:1.5;">
+                        Augment the analysis with live sources: case law databases, entity background checks,
+                        and web search — going beyond the AI's training data. Results are injected into
+                        theory generation and authority retrieval. Role-aware: searches are biased toward
+                        strengthening your position as <strong id="ci-wr-role-label">the selected role</strong>.
+                    </div>
+
+                    <div style="display:flex; flex-wrap:wrap; gap:18px; font-size:13px;">
+
+                        <!-- Free sources -->
+                        <div style="flex:0 0 auto; min-width:220px;">
+                            <div style="font-weight:700; color:#2c3e50; margin-bottom:8px;">
+                                🆓 Free sources (no key required)
+                            </div>
+                            <label style="display:flex; align-items:center; gap:6px; margin-bottom:6px; cursor:pointer;">
+                                <input type="checkbox" id="ci-wr-enabled" onchange="ciUpdateWrRoleLabel()"
+                                       style="accent-color:#2c3e50;">
+                                <strong>Enable web research</strong>
+                            </label>
+                            <div id="ci-wr-free-opts" style="margin-left:20px; opacity:0.5; pointer-events:none;">
+                                <label style="display:flex; align-items:center; gap:6px; margin-bottom:4px; cursor:pointer;">
+                                    <input type="checkbox" id="ci-wr-courtlistener" checked>
+                                    CourtListener — federal case law &amp; opinions
+                                </label>
+                                <label style="display:flex; align-items:center; gap:6px; margin-bottom:4px; cursor:pointer;">
+                                    <input type="checkbox" id="ci-wr-caselaw" checked>
+                                    Harvard Caselaw Access — 6.7M US cases
+                                </label>
+                                <label style="display:flex; align-items:center; gap:6px; margin-bottom:4px; cursor:pointer;">
+                                    <input type="checkbox" id="ci-wr-entity" checked>
+                                    Entity background — court history &amp; news
+                                </label>
+                                <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
+                                    <input type="checkbox" id="ci-wr-general" checked>
+                                    General web search (DuckDuckGo)
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- Paid sources -->
+                        <div style="flex:1 1 260px; min-width:220px;">
+                            <div style="font-weight:700; color:#8e44ad; margin-bottom:8px;">
+                                💳 Optional paid sources (enter API key)
+                            </div>
+                            <div id="ci-wr-paid-opts" style="opacity:0.5; pointer-events:none;">
+                                <div style="display:flex; align-items:center; gap:6px; margin-bottom:6px;">
+                                    <input type="checkbox" id="ci-wr-tavily-cb">
+                                    <label for="ci-wr-tavily-cb" style="min-width:120px; cursor:pointer;">
+                                        Tavily AI search
+                                        <span style="font-size:10px; color:#888;">(free tier: 1k/mo)</span>
+                                    </label>
+                                    <input type="password" id="ci-wr-tavily-key" placeholder="tvly-…"
+                                           style="flex:1; padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; max-width:180px;">
+                                </div>
+                                <div style="display:flex; align-items:center; gap:6px; margin-bottom:6px;">
+                                    <input type="checkbox" id="ci-wr-serper-cb">
+                                    <label for="ci-wr-serper-cb" style="min-width:120px; cursor:pointer;">
+                                        Serper.dev (Google)
+                                        <span style="font-size:10px; color:#888;">($50/50k)</span>
+                                    </label>
+                                    <input type="password" id="ci-wr-serper-key" placeholder="API key"
+                                           style="flex:1; padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; max-width:180px;">
+                                </div>
+                                <div style="display:flex; align-items:center; gap:6px;">
+                                    <input type="checkbox" id="ci-wr-lexis-cb">
+                                    <label for="ci-wr-lexis-cb" style="min-width:120px; cursor:pointer;">
+                                        Lexis-Nexis
+                                        <span style="font-size:10px; color:#888;">(enterprise)</span>
+                                    </label>
+                                    <input type="password" id="ci-wr-lexis-key" placeholder="Bearer token"
+                                           style="flex:1; padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; max-width:180px;">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="ci-wr-note" style="display:none; margin-top:10px; padding:7px 10px;
+                         background:#eafaf1; border:1px solid #a9dfbf; border-radius:5px;
+                         font-size:12px; color:#1e8449;">
+                        ✅ Web research enabled — Phase W will run between extraction and synthesis.
+                        Entity background research and case law will be injected into theory generation.
+                    </div>
+                </div>
+            </div>
+
             <!-- Clarifying questions section -->
             <div id="ci-questions-section" style="display:none;" class="ci-section-card">
                 <h4>📋 SYSTEM QUESTIONS <span id="ci-q-count" style="color:#e74c3c;"></span></h4>
@@ -3545,6 +3637,15 @@
                 </div>
                 <div class="ci-accordion-body" id="ci-authorities-body">
                     <div id="ci-authorities-list"></div>
+                </div>
+
+                <div id="ci-web-research-accordion" style="display:none;">
+                    <div class="ci-accordion-header" onclick="ciToggleSection('ci-webresearch-body')">
+                        <span>🌐 WEB RESEARCH</span><span id="ci-webresearch-count"></span>
+                    </div>
+                    <div class="ci-accordion-body" id="ci-webresearch-body">
+                        <div id="ci-webresearch-list"></div>
+                    </div>
                 </div>
             </div>
 
@@ -8692,6 +8793,27 @@
             baseline_framework: jdOpt ? (jdOpt.dataset.framework || '') : '',
             authority_jurisdictions: ['NYS', '2nd Circuit', 'US'],
         };
+        // Build web_research_config from WEB RESEARCH section
+        const wrEnabled = document.getElementById('ci-wr-enabled')?.checked || false;
+        const web_research_config = {
+            enabled:         wrEnabled,
+            courtlistener:   document.getElementById('ci-wr-courtlistener')?.checked ?? true,
+            caselaw_api:     document.getElementById('ci-wr-caselaw')?.checked ?? true,
+            entity_research: document.getElementById('ci-wr-entity')?.checked ?? true,
+            general_search:  document.getElementById('ci-wr-general')?.checked ?? true,
+            legal_search:    true,
+            // Paid keys (only include if checkbox checked and key provided)
+            ...(document.getElementById('ci-wr-tavily-cb')?.checked &&
+                document.getElementById('ci-wr-tavily-key')?.value
+                ? { tavily_key: document.getElementById('ci-wr-tavily-key').value.trim() } : {}),
+            ...(document.getElementById('ci-wr-serper-cb')?.checked &&
+                document.getElementById('ci-wr-serper-key')?.value
+                ? { serper_key: document.getElementById('ci-wr-serper-key').value.trim() } : {}),
+            ...(document.getElementById('ci-wr-lexis-cb')?.checked &&
+                document.getElementById('ci-wr-lexis-key')?.value
+                ? { lexisnexis_key: document.getElementById('ci-wr-lexis-key').value.trim() } : {}),
+        };
+
         return {
             role: document.getElementById('ci-role').value,
             goal_text: document.getElementById('ci-goal').value.trim(),
@@ -8701,7 +8823,33 @@
             notification_email: (document.getElementById('ci-notification-email')?.value || '').trim(),
             notify_on_complete: document.getElementById('ci-notify-complete')?.checked ? 1 : 0,
             notify_on_budget:   document.getElementById('ci-notify-budget')?.checked   ? 1 : 0,
+            web_research_config,
         };
+    }
+
+    function ciToggleWebResearch(hdr) {
+        const body = document.getElementById('ci-wr-body');
+        const lbl  = document.getElementById('ci-wr-toggle');
+        if (!body) return;
+        const hidden = body.style.display === 'none';
+        body.style.display = hidden ? '' : 'none';
+        if (lbl) lbl.textContent = hidden ? '▲ hide' : '▼ show';
+    }
+
+    function ciUpdateWrRoleLabel() {
+        const enabled = document.getElementById('ci-wr-enabled')?.checked;
+        const freeOpts  = document.getElementById('ci-wr-free-opts');
+        const paidOpts  = document.getElementById('ci-wr-paid-opts');
+        const note      = document.getElementById('ci-wr-note');
+        if (freeOpts)  freeOpts.style.opacity = enabled ? '1' : '0.5';
+        if (freeOpts)  freeOpts.style.pointerEvents = enabled ? '' : 'none';
+        if (paidOpts)  paidOpts.style.opacity = enabled ? '1' : '0.5';
+        if (paidOpts)  paidOpts.style.pointerEvents = enabled ? '' : 'none';
+        if (note)      note.style.display = enabled ? '' : 'none';
+        // Update role label
+        const role = document.getElementById('ci-role')?.value || 'neutral';
+        const lbl  = document.getElementById('ci-wr-role-label');
+        if (lbl) lbl.textContent = role || 'the selected role';
     }
 
     async function ciSaveDraft() {
@@ -9409,6 +9557,122 @@
             Legal authority retrieval requires a Cohere API key to be configured and an authority corpus to be indexed.
             <br><br>If Cohere is not configured, authorities will always be empty. To enable: add <code>COHERE_API_KEY</code> to the container environment and ingest an authority corpus via the authority ingester.
         </div>`;
+
+        // ── Web Research ─────────────────────────────────────────────────────
+        const wrRows = d.web_research || [];
+        const wrAccordion = document.getElementById('ci-web-research-accordion');
+        const wrList  = document.getElementById('ci-webresearch-list');
+        const wrCount = document.getElementById('ci-webresearch-count');
+        if (wrRows.length > 0 && wrAccordion && wrList) {
+            wrAccordion.style.display = '';
+            // Parse results from each row
+            let totalItems = 0;
+            let html = '';
+            // Group by search_type
+            const byType = {};
+            for (const wr of wrRows) {
+                const t = wr.search_type || 'general';
+                if (!byType[t]) byType[t] = [];
+                try {
+                    const items = JSON.parse(wr.results_json || '[]');
+                    byType[t].push({ query: wr.query, entity_name: wr.entity_name, items });
+                    totalItems += Array.isArray(items) ? items.length : (items.court_history ? items.court_history.length + items.news_mentions.length : 0);
+                } catch(e) {}
+            }
+            // Legal authority section
+            if (byType.legal_authority) {
+                html += `<div style="margin-bottom:12px;">
+                    <div style="font-weight:700; color:#1a5276; font-size:12px; margin-bottom:6px;">
+                        ⚖️ Case Law &amp; Legal Authorities
+                    </div>`;
+                for (const row of byType.legal_authority) {
+                    for (const item of (row.items || [])) {
+                        const cite = escapeHtml(item.citation || item.title || 'Unknown');
+                        const court = escapeHtml(item.court || '');
+                        const date  = escapeHtml(item.date || '');
+                        const excerpt = escapeHtml((item.excerpt || '').substring(0, 200));
+                        const url   = item.url || '';
+                        const src   = escapeHtml(item.source || 'web');
+                        html += `<div style="border:1px solid #d0e0f0; border-radius:5px; padding:8px 10px; margin-bottom:6px; font-size:12px;">
+                            <div style="font-weight:600; color:#2c3e50;">
+                                ${url ? `<a href="${escapeHtml(url)}" target="_blank" style="color:#2471a3;">${cite}</a>` : cite}
+                            </div>
+                            <div style="color:#666; margin-top:2px;">${court}${date ? ' · ' + date : ''} · <span style="color:#888; font-size:11px;">${src}</span></div>
+                            ${excerpt ? `<div style="color:#555; margin-top:4px; font-style:italic;">"${excerpt}${item.excerpt && item.excerpt.length > 200 ? '…' : ''}"</div>` : ''}
+                        </div>`;
+                    }
+                }
+                html += `</div>`;
+            }
+            // Entity background section
+            if (byType.entity_background) {
+                html += `<div style="margin-bottom:12px;">
+                    <div style="font-weight:700; color:#6c3483; font-size:12px; margin-bottom:6px;">
+                        👤 Entity Background Research
+                    </div>`;
+                for (const row of byType.entity_background) {
+                    const r = row.items;  // dict with name, court_history, news_mentions, summary
+                    if (!r || typeof r !== 'object') continue;
+                    const name = escapeHtml(r.name || row.entity_name || '?');
+                    const summary = escapeHtml(r.summary || '');
+                    const courtCases = r.court_history || [];
+                    const news = r.news_mentions || [];
+                    html += `<div style="border:1px solid #e0d0f0; border-radius:5px; padding:8px 10px; margin-bottom:6px; font-size:12px;">
+                        <div style="font-weight:600; color:#6c3483; margin-bottom:4px;">${name}</div>`;
+                    if (summary) html += `<div style="color:#555; margin-bottom:6px; font-size:11px;">${summary}</div>`;
+                    if (courtCases.length > 0) {
+                        html += `<div style="font-weight:600; font-size:11px; color:#444; margin-bottom:3px;">Federal Court Records:</div>`;
+                        for (const c of courtCases.slice(0, 3)) {
+                            const cn = escapeHtml(c.case_name || '');
+                            const ct = escapeHtml(c.court || '');
+                            const dt = escapeHtml((c.date || '').substring(0, 4));
+                            const cu = c.url || '';
+                            html += `<div style="margin-left:10px; font-size:11px; color:#666; margin-bottom:2px;">
+                                ${cu ? `<a href="${escapeHtml(cu)}" target="_blank" style="color:#2471a3;">${cn}</a>` : cn}
+                                ${ct ? `· ${ct}` : ''}${dt ? ` (${dt})` : ''}
+                            </div>`;
+                        }
+                    }
+                    if (news.length > 0) {
+                        html += `<div style="font-weight:600; font-size:11px; color:#444; margin-top:4px; margin-bottom:3px;">Web Mentions:</div>`;
+                        for (const n of news.slice(0, 2)) {
+                            const nt = escapeHtml(n.title || '');
+                            const nu = n.url || '';
+                            const ns = escapeHtml((n.excerpt || '').substring(0, 120));
+                            html += `<div style="margin-left:10px; font-size:11px; color:#666; margin-bottom:2px;">
+                                ${nu ? `<a href="${escapeHtml(nu)}" target="_blank" style="color:#2471a3;">${nt}</a>` : nt}
+                                ${ns ? `<span style="color:#888;"> — ${ns}</span>` : ''}
+                            </div>`;
+                        }
+                    }
+                    html += `</div>`;
+                }
+                html += `</div>`;
+            }
+            // General web search section
+            if (byType.general) {
+                html += `<div style="margin-bottom:12px;">
+                    <div style="font-weight:700; color:#1e8449; font-size:12px; margin-bottom:6px;">
+                        🌐 Web Search — Recent Developments
+                    </div>`;
+                for (const row of byType.general) {
+                    for (const item of (row.items || [])) {
+                        const t = escapeHtml(item.title || '');
+                        const s = escapeHtml((item.excerpt || '').substring(0, 150));
+                        const u = item.url || '';
+                        html += `<div style="border:1px solid #d5f5e3; border-radius:5px; padding:7px 10px; margin-bottom:5px; font-size:12px;">
+                            <div>${u ? `<a href="${escapeHtml(u)}" target="_blank" style="color:#1e8449; font-weight:600;">${t}</a>` : `<strong>${t}</strong>`}</div>
+                            ${s ? `<div style="color:#666; margin-top:2px; font-size:11px;">${s}</div>` : ''}
+                        </div>`;
+                    }
+                }
+                html += `</div>`;
+            }
+            wrList.innerHTML = html || '<div style="color:#888; font-size:12px;">No web research results to display.</div>';
+            if (wrCount) wrCount.textContent = `(${totalItems} results)`;
+        } else if (wrAccordion) {
+            wrAccordion.style.display = 'none';
+        }
     }
 
     // ── Report builder ───────────────────────────────────────────────

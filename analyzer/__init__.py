@@ -8,4 +8,4 @@ An intelligent document analysis microservice for Paperless-ngx that performs:
 - Profile-based document type matching
 """
 
-__version__ = "3.6.4"
+__version__ = "3.6.5"

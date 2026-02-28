@@ -29,6 +29,7 @@ from analyzer.case_intelligence.db import (
     add_ci_disputed_fact, add_ci_theory, update_ci_theory,
     add_ci_authority, increment_ci_run_cost, increment_ci_run_docs,
     upsert_manager_report, get_manager_reports,
+    add_ci_web_research, get_ci_web_research,
 )
 from analyzer.case_intelligence.budget_manager import BudgetManager
 from analyzer.case_intelligence.entity_extractor import EntityExtractor
@@ -491,6 +492,12 @@ class CIOrchestrator:
         if cancel_event.is_set():
             return manager_reports
 
+        # ── Phase W: Web research (between extraction and synthesis) ──────
+        self._phase_web_research(run_id, run, cancel_event)
+
+        if cancel_event.is_set():
+            return manager_reports
+
         # ── Phase 2: cross-document analysis (parallel, after extraction) ──
         if phase2_specs:
             # Build war room briefing from Phase 1 results
@@ -538,6 +545,126 @@ class CIOrchestrator:
                             self._check_budget_checkpoint(run_id, pct)
 
         return manager_reports
+
+    # -----------------------------------------------------------------------
+    # Phase W: Web Research
+    # -----------------------------------------------------------------------
+
+    def _phase_web_research(self, run_id: str, run,
+                             cancel_event: threading.Event) -> None:
+        """
+        Phase W — Web Research.
+
+        Runs between Phase 1 (extraction) and Phase 2 (synthesis).
+        Searches free and optional paid sources for:
+          1. Legal authorities / case law (injected into Phase 2 authorities manager)
+          2. Entity background / character research (injected into theories prompt)
+          3. General web developments (injected into findings summary)
+
+        Skipped entirely if web_research_config is absent or not enabled.
+        """
+        try:
+            wrc = json.loads(run.get('web_research_config') or '{}')
+        except Exception:
+            wrc = {}
+
+        if not wrc.get('enabled'):
+            return
+
+        self._set_status(run_id, 'running',
+                         stage='Phase W: Web research', progress=59)
+        logger.info(f"CI run {run_id}: Phase W starting (web research)")
+
+        from analyzer.case_intelligence.web_researcher import WebResearcher
+        researcher = WebResearcher(wrc)
+
+        # Jurisdiction display name
+        jd_name = 'Not specified'
+        try:
+            jd_name = json.loads(run.get('jurisdiction_json') or '{}').get(
+                'display_name', 'Not specified')
+        except Exception:
+            pass
+
+        role = run.get('role', 'neutral')
+        goal = run.get('goal_text') or ''
+
+        # ── 1. Legal authority / case law search ────────────────────────────
+        if wrc.get('legal_search', True) and goal:
+            try:
+                results = researcher.search_legal_authorities(
+                    query=goal[:250],
+                    jurisdiction=jd_name,
+                    role=role,
+                    max_results=10,
+                )
+                if results:
+                    add_ci_web_research(
+                        run_id=run_id,
+                        search_type='legal_authority',
+                        query=goal[:200],
+                        source='web_research',
+                        results_json=json.dumps(results),
+                    )
+                    logger.info(f"CI run {run_id}: Web authority search returned "
+                                f"{len(results)} results")
+            except Exception as e:
+                logger.warning(f"CI Phase W legal authority search failed: {e}")
+
+        if cancel_event.is_set():
+            return
+
+        # ── 2. Entity background / character research ────────────────────────
+        if wrc.get('entity_research', True):
+            entities = get_ci_entities(run_id)
+            # Prioritise persons and orgs, limit to 12 to stay within API rate limits
+            key_entities = [e for e in entities
+                            if e['entity_type'] in ('person', 'org',
+                                                     'individual', 'organization')][:12]
+            for entity in key_entities:
+                if cancel_event.is_set():
+                    break
+                try:
+                    result = researcher.research_entity(
+                        name=entity['name'],
+                        entity_type=entity['entity_type'],
+                        role_in_case=entity.get('role_in_case', ''),
+                        run_role=role,
+                    )
+                    if result.get('court_history') or result.get('news_mentions'):
+                        add_ci_web_research(
+                            run_id=run_id,
+                            search_type='entity_background',
+                            query=entity['name'],
+                            source='web_research',
+                            results_json=json.dumps(result),
+                            entity_name=entity['name'],
+                        )
+                except Exception as e:
+                    logger.warning(
+                        f"CI Phase W entity research failed for "
+                        f"'{entity['name']}': {e}")
+
+        if cancel_event.is_set():
+            return
+
+        # ── 3. General web search (recent developments, news) ───────────────
+        if wrc.get('general_search', True) and goal:
+            try:
+                query = f"legal {goal[:150]} recent developments 2024 2025"
+                results = researcher.search_general(query, max_results=5)
+                if results:
+                    add_ci_web_research(
+                        run_id=run_id,
+                        search_type='general',
+                        query=query[:200],
+                        source='web_search',
+                        results_json=json.dumps(results),
+                    )
+            except Exception as e:
+                logger.warning(f"CI Phase W general search failed: {e}")
+
+        logger.info(f"CI run {run_id}: Phase W complete")
 
     def _build_case_context(self, run_id: str) -> dict:
         """
@@ -893,6 +1020,25 @@ class CIOrchestrator:
             for a in authorities_list[:10]
         )
 
+        # Augment entities_summary with web research background (Phase W)
+        try:
+            web_entity_rows = get_ci_web_research(run_id, search_type='entity_background')
+            web_bg_lines = []
+            for wr in web_entity_rows:
+                r = json.loads(wr.get('results_json') or '{}')
+                if r.get('summary'):
+                    web_bg_lines.append(
+                        f"- {r.get('name', wr.get('entity_name', '?'))} "
+                        f"[web background]: {r['summary']}"
+                    )
+            if web_bg_lines:
+                entities_summary += (
+                    '\n\nWEB RESEARCH — ENTITY BACKGROUND:\n'
+                    + '\n'.join(web_bg_lines[:10])
+                )
+        except Exception:
+            pass
+
         documents = [doc_map[did] for did in doc_ids if did in doc_map]
 
         # Use war room financial data if available (avoids LLM re-extraction)
@@ -1077,6 +1223,35 @@ class CIOrchestrator:
                 })
         except Exception as e:
             logger.warning(f"Authority retrieval error: {e}")
+
+        # Inject web research legal authorities (from Phase W)
+        try:
+            web_auth_rows = get_ci_web_research(run_id, search_type='legal_authority')
+            for wr in web_auth_rows:
+                for item in json.loads(wr.get('results_json') or '[]'):
+                    citation = item.get('citation') or item.get('title') or 'Unknown'
+                    add_ci_authority(
+                        run_id=run_id,
+                        citation=citation,
+                        authority_type=item.get('authority_type', 'persuasive'),
+                        jurisdiction=item.get('court', ''),
+                        source=item.get('source', 'web'),
+                        source_url=item.get('url', ''),
+                        reliability=item.get('reliability', 'persuasive'),
+                        excerpt=item.get('excerpt', '')[:400],
+                        relevance_note=f"Web search: {wr.get('query', '')[:80]}",
+                    )
+                    findings.append({
+                        'content': citation,
+                        'source': item.get('source', 'web'),
+                        'confidence': 'medium',
+                        'type': item.get('authority_type', 'persuasive'),
+                    })
+            if web_auth_rows:
+                logger.info(f"CI run {run_id}: injected web authorities from "
+                            f"{len(web_auth_rows)} web research rows")
+        except Exception as e:
+            logger.warning(f"Web authority injection error: {e}")
 
         return findings, cost
 
