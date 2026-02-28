@@ -10,6 +10,47 @@ Advanced AI-powered anomaly detection and risk analysis microservice for [Paperl
 
 ---
 
+## What's New in v3.6.5
+
+### Case Intelligence — Web Research, Authority Corpus UI, Entity Grouping, Year Chronology
+
+v3.6.5 significantly expands the Case Intelligence (CI) pipeline with live data source integrations, a self-service authority corpus manager, and major findings display improvements.
+
+**Web Research Phase W — 16 data sources across 5 categories:**
+
+The WEB RESEARCH card in CI Setup is now organized into 5 labeled collapsible sections. All sources are individually toggled with clear FREE / cost labels:
+
+| Section | Sources |
+|---|---|
+| ⚖️ Case Law | CourtListener (free), Harvard Caselaw (free), **Docket Alarm** ($99/mo, 675M dockets), **UniCourt** ($49-299/mo, fed+state) |
+| 🔍 Web Search | DuckDuckGo (free), **Brave Search** ($5/1k), **Google Custom Search** (100/day free), **Exa AI** ($7/1k neural), **Perplexity Sonar** (AI answers + citations), Tavily, Serper |
+| 🔎 Public Records | BOP Federal Inmate Locator (free), OFAC Sanctions (free), SEC EDGAR (free), FEC Campaign Finance (free key), **OpenSanctions** (€0.10/call, PEPs+sanctions), **OpenCorporates** (paid, 200M business entities), **CLEAR by Thomson Reuters** (enterprise background) |
+| 📰 News | **GDELT** (free, real-time global, 65+ languages), **NewsAPI** ($449/mo, 150k sources) |
+| 💼 Enterprise Legal | Lexis-Nexis, **vLex** (global case law, 100+ countries), **Westlaw Edge** (Thomson Reuters) |
+
+Role-aware: defense searches favor dismissals/suppression/impeachment; plaintiff/prosecution searches favor judgments/convictions/bad acts.
+
+**📚 Authority Corpus management UI:**
+- New collapsible "📚 AUTHORITY CORPUS" card in CI Setup with live corpus status (vector count, Cohere availability)
+- One-click "⚡ Populate / Update Corpus" button — ingests from NYS Senate statutes, eCFR regulations, and CourtListener opinions (all free)
+- Status auto-loads when Setup sub-tab is opened; ↺ Refresh button polls again after ingestion
+
+**Findings display improvements:**
+- **Entity grouping** — entities grouped into 9 type-based accordions (People, Organizations, Law Firms, Courts, Bank Accounts, Addresses & Properties, Locations, Documents & Filings, Other) — each shows item count, click to expand
+- **Chronology by year** — timeline grouped by year with collapsible sections; newest year open by default
+- **Key Findings** always surfaces extracted **Judgments & Rulings** and **Financial Amounts** from timeline events, even if Director synthesis was skipped
+
+---
+
+## What's New in v3.6.4
+
+### Case Intelligence — Fix "Unspecified document" in Theory Evidence
+
+- **CI theory evidence `paperless_doc_id: null`** — Fixed theories frequently emitting null document IDs causing "Unspecified document" in UI. Root cause was entity/timeline summaries stripping doc provenance. Fixed by appending `[Doc #NNN]` tags to summary lines in `_manager_theories()`.
+- **Theory/adversarial prompts** — Both prompts now forbid `null` paperless_doc_id values.
+
+---
+
 ## What's New in v3.6.3
 
 ### Chat UX Polish
