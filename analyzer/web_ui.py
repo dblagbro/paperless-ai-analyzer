@@ -7639,6 +7639,79 @@ def ci_authority_status():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/ci/key-guide', methods=['POST'])
+@login_required
+def ci_key_guide():
+    """Return AI-generated step-by-step instructions for obtaining an API key for a given service."""
+    try:
+        data = request.json or {}
+        service = (data.get('service') or '').strip()
+        service_name = (data.get('service_name') or service).strip()
+        if not service:
+            return jsonify({'error': 'service required'}), 400
+
+        prompt = (
+            f"Give me concise step-by-step instructions to register for and obtain an API key for "
+            f"**{service_name}**. Include:\n"
+            f"1. The exact registration/signup URL\n"
+            f"2. Any account verification steps\n"
+            f"3. Where to find the API key once logged in\n"
+            f"4. Which plan or tier to choose for legal research/investigative use\n"
+            f"5. Any rate limits or quotas to be aware of\n\n"
+            f"Be concise — numbered steps, no fluff. If this is an enterprise product requiring "
+            f"a sales call or contract, say so clearly and explain the typical process."
+        )
+
+        chat_cfg = get_project_ai_config(
+            session.get('current_project', 'default'), 'chat'
+        )
+        _full_cfg = load_ai_config()
+
+        def _global_key(p):
+            return _full_cfg.get('global', {}).get(p, {}).get('api_key', '').strip()
+
+        provider = chat_cfg.get('provider', 'anthropic')
+        api_key = (chat_cfg.get('api_key') or '').strip() or _global_key(provider)
+        model = chat_cfg.get('model', 'claude-sonnet-4-6')
+
+        if not api_key:
+            fb_prov = chat_cfg.get('fallback_provider')
+            if fb_prov:
+                api_key = _global_key(fb_prov)
+                if api_key:
+                    provider = fb_prov
+                    model = chat_cfg.get('fallback_model', model)
+
+        if not api_key:
+            return jsonify({'error': 'No AI API key configured.'}), 503
+
+        if provider == 'openai':
+            import openai as _oai
+            client = _oai.OpenAI(api_key=api_key)
+            resp = client.chat.completions.create(
+                model=model,
+                max_tokens=500,
+                messages=[{'role': 'user', 'content': prompt}],
+            )
+            reply = resp.choices[0].message.content
+        elif provider == 'anthropic':
+            import anthropic as _ant
+            client = _ant.Anthropic(api_key=api_key)
+            resp = client.messages.create(
+                model=model,
+                max_tokens=500,
+                messages=[{'role': 'user', 'content': prompt}],
+            )
+            reply = resp.content[0].text
+        else:
+            return jsonify({'error': f'Unsupported provider: {provider}'}), 400
+
+        return jsonify({'response': reply})
+    except Exception as e:
+        logger.error(f"CI key guide error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 def _build_ci_llm_clients() -> dict:
     """
     Build LLM client dict for CI components.

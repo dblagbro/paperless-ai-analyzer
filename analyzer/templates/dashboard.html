@@ -3472,6 +3472,7 @@
                                        style="padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; width:110px;">
                                 <input type="password" id="ci-wr-docket-pass" placeholder="password"
                                        style="padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; width:110px;">
+                                <a href="#" onclick="openApiKeyGuide('docket'); return false;" style="font-size:11px; color:#3498db; white-space:nowrap;">🔑 get access</a>
                             </div>
                             <!-- UniCourt -->
                             <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
@@ -3484,6 +3485,7 @@
                                        style="padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; width:110px;">
                                 <input type="password" id="ci-wr-unicourt-secret" placeholder="client secret"
                                        style="padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; width:110px;">
+                                <a href="#" onclick="openApiKeyGuide('unicourt'); return false;" style="font-size:11px; color:#3498db; white-space:nowrap;">🔑 get access</a>
                             </div>
                         </div>
                     </details>
@@ -3508,6 +3510,7 @@
                                 </label>
                                 <input type="password" id="ci-wr-brave-key" placeholder="API key"
                                        style="padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; width:180px;">
+                                <a href="#" onclick="openApiKeyGuide('brave'); return false;" style="font-size:11px; color:#3498db; white-space:nowrap;">🔑 get key</a>
                             </div>
                             <!-- Google CSE -->
                             <div style="display:flex; align-items:center; gap:6px; margin-bottom:4px; flex-wrap:wrap;">
@@ -3520,6 +3523,7 @@
                                        style="padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; width:120px;">
                                 <input type="text" id="ci-wr-gcse-cx" placeholder="CX engine ID"
                                        style="padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; width:130px;">
+                                <a href="#" onclick="openApiKeyGuide('gcse'); return false;" style="font-size:11px; color:#3498db; white-space:nowrap;">🔑 get key</a>
                             </div>
                             <!-- Exa AI -->
                             <div style="display:flex; align-items:center; gap:6px; margin-bottom:4px;">
@@ -3530,6 +3534,7 @@
                                 </label>
                                 <input type="password" id="ci-wr-exa-key" placeholder="API key"
                                        style="padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; width:180px;">
+                                <a href="#" onclick="openApiKeyGuide('exa'); return false;" style="font-size:11px; color:#3498db; white-space:nowrap;">🔑 get key</a>
                             </div>
                             <!-- Perplexity -->
                             <div style="display:flex; align-items:center; gap:6px; margin-bottom:4px;">
@@ -3540,6 +3545,7 @@
                                 </label>
                                 <input type="password" id="ci-wr-perplexity-key" placeholder="pplx-…"
                                        style="padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; width:180px;">
+                                <a href="#" onclick="openApiKeyGuide('perplexity'); return false;" style="font-size:11px; color:#3498db; white-space:nowrap;">🔑 get key</a>
                             </div>
                             <!-- Tavily -->
                             <div style="display:flex; align-items:center; gap:6px; margin-bottom:4px;">
@@ -3550,6 +3556,7 @@
                                 </label>
                                 <input type="password" id="ci-wr-tavily-key" placeholder="tvly-…"
                                        style="padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; width:180px;">
+                                <a href="#" onclick="openApiKeyGuide('tavily'); return false;" style="font-size:11px; color:#3498db; white-space:nowrap;">🔑 get key</a>
                             </div>
                             <!-- Serper -->
                             <div style="display:flex; align-items:center; gap:6px;">
@@ -3560,6 +3567,7 @@
                                 </label>
                                 <input type="password" id="ci-wr-serper-key" placeholder="API key"
                                        style="padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; width:180px;">
+                                <a href="#" onclick="openApiKeyGuide('serper'); return false;" style="font-size:11px; color:#3498db; white-space:nowrap;">🔑 get key</a>
                             </div>
                         </div>
                     </details>
@@ -3599,6 +3607,7 @@
                                 </label>
                                 <input type="text" id="ci-wr-fec-key" placeholder="api.open.fec.gov key"
                                        style="padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; width:200px;">
+                                <a href="#" onclick="openApiKeyGuide('fec'); return false;" style="font-size:11px; color:#3498db; white-space:nowrap;">🔑 get free key</a>
                             </div>
                             <!-- OpenSanctions -->
                             <div style="display:flex; align-items:center; gap:6px; margin-bottom:4px;">
@@ -3609,6 +3618,7 @@
                                 </label>
                                 <input type="password" id="ci-wr-opensanctions-key" placeholder="API key"
                                        style="padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; width:180px;">
+                                <a href="#" onclick="openApiKeyGuide('opensanctions'); return false;" style="font-size:11px; color:#3498db; white-space:nowrap;">🔑 get key</a>
                             </div>
                             <!-- OpenCorporates -->
                             <div style="display:flex; align-items:center; gap:6px; margin-bottom:4px;">
@@ -3619,6 +3629,7 @@
                                 </label>
                                 <input type="password" id="ci-wr-opencorp-key" placeholder="API token"
                                        style="padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; width:180px;">
+                                <a href="#" onclick="openApiKeyGuide('opencorp'); return false;" style="font-size:11px; color:#3498db; white-space:nowrap;">🔑 get token</a>
                             </div>
                             <!-- CLEAR -->
                             <div style="display:flex; align-items:center; gap:6px;">
@@ -3629,6 +3640,7 @@
                                 </label>
                                 <input type="password" id="ci-wr-clear-key" placeholder="API key"
                                        style="padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; width:180px;">
+                                <a href="#" onclick="openApiKeyGuide('clear'); return false;" style="font-size:11px; color:#3498db; white-space:nowrap;">🔑 get access</a>
                             </div>
                         </div>
                     </details>
@@ -3653,6 +3665,7 @@
                                 </label>
                                 <input type="password" id="ci-wr-newsapi-key" placeholder="API key"
                                        style="padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; width:180px;">
+                                <a href="#" onclick="openApiKeyGuide('newsapi'); return false;" style="font-size:11px; color:#3498db; white-space:nowrap;">🔑 get key</a>
                             </div>
                         </div>
                     </details>
@@ -3672,6 +3685,7 @@
                                 </label>
                                 <input type="password" id="ci-wr-lexis-key" placeholder="Bearer token"
                                        style="padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; width:180px;">
+                                <a href="#" onclick="openApiKeyGuide('lexis'); return false;" style="font-size:11px; color:#3498db; white-space:nowrap;">🔑 get access</a>
                             </div>
                             <!-- vLex -->
                             <div style="display:flex; align-items:center; gap:6px; margin-bottom:4px;">
@@ -3682,6 +3696,7 @@
                                 </label>
                                 <input type="password" id="ci-wr-vlex-key" placeholder="API key"
                                        style="padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; width:180px;">
+                                <a href="#" onclick="openApiKeyGuide('vlex'); return false;" style="font-size:11px; color:#3498db; white-space:nowrap;">🔑 get access</a>
                             </div>
                             <!-- Westlaw -->
                             <div style="display:flex; align-items:center; gap:6px;">
@@ -3692,6 +3707,7 @@
                                 </label>
                                 <input type="password" id="ci-wr-westlaw-key" placeholder="API key"
                                        style="padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; width:180px;">
+                                <a href="#" onclick="openApiKeyGuide('westlaw'); return false;" style="font-size:11px; color:#3498db; white-space:nowrap;">🔑 get access</a>
                             </div>
                         </div>
                     </details>
@@ -3717,7 +3733,8 @@
                     <div style="font-size:12px; color:#555; margin-bottom:10px; line-height:1.5;">
                         The authority corpus is a local ChromaDB index of statutes, regulations, and case law.
                         It must be populated at least once before the AI can cite legal authorities.
-                        Uses <strong>Cohere embeddings</strong> — requires <code>COHERE_API_KEY</code> in the environment.
+                        Uses <strong>Cohere embeddings</strong> — requires <code>COHERE_API_KEY</code> in the environment
+                        (<a href="#" onclick="openApiKeyGuide('cohere'); return false;" style="color:#3498db;">🔑 get Cohere key</a>).
                         Free sources require no additional API keys.
                     </div>
 
@@ -3731,6 +3748,7 @@
                         <label style="display:flex; align-items:center; gap:6px; font-size:12px; margin-bottom:4px; cursor:pointer;">
                             <input type="checkbox" id="ci-ac-nysenate" checked>
                             NYS Senate Open Legislation (statutes) — free
+                            <a href="#" onclick="openApiKeyGuide('nysenate'); return false;" style="font-size:11px; color:#3498db; white-space:nowrap;">🔑 register for token</a>
                         </label>
                         <label style="display:flex; align-items:center; gap:6px; font-size:12px; margin-bottom:4px; cursor:pointer;">
                             <input type="checkbox" id="ci-ac-ecfr" checked>
@@ -3739,6 +3757,7 @@
                         <label style="display:flex; align-items:center; gap:6px; font-size:12px; cursor:pointer;">
                             <input type="checkbox" id="ci-ac-courtlistener">
                             CourtListener case law opinions — free, may be slow
+                            <a href="#" onclick="openApiKeyGuide('courtlistener'); return false;" style="font-size:11px; color:#3498db; white-space:nowrap;">🔑 get token</a>
                         </label>
                     </div>
 
@@ -11108,5 +11127,136 @@
 
     </div><!-- end #main-content -->
 </div><!-- end #app-layout -->
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     API KEY GUIDE MODAL
+     ═══════════════════════════════════════════════════════════════════ -->
+<div id="akgm-overlay" onclick="closeApiKeyGuide()"
+     style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.45); z-index:9000;"></div>
+<div id="akgm-modal"
+     style="display:none; position:fixed; top:50%; left:50%;
+            transform:translate(-50%,-50%);
+            width:min(520px,92vw); max-height:85vh; overflow-y:auto;
+            background:#fff; border-radius:10px;
+            box-shadow:0 12px 48px rgba(0,0,0,0.25);
+            z-index:9001; padding:22px 24px;">
+    <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:10px;">
+        <div>
+            <h3 id="akgm-title" style="margin:0 0 3px; font-size:16px; color:#1a1a2e;"></h3>
+            <span id="akgm-tier" style="font-size:11px; color:#888; font-style:italic;"></span>
+        </div>
+        <button onclick="closeApiKeyGuide()"
+                style="background:none; border:none; font-size:20px; cursor:pointer; color:#999; padding:0 2px; line-height:1;">✕</button>
+    </div>
+    <p id="akgm-desc" style="font-size:13px; color:#555; margin:0 0 14px; line-height:1.55;"></p>
+    <a id="akgm-reglink" href="#" target="_blank" rel="noopener"
+       style="display:inline-flex; align-items:center; gap:6px;
+              padding:8px 16px; background:#2c3e50; color:white;
+              border-radius:6px; text-decoration:none; font-size:13px;
+              font-weight:600; margin-bottom:16px;">
+        🔗 Open Registration Page ↗
+    </a>
+    <hr style="border:none; border-top:1px solid #eee; margin:0 0 14px;">
+    <div id="akgm-ai-section">
+        <button id="akgm-ai-btn" onclick="akgmAskAI()"
+                style="padding:7px 16px; background:#3498db; color:white;
+                       border:none; border-radius:6px; font-size:13px;
+                       cursor:pointer; font-weight:600;">
+            🤖 Get AI Step-by-Step Guide
+        </button>
+        <div id="akgm-ai-response"
+             style="display:none; margin-top:12px; padding:12px;
+                    background:#f8f9fa; border:1px solid #e9ecef;
+                    border-radius:6px; font-size:13px; line-height:1.6;
+                    white-space:pre-wrap;"></div>
+    </div>
+</div>
+
+<script>
+// ─── API Key Guide modal ────────────────────────────────────────────────────
+const API_KEY_INFO = {
+    brave:          {name:'Brave Search API',            tier:'$5 / 1,000 queries',   url:'https://brave.com/search/api/',        desc:'Independent web search index — great for news, entity mentions, and court references without Google bias.'},
+    gcse:           {name:'Google Custom Search API',    tier:'100 free / day',        url:'https://programmablesearchengine.google.com/controlpanel/create', desc:'Google search results via API. Requires two credentials: an API Key and a Custom Search Engine ID (CX).'},
+    exa:            {name:'Exa AI Search',               tier:'~$7 / 1,000 queries',   url:'https://dashboard.exa.ai/',            desc:'Neural semantic search engine. Excellent for finding similar cases, related articles, and conceptual matches.'},
+    perplexity:     {name:'Perplexity Sonar API',        tier:'~$5 / 1,000 queries',   url:'https://www.perplexity.ai/settings/api', desc:'AI-powered search with cited sources. Returns synthesized answers with source links.'},
+    tavily:         {name:'Tavily Search API',            tier:'1,000 searches/mo free',url:'https://app.tavily.com/home',          desc:'Research-optimized search API — designed for AI agents. Returns clean, structured results.'},
+    serper:         {name:'Serper.dev',                  tier:'2,500 free queries',    url:'https://serper.dev/',                  desc:'Google SERP API. Fast, reliable access to Google search results programmatically.'},
+    docket:         {name:'Docket Alarm',                tier:'$99 / month',           url:'https://www.docketalarm.com/accounts/register/', desc:'675M+ federal and state court dockets. Best for searching by party name, attorney, or case type.'},
+    unicourt:       {name:'UniCourt API',                tier:'$49–299 / month',       url:'https://unicourt.com/api',             desc:'Normalized federal and state court case data. Uses OAuth2 client credentials (client ID + secret).'},
+    fec:            {name:'FEC API (OpenFEC)',            tier:'Free — email signup',   url:'https://api.data.gov/signup/',         desc:'Federal Election Commission campaign finance data. Free API key from api.data.gov — just provide your email.'},
+    opensanctions:  {name:'OpenSanctions API',           tier:'~€0.10 per call',       url:'https://www.opensanctions.org/api/',   desc:'Sanctions lists, PEP databases, and watchlists from 100+ sources. Pay-per-use — no subscription required.'},
+    opencorp:       {name:'OpenCorporates API',          tier:'Paid subscription',     url:'https://opencorporates.com/api_accounts/new', desc:'200M+ global business entity registrations. Useful for finding related companies and shell corporations.'},
+    clear:          {name:'CLEAR (Thomson Reuters)',     tier:'Enterprise contract',   url:'https://legal.thomsonreuters.com/en/products/clear-investigation-software', desc:'Comprehensive investigative database — people, assets, court records, news. Requires a Thomson Reuters enterprise contract.'},
+    newsapi:        {name:'NewsAPI',                     tier:'$449/mo (commercial)',  url:'https://newsapi.org/register',         desc:'150,000+ news sources. Note: the free developer plan is non-commercial only and limited to 100 requests/day.'},
+    lexis:          {name:'LexisNexis API',              tier:'Enterprise license',    url:'https://developer.lexisnexis.com/',    desc:'Comprehensive US and international legal research. Requires an existing LexisNexis subscription + API access approval.'},
+    vlex:           {name:'vLex API',                    tier:'Subscription required', url:'https://vlex.com/api',                 desc:'100+ countries of case law and legal content. Contact vLex for API access as part of a subscription plan.'},
+    westlaw:        {name:'Westlaw Edge API',            tier:'Enterprise license',    url:'https://legal.thomsonreuters.com/en/products/westlaw', desc:'Premier US legal research database. API access requires a Thomson Reuters Westlaw contract and developer enrollment.'},
+    nysenate:       {name:'NY Senate Open Legislation',  tier:'Free — email signup',   url:'https://legislation.nysenate.gov/register', desc:'Access to all NYS statutes (CPLR, DRL, EPTL, etc.). Free API token — just register with your email address.'},
+    courtlistener:  {name:'CourtListener API',           tier:'Free account',          url:'https://www.courtlistener.com/sign-in/', desc:'RECAP archive: 6M+ court opinions and PACER documents. Free account gives higher rate limits. Unauthenticated access also works but is throttled.'},
+    cohere:         {name:'Cohere Embed API',            tier:'Free trial / pay-per-use', url:'https://dashboard.cohere.com/register', desc:'Used to embed legal authorities into ChromaDB for semantic search. Free trial includes 1,000 calls/month; paid is $0.10 per 1M tokens.'},
+};
+
+let _akgmCurrentService = null;
+
+function openApiKeyGuide(svc) {
+    const info = API_KEY_INFO[svc];
+    if (!info) return;
+    _akgmCurrentService = svc;
+    document.getElementById('akgm-title').textContent = info.name;
+    document.getElementById('akgm-tier').textContent = info.tier;
+    document.getElementById('akgm-desc').textContent = info.desc;
+    const link = document.getElementById('akgm-reglink');
+    link.href = info.url;
+    link.textContent = '🔗 Open Registration Page ↗';
+    // Reset AI section
+    const resp = document.getElementById('akgm-ai-response');
+    resp.style.display = 'none';
+    resp.textContent = '';
+    document.getElementById('akgm-ai-btn').disabled = false;
+    document.getElementById('akgm-ai-btn').textContent = '🤖 Get AI Step-by-Step Guide';
+    // Show
+    document.getElementById('akgm-overlay').style.display = 'block';
+    document.getElementById('akgm-modal').style.display = 'block';
+}
+
+function closeApiKeyGuide() {
+    document.getElementById('akgm-overlay').style.display = 'none';
+    document.getElementById('akgm-modal').style.display = 'none';
+    _akgmCurrentService = null;
+}
+
+async function akgmAskAI() {
+    if (!_akgmCurrentService) return;
+    const info = API_KEY_INFO[_akgmCurrentService];
+    const btn = document.getElementById('akgm-ai-btn');
+    const resp = document.getElementById('akgm-ai-response');
+    btn.disabled = true;
+    btn.textContent = '⏳ Asking AI…';
+    resp.style.display = 'block';
+    resp.textContent = 'Loading…';
+    try {
+        const r = await fetch('/api/ci/key-guide', {
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({service: _akgmCurrentService, service_name: info.name})
+        });
+        const data = await r.json();
+        if (data.error) {
+            resp.textContent = 'Error: ' + data.error;
+        } else {
+            resp.textContent = data.response || '(no response)';
+        }
+        btn.textContent = '↺ Regenerate';
+        btn.disabled = false;
+    } catch(e) {
+        resp.textContent = 'Network error: ' + e.message;
+        btn.textContent = '↺ Retry';
+        btn.disabled = false;
+    }
+}
+// close on Escape
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeApiKeyGuide(); });
+</script>
+
 </body>
 </html>

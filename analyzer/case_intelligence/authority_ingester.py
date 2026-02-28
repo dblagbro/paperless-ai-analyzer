@@ -22,17 +22,24 @@ logger = logging.getLogger(__name__)
 
 # API base URLs
 NYSENATE_BASE = 'https://legislation.nysenate.gov/api/3'
-ECFR_BASE = 'https://www.ecfr.gov/api/versioner/v1'
-COURTLISTENER_BASE = 'https://www.courtlistener.com/api/rest/v3'
+ECFR_SEARCH_BASE = 'https://www.ecfr.gov/api/search/v1'
+FEDERAL_REGISTER_BASE = 'https://www.federalregister.gov/api/v1'
+COURTLISTENER_BASE = 'https://www.courtlistener.com/api/rest/v4'
 
 # NYS statute laws to ingest (CPLR, DRL, EPTL, SCPA, UCC, RPL, FCA)
 NYS_STATUTE_IDS = ['CVP', 'DOM', 'EPT', 'SCP', 'UCC', 'RPP', 'FCT']
 
-# Federal regulation titles relevant to legal proceedings
-FEDERAL_REGULATION_TITLES = {
-    '28': 'Judicial Administration',
-    '11': 'Federal Elections (Bankruptcy Code in Title 11 USC)',
-}
+# eCFR search queries: legally relevant topics across all titles
+ECFR_SEARCH_QUERIES = [
+    'fraud criminal evidence procedure',
+    'money laundering financial crimes',
+    'securities fraud insider trading',
+    'bank secrecy anti-money laundering',
+    'criminal forfeiture asset seizure',
+    'judicial administration court rules',
+    'tax evasion IRS civil penalties',
+    'whistleblower retaliation discrimination',
+]
 
 
 class AuthorityIngester:
@@ -56,8 +63,17 @@ class AuthorityIngester:
                              jurisdiction: str = 'NYS') -> int:
         """
         Ingest NYS statutes from the NY Senate Open Legislation API.
+        Requires a free API token from https://legislation.nysenate.gov/register
         Returns count of authorities ingested.
         """
+        if not self.nysenate_token:
+            logger.warning(
+                "NYS Senate ingestion skipped — API token required. "
+                "Register for a free key at https://legislation.nysenate.gov/register "
+                "and set NYSENATE_API_TOKEN in the container environment."
+            )
+            return 0
+
         if law_ids is None:
             law_ids = NYS_STATUTE_IDS
 
@@ -132,77 +148,127 @@ class AuthorityIngester:
     def ingest_ecfr(self, title_numbers: List[str] = None,
                     jurisdiction: str = 'US') -> int:
         """
-        Ingest federal regulations from the eCFR API.
+        Ingest federal regulations using the eCFR Search API (free, no key).
+        Runs targeted queries across legally relevant topics and titles.
         Returns count of regulations ingested.
         """
-        if title_numbers is None:
-            title_numbers = ['28']  # Judicial Administration by default
-
         count = 0
-        for title_num in title_numbers:
+        seen_citations: set = set()
+
+        for query in ECFR_SEARCH_QUERIES:
             try:
-                count += self._ingest_ecfr_title(title_num, jurisdiction)
-                time.sleep(0.5)
+                params = {
+                    'query':    query,
+                    'per_page': 20,
+                    'page':     1,
+                }
+                resp = self.session.get(
+                    f'{ECFR_SEARCH_BASE}/results',
+                    params=params,
+                    timeout=self.timeout,
+                )
+                if not resp.ok:
+                    logger.warning(f"eCFR search '{query}' failed: {resp.status_code}")
+                    continue
+
+                results = resp.json().get('results') or []
+                for sec in results:
+                    try:
+                        h   = sec.get('hierarchy') or {}
+                        hh  = sec.get('hierarchy_headings') or {}
+                        title_num = h.get('title', '')
+                        section   = h.get('section', '') or h.get('part', '')
+                        citation  = f"{title_num} C.F.R. § {section}" if section else f"CFR Title {title_num}"
+                        if citation in seen_citations:
+                            continue
+                        seen_citations.add(citation)
+
+                        sec_label = (sec.get('headings') or {}).get('section', '') or citation
+                        text      = sec.get('full_text_excerpt') or ''
+                        source_url = (
+                            f"https://www.ecfr.gov/current/title-{title_num}/section-{section}"
+                            if section else f"https://www.ecfr.gov/current/title-{title_num}"
+                        )
+
+                        upsert_authority_corpus_entry(
+                            citation=citation,
+                            source='ecfr',
+                            jurisdiction=jurisdiction,
+                            authority_type='regulation',
+                            title=sec_label,
+                            content_text=text,
+                            source_url=source_url,
+                            reliability='official',
+                        )
+                        count += 1
+                    except Exception as e:
+                        logger.warning(f"Failed to ingest eCFR section: {e}")
+
+                time.sleep(0.3)
+
             except Exception as e:
-                logger.error(f"eCFR ingestion failed for title {title_num}: {e}")
+                logger.error(f"eCFR ingestion query '{query}' failed: {e}")
 
         logger.info(f"eCFR ingestion complete: {count} regulations ingested")
         return count
 
-    def _ingest_ecfr_title(self, title_num: str, jurisdiction: str) -> int:
-        """Ingest a single eCFR title."""
+    def ingest_federal_register(self, jurisdiction: str = 'US',
+                                 max_results: int = 120) -> int:
+        """
+        Ingest regulatory documents from the Federal Register API (free, no key).
+        Searches legally-relevant topics: fraud, enforcement, AML, securities, tax.
+        """
         count = 0
-        try:
-            url = f'{ECFR_BASE}/full/{datetime.now().strftime("%Y-%m-%d")}/title-{title_num}.json'
-            resp = self.session.get(url, timeout=self.timeout)
-            if not resp.ok:
-                logger.warning(f"eCFR title {title_num} fetch failed: {resp.status_code}")
-                return 0
+        topics = [
+            'fraud criminal enforcement penalty',
+            'anti-money laundering bank secrecy',
+            'securities fraud insider trading',
+            'tax evasion civil penalty',
+            'consumer protection unfair deceptive',
+            'civil rights discrimination employment',
+        ]
+        per_topic = max(10, max_results // len(topics))
 
-            data = resp.json()
-            sections = self._extract_ecfr_sections(data, title_num)
+        for topic in topics:
+            try:
+                # Build URL manually to properly encode array params
+                base = f'{FEDERAL_REGISTER_BASE}/documents.json'
+                url  = (f'{base}?conditions[term]={requests.utils.quote(topic)}'
+                        f'&per_page={per_topic}'
+                        f'&fields[]=title&fields[]=citation&fields[]=html_url&fields[]=abstract'
+                        f'&order=relevance')
+                resp = self.session.get(url, timeout=self.timeout)
+                if not resp.ok:
+                    logger.warning(f"Federal Register topic '{topic}' failed: {resp.status_code}")
+                    continue
 
-            for sec in sections[:100]:
-                try:
-                    citation = f"{title_num} C.F.R. § {sec.get('identifier', '')}"
-                    corpus_id = upsert_authority_corpus_entry(
-                        citation=citation,
-                        source='ecfr',
-                        jurisdiction=jurisdiction,
-                        authority_type='regulation',
-                        title=sec.get('label', citation),
-                        content_text=sec.get('text', ''),
-                        source_url=f'https://www.ecfr.gov/current/title-{title_num}/section-{sec.get("identifier","")}',
-                        reliability='official',
-                    )
-                    count += 1
-                except Exception as e:
-                    logger.warning(f"Failed to ingest eCFR section: {e}")
+                for doc in (resp.json().get('results') or []):
+                    try:
+                        citation = doc.get('citation') or doc.get('document_number', '')
+                        title    = doc.get('title', '')
+                        text     = doc.get('abstract') or ''
+                        url_doc  = doc.get('html_url', '')
+                        upsert_authority_corpus_entry(
+                            citation=citation,
+                            source='federal_register',
+                            jurisdiction=jurisdiction,
+                            authority_type='regulation',
+                            title=title,
+                            content_text=text,
+                            source_url=url_doc,
+                            reliability='official',
+                        )
+                        count += 1
+                    except Exception as e:
+                        logger.warning(f"Federal Register doc ingest failed: {e}")
 
-        except Exception as e:
-            logger.error(f"_ingest_ecfr_title failed for title {title_num}: {e}")
+                time.sleep(0.3)
 
+            except Exception as e:
+                logger.error(f"Federal Register topic '{topic}' failed: {e}")
+
+        logger.info(f"Federal Register ingestion complete: {count} documents ingested")
         return count
-
-    def _extract_ecfr_sections(self, data: dict, title_num: str,
-                                result: list = None) -> list:
-        """Recursively extract sections from eCFR JSON tree."""
-        if result is None:
-            result = []
-        if data.get('type') == 'SECTION':
-            text = ' '.join(
-                p.get('text', '') for p in data.get('children', [])
-                if isinstance(p, dict) and p.get('type') == 'P'
-            )
-            result.append({
-                'identifier': data.get('identifier', ''),
-                'label': data.get('label', ''),
-                'text': text,
-            })
-        for child in data.get('children', []):
-            if isinstance(child, dict):
-                self._extract_ecfr_sections(child, title_num, result)
-        return result
 
     def ingest_courtlistener_opinions(self, jurisdictions: List[str],
                                        query: str = 'CPLR OR bankruptcy OR fraud',
@@ -227,7 +293,7 @@ class AuthorityIngester:
 
             resp = self.session.get(
                 f'{COURTLISTENER_BASE}/search/',
-                params=params,
+                params={**params, 'format': 'json'},
                 timeout=self.timeout,
             )
             if not resp.ok:
@@ -237,7 +303,12 @@ class AuthorityIngester:
             results = resp.json().get('results', [])
             for opinion in results[:max_results]:
                 try:
-                    citation = opinion.get('citation', '') or opinion.get('caseName', 'Unknown')
+                    # v4 API returns citation as a list; join or take first
+                    raw_cite = opinion.get('citation') or opinion.get('caseName', 'Unknown')
+                    if isinstance(raw_cite, list):
+                        citation = raw_cite[0] if raw_cite else opinion.get('caseName', 'Unknown')
+                    else:
+                        citation = raw_cite or opinion.get('caseName', 'Unknown')
                     corpus_id = upsert_authority_corpus_entry(
                         citation=citation,
                         source='courtlistener',
@@ -280,12 +351,13 @@ class AuthorityIngester:
         Args:
             jurisdiction_profile: JurisdictionProfile to filter relevance
             sources: List of source names to use (default: all)
+                     Valid values: nysenate, ecfr, federal_register, courtlistener
 
         Returns:
             Dict with counts per source.
         """
         if sources is None:
-            sources = ['nysenate', 'ecfr', 'courtlistener']
+            sources = ['nysenate', 'ecfr', 'federal_register', 'courtlistener']
 
         results = {}
 
@@ -294,6 +366,9 @@ class AuthorityIngester:
 
         if 'ecfr' in sources:
             results['ecfr'] = self.ingest_ecfr()
+
+        if 'federal_register' in sources:
+            results['federal_register'] = self.ingest_federal_register()
 
         if 'courtlistener' in sources:
             jurisdictions = ['NYS', 'SDNY', 'US']
