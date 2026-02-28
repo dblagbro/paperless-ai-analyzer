@@ -4,7 +4,7 @@ All notable changes to Paperless AI Analyzer are documented here.
 
 ---
 
-## v3.6.5 — 2026-02-28 (updated 2026-02-28)
+## v3.6.5 — 2026-02-28 (updated 2026-02-28 — pass 3)
 
 ### Added
 - **CI Web Research (Phase W)** — New phase runs between Phase 1 (extraction) and Phase 2 (synthesis):
@@ -19,6 +19,23 @@ All notable changes to Paperless AI Analyzer are documented here.
   - Web-sourced legal authorities are automatically added to the `ci_authorities` table and injected into the Authorities manager results.
   - Entity background summaries are injected into the Theory Ledger generation prompt as additional context.
   - New DB table `ci_web_research` stores all search results per run with search type, query, source, and JSON results.
+- **Expanded Web Research sources** — 12+ new data source integrations across 5 categories, each with checkboxes and key fields:
+  - **Case Law**: Docket Alarm (675M fed+state dockets, $99/mo), UniCourt (normalized court data, OAuth)
+  - **Web Search**: Brave Search (independent index, $5/1k), Google Custom Search (100/day free), Exa AI (neural/semantic, $7/1k), Perplexity Sonar (AI-synthesized answers with citations)
+  - **Public Records & Background** (new category): BOP Federal Inmate Locator (free, criminal history since 1982), OFAC/Treasury Sanctions (free SDN list), SEC EDGAR full-text (free, securities filings), FEC campaign finance (free key), OpenSanctions (€0.10/call, sanctions+PEPs), OpenCorporates (200M business entities), CLEAR by Thomson Reuters (enterprise background intelligence)
+  - **News & Media** (new category): GDELT global news (free, real-time, 65+ languages), NewsAPI (150k-source archive)
+  - **Enterprise Legal**: vLex (global case law, 100+ countries), Westlaw Edge (Thomson Reuters)
+  - WEB RESEARCH card reorganized into 5 labeled collapsible subsections with clear FREE vs paid labels
+  - All new keys wired into `ciGetConfig()` → sent to `WebResearcher` in Phase W
+- **Entity grouping in findings** — Entities section now shows groups instead of one flat list:
+  - 9 groups: People, Organizations, Law Firms, Courts, Bank Accounts, Addresses & Properties, Locations, Documents & Filings, Other
+  - Each group is a `<details>` accordion showing the item count; click to expand
+  - First group auto-expanded; all others collapsed — solves the 7,904-item single-list problem
+- **Chronology by year** — Timeline accordion now groups events by year (newest year open, others collapsed); each year header shows event count
+- **Key Findings — Judgments & Rulings surface** — Key Findings section now always surfaces:
+  - **Judgments & Rulings** block: filters timeline events matching judgment/ruling/order/verdict/conviction/dismissal/settlement types and displays them prominently even when Director synthesis was not generated
+  - **Financial Amounts** block: highlights events mentioning dollar amounts
+  - Count label updated to reflect both AI findings + extracted rulings count
 - **Authority Corpus management UI** — New "📚 AUTHORITY CORPUS" collapsible card in the CI Setup sub-tab:
   - Displays live corpus status (vector count, Cohere availability) on page load and on sub-tab switch.
   - Per-source checkboxes: NYS Senate Open Legislation (statutes), eCFR federal regulations, CourtListener opinions — all free, no keys required.

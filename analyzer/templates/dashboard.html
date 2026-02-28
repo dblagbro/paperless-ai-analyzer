@@ -3431,86 +3431,278 @@
                 </h4>
                 <div id="ci-wr-body">
                     <div style="font-size:12px; color:#666; margin-bottom:10px; line-height:1.5;">
-                        Augment the analysis with live sources: case law databases, entity background checks,
-                        and web search — going beyond the AI's training data. Results are injected into
-                        theory generation and authority retrieval. Role-aware: searches are biased toward
-                        strengthening your position as <strong id="ci-wr-role-label">the selected role</strong>.
+                        Augment analysis with live data sources: case law, public records, background checks,
+                        news, and AI-powered search — beyond the LLM's training data. Results are injected into
+                        theory generation and authority retrieval.
+                        Role-aware: searches bias toward your position as <strong id="ci-wr-role-label">the selected role</strong>.
                     </div>
 
-                    <div style="display:flex; flex-wrap:wrap; gap:18px; font-size:13px;">
+                    <!-- Master enable toggle -->
+                    <label style="display:flex; align-items:center; gap:8px; margin-bottom:12px; cursor:pointer; font-size:13px; font-weight:600;">
+                        <input type="checkbox" id="ci-wr-enabled" onchange="ciUpdateWrRoleLabel()" style="accent-color:#2c3e50; width:16px; height:16px;">
+                        Enable Phase W — Web Research
+                    </label>
 
-                        <!-- Free sources -->
-                        <div style="flex:0 0 auto; min-width:220px;">
-                            <div style="font-weight:700; color:#2c3e50; margin-bottom:8px;">
-                                🆓 Free sources (no key required)
-                            </div>
-                            <label style="display:flex; align-items:center; gap:6px; margin-bottom:6px; cursor:pointer;">
-                                <input type="checkbox" id="ci-wr-enabled" onchange="ciUpdateWrRoleLabel()"
-                                       style="accent-color:#2c3e50;">
-                                <strong>Enable web research</strong>
+                    <div id="ci-wr-all-opts" style="opacity:0.5; pointer-events:none;">
+
+                    <!-- ── SECTION 1: Case Law Sources ──────────────────────── -->
+                    <details class="ci-wr-section" open>
+                        <summary style="font-weight:700; color:#2c3e50; font-size:12px; padding:5px 0; cursor:pointer; list-style:none; display:flex; align-items:center; gap:6px; user-select:none;">
+                            ⚖️ Case Law Sources
+                        </summary>
+                        <div style="margin:6px 0 4px 16px;">
+                            <label style="display:flex; align-items:center; gap:6px; margin-bottom:4px; font-size:12px; cursor:pointer;">
+                                <input type="checkbox" id="ci-wr-courtlistener" checked>
+                                CourtListener — federal opinions &amp; party history
+                                <span style="color:#27ae60; font-size:10px;">FREE</span>
                             </label>
-                            <div id="ci-wr-free-opts" style="margin-left:20px; opacity:0.5; pointer-events:none;">
-                                <label style="display:flex; align-items:center; gap:6px; margin-bottom:4px; cursor:pointer;">
-                                    <input type="checkbox" id="ci-wr-courtlistener" checked>
-                                    CourtListener — federal case law &amp; opinions
+                            <label style="display:flex; align-items:center; gap:6px; margin-bottom:4px; font-size:12px; cursor:pointer;">
+                                <input type="checkbox" id="ci-wr-caselaw" checked>
+                                Harvard Caselaw Access — 6.7M US cases
+                                <span style="color:#27ae60; font-size:10px;">FREE</span>
+                            </label>
+                            <!-- Docket Alarm -->
+                            <div style="display:flex; align-items:center; gap:6px; margin-bottom:4px; flex-wrap:wrap;">
+                                <input type="checkbox" id="ci-wr-docket-cb">
+                                <label for="ci-wr-docket-cb" style="min-width:160px; font-size:12px; cursor:pointer;">
+                                    Docket Alarm — 675M fed+state dockets
+                                    <span style="color:#e67e22; font-size:10px;">$99/mo</span>
                                 </label>
-                                <label style="display:flex; align-items:center; gap:6px; margin-bottom:4px; cursor:pointer;">
-                                    <input type="checkbox" id="ci-wr-caselaw" checked>
-                                    Harvard Caselaw Access — 6.7M US cases
+                                <input type="text" id="ci-wr-docket-user" placeholder="username"
+                                       style="padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; width:110px;">
+                                <input type="password" id="ci-wr-docket-pass" placeholder="password"
+                                       style="padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; width:110px;">
+                            </div>
+                            <!-- UniCourt -->
+                            <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+                                <input type="checkbox" id="ci-wr-unicourt-cb">
+                                <label for="ci-wr-unicourt-cb" style="min-width:160px; font-size:12px; cursor:pointer;">
+                                    UniCourt — normalized fed+state cases
+                                    <span style="color:#e67e22; font-size:10px;">$49-299/mo</span>
                                 </label>
-                                <label style="display:flex; align-items:center; gap:6px; margin-bottom:4px; cursor:pointer;">
-                                    <input type="checkbox" id="ci-wr-entity" checked>
-                                    Entity background — court history &amp; news
-                                </label>
-                                <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
-                                    <input type="checkbox" id="ci-wr-general" checked>
-                                    General web search (DuckDuckGo)
-                                </label>
+                                <input type="text" id="ci-wr-unicourt-id" placeholder="client ID"
+                                       style="padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; width:110px;">
+                                <input type="password" id="ci-wr-unicourt-secret" placeholder="client secret"
+                                       style="padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; width:110px;">
                             </div>
                         </div>
+                    </details>
 
-                        <!-- Paid sources -->
-                        <div style="flex:1 1 260px; min-width:220px;">
-                            <div style="font-weight:700; color:#8e44ad; margin-bottom:8px;">
-                                💳 Optional paid sources (enter API key)
+                    <!-- ── SECTION 2: Web Search ───────────────────────────── -->
+                    <details class="ci-wr-section" open>
+                        <summary style="font-weight:700; color:#2c3e50; font-size:12px; padding:5px 0; cursor:pointer; list-style:none; display:flex; align-items:center; gap:6px; user-select:none;">
+                            🔍 Web Search
+                        </summary>
+                        <div style="margin:6px 0 4px 16px;">
+                            <label style="display:flex; align-items:center; gap:6px; margin-bottom:4px; font-size:12px; cursor:pointer;">
+                                <input type="checkbox" id="ci-wr-general" checked>
+                                DuckDuckGo — general web search
+                                <span style="color:#27ae60; font-size:10px;">FREE</span>
+                            </label>
+                            <!-- Brave -->
+                            <div style="display:flex; align-items:center; gap:6px; margin-bottom:4px;">
+                                <input type="checkbox" id="ci-wr-brave-cb">
+                                <label for="ci-wr-brave-cb" style="min-width:160px; font-size:12px; cursor:pointer;">
+                                    Brave Search — independent index
+                                    <span style="color:#e67e22; font-size:10px;">$5/1k</span>
+                                </label>
+                                <input type="password" id="ci-wr-brave-key" placeholder="API key"
+                                       style="padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; width:180px;">
                             </div>
-                            <div id="ci-wr-paid-opts" style="opacity:0.5; pointer-events:none;">
-                                <div style="display:flex; align-items:center; gap:6px; margin-bottom:6px;">
-                                    <input type="checkbox" id="ci-wr-tavily-cb">
-                                    <label for="ci-wr-tavily-cb" style="min-width:120px; cursor:pointer;">
-                                        Tavily AI search
-                                        <span style="font-size:10px; color:#888;">(free tier: 1k/mo)</span>
-                                    </label>
-                                    <input type="password" id="ci-wr-tavily-key" placeholder="tvly-…"
-                                           style="flex:1; padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; max-width:180px;">
-                                </div>
-                                <div style="display:flex; align-items:center; gap:6px; margin-bottom:6px;">
-                                    <input type="checkbox" id="ci-wr-serper-cb">
-                                    <label for="ci-wr-serper-cb" style="min-width:120px; cursor:pointer;">
-                                        Serper.dev (Google)
-                                        <span style="font-size:10px; color:#888;">($50/50k)</span>
-                                    </label>
-                                    <input type="password" id="ci-wr-serper-key" placeholder="API key"
-                                           style="flex:1; padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; max-width:180px;">
-                                </div>
-                                <div style="display:flex; align-items:center; gap:6px;">
-                                    <input type="checkbox" id="ci-wr-lexis-cb">
-                                    <label for="ci-wr-lexis-cb" style="min-width:120px; cursor:pointer;">
-                                        Lexis-Nexis
-                                        <span style="font-size:10px; color:#888;">(enterprise)</span>
-                                    </label>
-                                    <input type="password" id="ci-wr-lexis-key" placeholder="Bearer token"
-                                           style="flex:1; padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; max-width:180px;">
-                                </div>
+                            <!-- Google CSE -->
+                            <div style="display:flex; align-items:center; gap:6px; margin-bottom:4px; flex-wrap:wrap;">
+                                <input type="checkbox" id="ci-wr-gcse-cb">
+                                <label for="ci-wr-gcse-cb" style="min-width:160px; font-size:12px; cursor:pointer;">
+                                    Google Custom Search
+                                    <span style="color:#27ae60; font-size:10px;">100/day free</span>
+                                </label>
+                                <input type="password" id="ci-wr-gcse-key" placeholder="API key"
+                                       style="padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; width:120px;">
+                                <input type="text" id="ci-wr-gcse-cx" placeholder="CX engine ID"
+                                       style="padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; width:130px;">
+                            </div>
+                            <!-- Exa AI -->
+                            <div style="display:flex; align-items:center; gap:6px; margin-bottom:4px;">
+                                <input type="checkbox" id="ci-wr-exa-cb">
+                                <label for="ci-wr-exa-cb" style="min-width:160px; font-size:12px; cursor:pointer;">
+                                    Exa AI — neural/semantic search
+                                    <span style="color:#e67e22; font-size:10px;">$7/1k</span>
+                                </label>
+                                <input type="password" id="ci-wr-exa-key" placeholder="API key"
+                                       style="padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; width:180px;">
+                            </div>
+                            <!-- Perplexity -->
+                            <div style="display:flex; align-items:center; gap:6px; margin-bottom:4px;">
+                                <input type="checkbox" id="ci-wr-perplexity-cb">
+                                <label for="ci-wr-perplexity-cb" style="min-width:160px; font-size:12px; cursor:pointer;">
+                                    Perplexity Sonar — AI answers + citations
+                                    <span style="color:#e67e22; font-size:10px;">~$5/1k</span>
+                                </label>
+                                <input type="password" id="ci-wr-perplexity-key" placeholder="pplx-…"
+                                       style="padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; width:180px;">
+                            </div>
+                            <!-- Tavily -->
+                            <div style="display:flex; align-items:center; gap:6px; margin-bottom:4px;">
+                                <input type="checkbox" id="ci-wr-tavily-cb">
+                                <label for="ci-wr-tavily-cb" style="min-width:160px; font-size:12px; cursor:pointer;">
+                                    Tavily AI — optimized search
+                                    <span style="color:#27ae60; font-size:10px;">1k/mo free</span>
+                                </label>
+                                <input type="password" id="ci-wr-tavily-key" placeholder="tvly-…"
+                                       style="padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; width:180px;">
+                            </div>
+                            <!-- Serper -->
+                            <div style="display:flex; align-items:center; gap:6px;">
+                                <input type="checkbox" id="ci-wr-serper-cb">
+                                <label for="ci-wr-serper-cb" style="min-width:160px; font-size:12px; cursor:pointer;">
+                                    Serper.dev — Google results API
+                                    <span style="color:#e67e22; font-size:10px;">$50/50k</span>
+                                </label>
+                                <input type="password" id="ci-wr-serper-key" placeholder="API key"
+                                       style="padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; width:180px;">
                             </div>
                         </div>
-                    </div>
+                    </details>
+
+                    <!-- ── SECTION 3: Public Records & Background ──────────── -->
+                    <details class="ci-wr-section" open>
+                        <summary style="font-weight:700; color:#2c3e50; font-size:12px; padding:5px 0; cursor:pointer; list-style:none; display:flex; align-items:center; gap:6px; user-select:none;">
+                            🔎 Public Records &amp; Background
+                        </summary>
+                        <div style="margin:6px 0 4px 16px;">
+                            <label style="display:flex; align-items:center; gap:6px; margin-bottom:4px; font-size:12px; cursor:pointer;">
+                                <input type="checkbox" id="ci-wr-entity" checked>
+                                Entity background research — court history &amp; web news
+                                <span style="color:#27ae60; font-size:10px;">FREE</span>
+                            </label>
+                            <label style="display:flex; align-items:center; gap:6px; margin-bottom:4px; font-size:12px; cursor:pointer;">
+                                <input type="checkbox" id="ci-wr-bop" checked>
+                                BOP Federal Inmate Locator — criminal history since 1982
+                                <span style="color:#27ae60; font-size:10px;">FREE</span>
+                            </label>
+                            <label style="display:flex; align-items:center; gap:6px; margin-bottom:4px; font-size:12px; cursor:pointer;">
+                                <input type="checkbox" id="ci-wr-ofac" checked>
+                                OFAC/Treasury Sanctions list — SDN + consolidated
+                                <span style="color:#27ae60; font-size:10px;">FREE</span>
+                            </label>
+                            <label style="display:flex; align-items:center; gap:6px; margin-bottom:4px; font-size:12px; cursor:pointer;">
+                                <input type="checkbox" id="ci-wr-sec" checked>
+                                SEC EDGAR — securities filings &amp; enforcement actions
+                                <span style="color:#27ae60; font-size:10px;">FREE</span>
+                            </label>
+                            <!-- FEC -->
+                            <div style="display:flex; align-items:center; gap:6px; margin-bottom:4px;">
+                                <input type="checkbox" id="ci-wr-fec-cb">
+                                <label for="ci-wr-fec-cb" style="min-width:160px; font-size:12px; cursor:pointer;">
+                                    FEC — campaign finance donations
+                                    <span style="color:#27ae60; font-size:10px;">FREE key</span>
+                                </label>
+                                <input type="text" id="ci-wr-fec-key" placeholder="api.open.fec.gov key"
+                                       style="padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; width:200px;">
+                            </div>
+                            <!-- OpenSanctions -->
+                            <div style="display:flex; align-items:center; gap:6px; margin-bottom:4px;">
+                                <input type="checkbox" id="ci-wr-opensanctions-cb">
+                                <label for="ci-wr-opensanctions-cb" style="min-width:160px; font-size:12px; cursor:pointer;">
+                                    OpenSanctions — sanctions &amp; PEP database
+                                    <span style="color:#e67e22; font-size:10px;">~€0.10/call</span>
+                                </label>
+                                <input type="password" id="ci-wr-opensanctions-key" placeholder="API key"
+                                       style="padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; width:180px;">
+                            </div>
+                            <!-- OpenCorporates -->
+                            <div style="display:flex; align-items:center; gap:6px; margin-bottom:4px;">
+                                <input type="checkbox" id="ci-wr-opencorp-cb">
+                                <label for="ci-wr-opencorp-cb" style="min-width:160px; font-size:12px; cursor:pointer;">
+                                    OpenCorporates — 200M business entities
+                                    <span style="color:#c0392b; font-size:10px;">paid key</span>
+                                </label>
+                                <input type="password" id="ci-wr-opencorp-key" placeholder="API token"
+                                       style="padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; width:180px;">
+                            </div>
+                            <!-- CLEAR -->
+                            <div style="display:flex; align-items:center; gap:6px;">
+                                <input type="checkbox" id="ci-wr-clear-cb">
+                                <label for="ci-wr-clear-cb" style="min-width:160px; font-size:12px; cursor:pointer;">
+                                    CLEAR (Thomson Reuters) — comprehensive background
+                                    <span style="color:#c0392b; font-size:10px;">enterprise</span>
+                                </label>
+                                <input type="password" id="ci-wr-clear-key" placeholder="API key"
+                                       style="padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; width:180px;">
+                            </div>
+                        </div>
+                    </details>
+
+                    <!-- ── SECTION 4: News & Media ─────────────────────────── -->
+                    <details class="ci-wr-section" open>
+                        <summary style="font-weight:700; color:#2c3e50; font-size:12px; padding:5px 0; cursor:pointer; list-style:none; display:flex; align-items:center; gap:6px; user-select:none;">
+                            📰 News &amp; Media
+                        </summary>
+                        <div style="margin:6px 0 4px 16px;">
+                            <label style="display:flex; align-items:center; gap:6px; margin-bottom:4px; font-size:12px; cursor:pointer;">
+                                <input type="checkbox" id="ci-wr-gdelt" checked>
+                                GDELT — global news events (real-time, 65+ languages)
+                                <span style="color:#27ae60; font-size:10px;">FREE</span>
+                            </label>
+                            <!-- NewsAPI -->
+                            <div style="display:flex; align-items:center; gap:6px;">
+                                <input type="checkbox" id="ci-wr-newsapi-cb">
+                                <label for="ci-wr-newsapi-cb" style="min-width:160px; font-size:12px; cursor:pointer;">
+                                    NewsAPI — 150k-source news archive
+                                    <span style="color:#c0392b; font-size:10px;">$449/mo</span>
+                                </label>
+                                <input type="password" id="ci-wr-newsapi-key" placeholder="API key"
+                                       style="padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; width:180px;">
+                            </div>
+                        </div>
+                    </details>
+
+                    <!-- ── SECTION 5: Enterprise Legal Research ────────────── -->
+                    <details class="ci-wr-section">
+                        <summary style="font-weight:700; color:#2c3e50; font-size:12px; padding:5px 0; cursor:pointer; list-style:none; display:flex; align-items:center; gap:6px; user-select:none;">
+                            💼 Enterprise Legal Research
+                        </summary>
+                        <div style="margin:6px 0 4px 16px;">
+                            <!-- Lexis-Nexis -->
+                            <div style="display:flex; align-items:center; gap:6px; margin-bottom:4px;">
+                                <input type="checkbox" id="ci-wr-lexis-cb">
+                                <label for="ci-wr-lexis-cb" style="min-width:160px; font-size:12px; cursor:pointer;">
+                                    Lexis-Nexis — enterprise case law API
+                                    <span style="color:#c0392b; font-size:10px;">enterprise</span>
+                                </label>
+                                <input type="password" id="ci-wr-lexis-key" placeholder="Bearer token"
+                                       style="padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; width:180px;">
+                            </div>
+                            <!-- vLex -->
+                            <div style="display:flex; align-items:center; gap:6px; margin-bottom:4px;">
+                                <input type="checkbox" id="ci-wr-vlex-cb">
+                                <label for="ci-wr-vlex-cb" style="min-width:160px; font-size:12px; cursor:pointer;">
+                                    vLex — global case law, 100+ countries
+                                    <span style="color:#c0392b; font-size:10px;">subscription</span>
+                                </label>
+                                <input type="password" id="ci-wr-vlex-key" placeholder="API key"
+                                       style="padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; width:180px;">
+                            </div>
+                            <!-- Westlaw -->
+                            <div style="display:flex; align-items:center; gap:6px;">
+                                <input type="checkbox" id="ci-wr-westlaw-cb">
+                                <label for="ci-wr-westlaw-cb" style="min-width:160px; font-size:12px; cursor:pointer;">
+                                    Westlaw Edge (Thomson Reuters)
+                                    <span style="color:#c0392b; font-size:10px;">enterprise</span>
+                                </label>
+                                <input type="password" id="ci-wr-westlaw-key" placeholder="API key"
+                                       style="padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; width:180px;">
+                            </div>
+                        </div>
+                    </details>
+
+                    </div><!-- /ci-wr-all-opts -->
 
                     <div id="ci-wr-note" style="display:none; margin-top:10px; padding:7px 10px;
                          background:#eafaf1; border:1px solid #a9dfbf; border-radius:5px;
                          font-size:12px; color:#1e8449;">
                         ✅ Web research enabled — Phase W will run between extraction and synthesis.
-                        Entity background research and case law will be injected into theory generation.
+                        Entity background, public records, news, and case law will be injected into theory generation.
                     </div>
                 </div>
             </div>
@@ -8850,23 +9042,47 @@
         };
         // Build web_research_config from WEB RESEARCH section
         const wrEnabled = document.getElementById('ci-wr-enabled')?.checked || false;
+        const _wrVal = (id) => (document.getElementById(id)?.value || '').trim();
+        const _wrCk  = (id) => document.getElementById(id)?.checked || false;
+        const _wrKey = (cbId, keyId, cfgKey) => {
+            const k = _wrVal(keyId);
+            return (_wrCk(cbId) && k) ? {[cfgKey]: k} : {};
+        };
         const web_research_config = {
             enabled:         wrEnabled,
-            courtlistener:   document.getElementById('ci-wr-courtlistener')?.checked ?? true,
-            caselaw_api:     document.getElementById('ci-wr-caselaw')?.checked ?? true,
-            entity_research: document.getElementById('ci-wr-entity')?.checked ?? true,
-            general_search:  document.getElementById('ci-wr-general')?.checked ?? true,
+            // Case law (free)
+            courtlistener:   _wrCk('ci-wr-courtlistener'),
+            caselaw_api:     _wrCk('ci-wr-caselaw'),
             legal_search:    true,
-            // Paid keys (only include if checkbox checked and key provided)
-            ...(document.getElementById('ci-wr-tavily-cb')?.checked &&
-                document.getElementById('ci-wr-tavily-key')?.value
-                ? { tavily_key: document.getElementById('ci-wr-tavily-key').value.trim() } : {}),
-            ...(document.getElementById('ci-wr-serper-cb')?.checked &&
-                document.getElementById('ci-wr-serper-key')?.value
-                ? { serper_key: document.getElementById('ci-wr-serper-key').value.trim() } : {}),
-            ...(document.getElementById('ci-wr-lexis-cb')?.checked &&
-                document.getElementById('ci-wr-lexis-key')?.value
-                ? { lexisnexis_key: document.getElementById('ci-wr-lexis-key').value.trim() } : {}),
+            // Web search (free)
+            general_search:  _wrCk('ci-wr-general'),
+            // Public records (free toggles)
+            entity_research: _wrCk('ci-wr-entity'),
+            bop_search:      _wrCk('ci-wr-bop'),
+            ofac_search:     _wrCk('ci-wr-ofac'),
+            sec_edgar:       _wrCk('ci-wr-sec'),
+            // News (free)
+            gdelt_news:      _wrCk('ci-wr-gdelt'),
+            // Paid keys — only included when checkbox is checked and key is non-empty
+            ..._wrKey('ci-wr-docket-cb',       'ci-wr-docket-user',         'docket_alarm_user'),
+            ..._wrKey('ci-wr-docket-cb',       'ci-wr-docket-pass',         'docket_alarm_pass'),
+            ..._wrKey('ci-wr-unicourt-cb',     'ci-wr-unicourt-id',         'unicourt_id'),
+            ..._wrKey('ci-wr-unicourt-cb',     'ci-wr-unicourt-secret',     'unicourt_secret'),
+            ..._wrKey('ci-wr-brave-cb',        'ci-wr-brave-key',           'brave_key'),
+            ..._wrKey('ci-wr-gcse-cb',         'ci-wr-gcse-key',            'google_cse_key'),
+            ..._wrKey('ci-wr-gcse-cb',         'ci-wr-gcse-cx',             'google_cse_cx'),
+            ..._wrKey('ci-wr-exa-cb',          'ci-wr-exa-key',             'exa_key'),
+            ..._wrKey('ci-wr-perplexity-cb',   'ci-wr-perplexity-key',      'perplexity_key'),
+            ..._wrKey('ci-wr-tavily-cb',       'ci-wr-tavily-key',          'tavily_key'),
+            ..._wrKey('ci-wr-serper-cb',       'ci-wr-serper-key',          'serper_key'),
+            ..._wrKey('ci-wr-fec-cb',          'ci-wr-fec-key',             'fec_key'),
+            ..._wrKey('ci-wr-opensanctions-cb','ci-wr-opensanctions-key',   'opensanctions_key'),
+            ..._wrKey('ci-wr-opencorp-cb',     'ci-wr-opencorp-key',        'opencorporates_key'),
+            ..._wrKey('ci-wr-clear-cb',        'ci-wr-clear-key',           'clear_key'),
+            ..._wrKey('ci-wr-newsapi-cb',      'ci-wr-newsapi-key',         'newsapi_key'),
+            ..._wrKey('ci-wr-lexis-cb',        'ci-wr-lexis-key',           'lexisnexis_key'),
+            ..._wrKey('ci-wr-vlex-cb',         'ci-wr-vlex-key',            'vlex_key'),
+            ..._wrKey('ci-wr-westlaw-cb',      'ci-wr-westlaw-key',         'westlaw_key'),
         };
 
         return {
@@ -8893,15 +9109,13 @@
 
     function ciUpdateWrRoleLabel() {
         const enabled = document.getElementById('ci-wr-enabled')?.checked;
-        const freeOpts  = document.getElementById('ci-wr-free-opts');
-        const paidOpts  = document.getElementById('ci-wr-paid-opts');
-        const note      = document.getElementById('ci-wr-note');
-        if (freeOpts)  freeOpts.style.opacity = enabled ? '1' : '0.5';
-        if (freeOpts)  freeOpts.style.pointerEvents = enabled ? '' : 'none';
-        if (paidOpts)  paidOpts.style.opacity = enabled ? '1' : '0.5';
-        if (paidOpts)  paidOpts.style.pointerEvents = enabled ? '' : 'none';
-        if (note)      note.style.display = enabled ? '' : 'none';
-        // Update role label
+        const allOpts = document.getElementById('ci-wr-all-opts');
+        const note    = document.getElementById('ci-wr-note');
+        if (allOpts) {
+            allOpts.style.opacity      = enabled ? '1' : '0.5';
+            allOpts.style.pointerEvents = enabled ? '' : 'none';
+        }
+        if (note) note.style.display = enabled ? '' : 'none';
         const role = document.getElementById('ci-role')?.value || 'neutral';
         const lbl  = document.getElementById('ci-wr-role-label');
         if (lbl) lbl.textContent = role || 'the selected role';
@@ -9509,11 +9723,53 @@
             document.getElementById('ci-meta-started').textContent = started;
         }
 
-        // Key findings from summary
+        // Key findings — from Director summary, augmented with extracted judgments/rulings
         const kf = document.getElementById('ci-key-findings-list');
         const summary = d.findings_summary;
-        if (summary && summary.key_findings) {
-            kf.innerHTML = summary.key_findings.map(f => `
+
+        // Extract judgment/ruling events from timeline for prominent display
+        const _judgmentTypes = /judgment|judgement|ruling|order|verdict|award|decree|sentence|conviction|acquittal|dismissal|settlement|injunction|hearing|decision|opinion/i;
+        const _moneyRe = /\$[\d,]+|\d+[\s,]+(?:million|thousand|hundred)/i;
+        const allEvents = d.timeline || [];
+        const judgmentEvents = allEvents.filter(ev =>
+            _judgmentTypes.test(ev.event_type || '') || _judgmentTypes.test(ev.description || ''));
+        const moneyEvents   = allEvents.filter(ev =>
+            _moneyRe.test(ev.description || ''));
+
+        // Build prominent Judgments & Rulings block
+        let judgmentHtml = '';
+        if (judgmentEvents.length) {
+            judgmentHtml = `<div style="margin-bottom:12px; padding:10px 14px; background:#eaf4fb; border:1px solid #aed6f1; border-radius:6px;">
+                <div style="font-weight:700; color:#1a5276; font-size:12px; margin-bottom:8px;">
+                    🏛️ Judgments &amp; Rulings <span style="font-weight:400; color:#666;">(${judgmentEvents.length})</span>
+                </div>
+                ${judgmentEvents.slice(0, 12).map(ev => `
+                <div style="display:flex; gap:8px; align-items:flex-start; padding:4px 0; border-bottom:1px solid #d6eaf8; font-size:12px;">
+                    <span class="severity-badge ${ev.significance || 'medium'}" style="flex-shrink:0;">${escapeHtml(ev.event_type || 'ruling')}</span>
+                    <div>
+                        <strong>${escapeHtml(ev.event_date || '')}</strong>
+                        ${ev.event_date ? ' — ' : ''}${escapeHtml(ev.description || '')}
+                    </div>
+                </div>`).join('')}
+            </div>`;
+        }
+
+        // Build monetary totals block from timeline events mentioning money
+        let moneyHtml = '';
+        const moneyDescs = [...new Set(moneyEvents.map(e => e.description).filter(Boolean))].slice(0, 8);
+        if (moneyDescs.length) {
+            moneyHtml = `<div style="margin-bottom:12px; padding:10px 14px; background:#eafaf1; border:1px solid #a9dfbf; border-radius:6px;">
+                <div style="font-weight:700; color:#1e8449; font-size:12px; margin-bottom:8px;">
+                    💰 Financial Amounts &amp; Awards
+                </div>
+                ${moneyDescs.map(desc => `<div style="font-size:12px; padding:3px 0; border-bottom:1px solid #d5f5e3;">
+                    ${escapeHtml(desc)}
+                </div>`).join('')}
+            </div>`;
+        }
+
+        if (summary && summary.key_findings && summary.key_findings.length) {
+            kf.innerHTML = judgmentHtml + moneyHtml + summary.key_findings.map(f => `
                 <div class="ci-finding-item">
                     <span class="severity-badge ${f.severity || 'medium'}">${(f.severity || 'medium').toUpperCase()}</span>
                     <strong>${escapeHtml(f.finding || '')}</strong>
@@ -9521,40 +9777,117 @@
                     ${f.recommended_action ? '<p style="font-size:11px; color:#2980b9; margin:4px 0 0 0;">→ ' + escapeHtml(f.recommended_action) + '</p>' : ''}
                 </div>
             `).join('');
-            document.getElementById('ci-key-findings-count').textContent = '(' + (summary.key_findings.length) + ')';
+            document.getElementById('ci-key-findings-count').textContent =
+                '(' + summary.key_findings.length + (judgmentEvents.length ? ` + ${judgmentEvents.length} rulings` : '') + ')';
         } else {
-            kf.innerHTML = `<div style="background:#fff8f0; border:1px solid #f0d090; border-radius:6px; padding:12px 16px; font-size:12px; color:#666;">
-                <strong style="color:#b8860b;">Key findings summary was not generated for this run.</strong>
-                This section is synthesized by the Director LLM from entities, contradictions, and theories.
-                If this run completed but shows nothing here, the Director synthesis step may have failed or been skipped.
-                <br><br>Try running again with a more specific <em>Goal</em> — e.g.: <em>"Identify all financial transactions made by the receiver and whether they were authorized by the court order."</em>
-            </div>`;
+            // No Director summary — still show extracted judgments + prompt note
+            kf.innerHTML = judgmentHtml + moneyHtml +
+                `<div style="background:#fff8f0; border:1px solid #f0d090; border-radius:6px; padding:12px 16px; font-size:12px; color:#666;">
+                    <strong style="color:#b8860b;">AI key-findings summary was not generated for this run.</strong>
+                    This section is synthesized by the Director LLM from entities, contradictions, and theories.
+                    If this run completed but shows nothing here, the Director synthesis step may have failed or been skipped.
+                    <br><br>Try running again with a more specific <em>Goal</em> — e.g.:
+                    <em>"Identify all financial transactions made by the receiver and whether they were authorized by the court order."</em>
+                </div>`;
+            const rCount = judgmentEvents.length;
+            document.getElementById('ci-key-findings-count').textContent =
+                rCount ? `(${rCount} rulings extracted)` : '';
         }
 
-        // Timeline
+        // Timeline — grouped by year, expandable, newest year open by default
         const tl = document.getElementById('ci-timeline-list');
         const events = d.timeline || [];
         document.getElementById('ci-timeline-count').textContent = '(' + events.length + ')';
-        tl.innerHTML = events.length ? events.map(ev => `
-            <div class="ci-finding-item">
-                <span class="severity-badge ${ev.significance || 'medium'}">${ev.event_type || 'event'}</span>
-                <strong>${escapeHtml(ev.event_date || 'Date unknown')}</strong>
-                — ${escapeHtml(ev.description || '')}
-            </div>
-        `).join('') : '<p style="color:#888; font-size:13px;">No timeline events.</p>';
+        if (!events.length) {
+            tl.innerHTML = '<p style="color:#888; font-size:13px;">No timeline events.</p>';
+        } else {
+            const byYear = {};
+            for (const ev of events) {
+                const yr = (ev.event_date || '').substring(0, 4) || 'Unknown';
+                if (!byYear[yr]) byYear[yr] = [];
+                byYear[yr].push(ev);
+            }
+            const years = Object.keys(byYear).sort((a, b) => b.localeCompare(a));
+            let html = '';
+            let isFirst = true;
+            for (const yr of years) {
+                const evs = byYear[yr];
+                html += `<details class="ci-tl-year" ${isFirst ? 'open' : ''} style="margin-bottom:8px;">
+                    <summary style="padding:7px 12px; background:#2c3e50; color:white; cursor:pointer; border-radius:5px; font-size:13px; font-weight:600; list-style:none; display:flex; justify-content:space-between; align-items:center; user-select:none;">
+                        <span>📅 ${escapeHtml(yr)}</span>
+                        <span style="background:rgba(255,255,255,0.2); border-radius:10px; padding:1px 8px; font-size:11px;">${evs.length} event${evs.length !== 1 ? 's' : ''}</span>
+                    </summary>
+                    <div style="padding:4px 0 2px 0;">
+                        ${evs.map(ev => `<div class="ci-finding-item" style="margin-left:4px;">
+                            <span class="severity-badge ${ev.significance || 'medium'}">${escapeHtml(ev.event_type || 'event')}</span>
+                            <strong>${escapeHtml(ev.event_date || 'Date unknown')}</strong>
+                            — ${escapeHtml(ev.description || '')}
+                        </div>`).join('')}
+                    </div>
+                </details>`;
+                isFirst = false;
+            }
+            tl.innerHTML = html;
+        }
 
-        // Entities
+        // Entities — grouped by type with collapsible accordions
         const el = document.getElementById('ci-entities-list');
         const entities = d.entities || [];
         document.getElementById('ci-entities-count').textContent = '(' + entities.length + ')';
-        el.innerHTML = entities.length ? `<table style="width:100%; border-collapse:collapse; font-size:12px;">
-            <tr style="background:#ecf0f1;"><th style="padding:5px 8px; text-align:left;">Type</th><th style="padding:5px 8px; text-align:left;">Name</th><th style="padding:5px 8px; text-align:left;">Role</th></tr>
-            ${entities.map(e => `<tr style="border-top:1px solid #f0f0f0;">
-                <td style="padding:4px 8px;">${escapeHtml(e.entity_type || '')}</td>
-                <td style="padding:4px 8px; font-weight:600;">${escapeHtml(e.name || '')}</td>
-                <td style="padding:4px 8px; color:#666;">${escapeHtml(e.role_in_case || '')}</td>
-            </tr>`).join('')}
-        </table>` : '<p style="color:#888; font-size:13px;">No entities extracted.</p>';
+        if (!entities.length) {
+            el.innerHTML = '<p style="color:#888; font-size:13px;">No entities extracted.</p>';
+        } else {
+            // Group by canonical category
+            const _grp = (type, name) => {
+                const t = (type || '').toLowerCase();
+                const n = name || '';
+                if (/person|individual|plaintiff|defendant|witness|attorney|counsel|judge|magistrate|justice|expert|trustee|receiver|beneficiary|heir|deponent|doctor|physician|officer|agent|ceo|cfo|coo|president|director|owner|partner|shareholder|principal|employee|staff|representative|guardian|administrator|notary|appraiser|broker|realtor|auditor/.test(t)) return 'People';
+                if (/law.?firm|attorneys.at.law|llp$|pllc$|p\.c\./.test(t) || /llp$|pllc$|law firm|law group|& associates/.test(n)) return 'Law Firms';
+                if (/court|tribunal|arbitration|supreme|appellate|district court|family court|surrogate|bankruptcy court/.test(t)) return 'Courts';
+                if (/account|bank.account|financial.account|routing|iban|swift|checking|savings/.test(t)) return 'Bank Accounts';
+                if (/address|property|real.estate|premises|parcel|lot\b|unit\b|suite\b|apt\b/.test(t)) return 'Addresses & Properties';
+                if (/city|town|village|county|state|country|jurisdiction|district|borough|municipality/.test(t)) return 'Locations';
+                if (/corp|corporation|llc|ltd|inc|company|business|organization|entity|association|institution|bank\b|credit.union|trust|fund|estate|agency|department|government|authority/.test(t)) return 'Organizations';
+                if (/document|exhibit|filing|motion|order|judgment|deed|contract|agreement|note\b|loan|mortgage|lease|instrument/.test(t)) return 'Documents & Filings';
+                if (/date|period|time|year|month|quarter/.test(t)) return 'Dates & Periods';
+                // Fallback: check name patterns
+                if (/LLP$|PLLC$|P\.C\.$|Law Office|Law Group/.test(n)) return 'Law Firms';
+                if (/LLC$|Corp\.?$|Inc\.?$|Ltd\.?$|Co\.?$/.test(n)) return 'Organizations';
+                return 'Other';
+            };
+            const _GRPORDER = ['People','Organizations','Law Firms','Courts','Bank Accounts','Addresses & Properties','Locations','Documents & Filings','Dates & Periods','Other'];
+            const _GRPICONS = {'People':'👤','Organizations':'🏢','Law Firms':'⚖️','Courts':'🏛️','Bank Accounts':'🏦','Addresses & Properties':'📍','Locations':'🗺️','Documents & Filings':'📋','Dates & Periods':'📅','Other':'📌'};
+            const groups = {};
+            for (const e of entities) {
+                const g = _grp(e.entity_type, e.name);
+                if (!groups[g]) groups[g] = [];
+                groups[g].push(e);
+            }
+            let html = '';
+            let first = true;
+            for (const g of _GRPORDER) {
+                if (!groups[g]?.length) continue;
+                const items = groups[g];
+                html += `<details class="ci-entity-group" ${first ? 'open' : ''} style="margin-bottom:5px; border:1px solid #e0e4ea; border-radius:5px; overflow:hidden;">
+                    <summary style="padding:7px 12px; background:#f5f7fa; cursor:pointer; font-size:12px; font-weight:600; color:#2c3e50; list-style:none; display:flex; justify-content:space-between; align-items:center; user-select:none;">
+                        <span>${_GRPICONS[g] || '📌'} ${escapeHtml(g)}</span>
+                        <span style="background:#2c3e50; color:white; border-radius:10px; padding:1px 8px; font-size:11px;">${items.length}</span>
+                    </summary>
+                    <div style="overflow-x:auto;">
+                    <table style="width:100%; border-collapse:collapse; font-size:12px;">
+                        <tr style="background:#ecf0f1;"><th style="padding:4px 8px; text-align:left; font-weight:600;">Type</th><th style="padding:4px 8px; text-align:left; font-weight:600;">Name</th><th style="padding:4px 8px; text-align:left; font-weight:600;">Role in Case</th></tr>
+                        ${items.map(e => `<tr style="border-top:1px solid #f0f0f0;">
+                            <td style="padding:3px 8px; color:#888; font-size:11px;">${escapeHtml(e.entity_type || '')}</td>
+                            <td style="padding:3px 8px; font-weight:600;">${escapeHtml(e.name || '')}</td>
+                            <td style="padding:3px 8px; color:#555;">${escapeHtml(e.role_in_case || '')}</td>
+                        </tr>`).join('')}
+                    </table>
+                    </div>
+                </details>`;
+                first = false;
+            }
+            el.innerHTML = html;
+        }
 
         // Disputed facts
         const df = document.getElementById('ci-disputed-list');
