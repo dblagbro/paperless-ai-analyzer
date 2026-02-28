@@ -3515,6 +3515,58 @@
                 </div>
             </div>
 
+            <!-- Authority Corpus card -->
+            <div class="ci-section-card" id="ci-authority-corpus-card">
+                <h4 style="cursor:pointer; user-select:none;" onclick="ciToggleAuthorityCorpus(this)">
+                    📚 AUTHORITY CORPUS
+                    <span id="ci-ac-toggle" style="float:right; font-size:12px; color:#888;">▲ hide</span>
+                </h4>
+                <div id="ci-ac-body">
+                    <div style="font-size:12px; color:#555; margin-bottom:10px; line-height:1.5;">
+                        The authority corpus is a local ChromaDB index of statutes, regulations, and case law.
+                        It must be populated at least once before the AI can cite legal authorities.
+                        Uses <strong>Cohere embeddings</strong> — requires <code>COHERE_API_KEY</code> in the environment.
+                        Free sources require no additional API keys.
+                    </div>
+
+                    <div id="ci-ac-status" style="background:#f8f9fa; border:1px solid #dee2e6; border-radius:5px;
+                         padding:8px 12px; font-size:12px; margin-bottom:10px;">
+                        <span id="ci-ac-status-text" style="color:#666;">⏳ Loading corpus status…</span>
+                    </div>
+
+                    <div style="margin-bottom:10px;">
+                        <div style="font-size:12px; font-weight:600; color:#555; margin-bottom:6px;">Sources to ingest:</div>
+                        <label style="display:flex; align-items:center; gap:6px; font-size:12px; margin-bottom:4px; cursor:pointer;">
+                            <input type="checkbox" id="ci-ac-nysenate" checked>
+                            NYS Senate Open Legislation (statutes) — free
+                        </label>
+                        <label style="display:flex; align-items:center; gap:6px; font-size:12px; margin-bottom:4px; cursor:pointer;">
+                            <input type="checkbox" id="ci-ac-ecfr" checked>
+                            eCFR federal regulations (Title 18 criminal + Title 26 tax) — free
+                        </label>
+                        <label style="display:flex; align-items:center; gap:6px; font-size:12px; cursor:pointer;">
+                            <input type="checkbox" id="ci-ac-courtlistener">
+                            CourtListener case law opinions — free, may be slow
+                        </label>
+                    </div>
+
+                    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                        <button class="btn btn-sm" onclick="ciIngestAuthority()" id="ci-ac-ingest-btn"
+                                style="background:#2c3e50; color:white;">
+                            ⚡ Populate / Update Corpus
+                        </button>
+                        <button class="btn btn-sm" onclick="ciLoadAuthorityStatus()"
+                                style="background:#7f8c8d; color:white;">
+                            ↺ Refresh Status
+                        </button>
+                    </div>
+
+                    <div id="ci-ac-ingest-status" style="display:none; margin-top:10px; padding:8px 12px;
+                         background:#eafaf1; border:1px solid #a9dfbf; border-radius:5px; font-size:12px; color:#1e8449;">
+                    </div>
+                </div>
+            </div>
+
             <!-- Clarifying questions section -->
             <div id="ci-questions-section" style="display:none;" class="ci-section-card">
                 <h4>📋 SYSTEM QUESTIONS <span id="ci-q-count" style="color:#e74c3c;"></span></h4>
@@ -8698,6 +8750,9 @@
         if (sub === 'findings') {
             ciRefreshRuns();
         }
+        if (sub === 'setup') {
+            ciLoadAuthorityStatus();
+        }
         // Update help panel to match the newly active CI sub-tab
         if (typeof _refreshHelpPanel === 'function') _refreshHelpPanel();
     }
@@ -8850,6 +8905,78 @@
         const role = document.getElementById('ci-role')?.value || 'neutral';
         const lbl  = document.getElementById('ci-wr-role-label');
         if (lbl) lbl.textContent = role || 'the selected role';
+    }
+
+    function ciToggleAuthorityCorpus(hdr) {
+        const body = document.getElementById('ci-ac-body');
+        const lbl  = document.getElementById('ci-ac-toggle');
+        if (!body) return;
+        const hidden = body.style.display === 'none';
+        body.style.display = hidden ? '' : 'none';
+        if (lbl) lbl.textContent = hidden ? '▲ hide' : '▼ show';
+    }
+
+    async function ciLoadAuthorityStatus() {
+        const el = document.getElementById('ci-ac-status-text');
+        if (!el) return;
+        el.textContent = '⏳ Loading…';
+        try {
+            const r = await apiFetch(apiUrl('/api/ci/authority/status'));
+            const d = await r.json();
+            const dbCount   = d.db?.total_authorities ?? 0;
+            const chromaCount = d.chroma?.count ?? 0;
+            const enabled   = d.chroma?.enabled ?? false;
+            if (!enabled) {
+                el.innerHTML = '❌ <strong>Cohere not configured</strong> — add <code>COHERE_API_KEY</code> to the container environment to enable authority retrieval.';
+                el.style.color = '#c0392b';
+            } else if (chromaCount === 0 && dbCount === 0) {
+                el.innerHTML = '⚠️ Corpus is <strong>empty</strong> — click "Populate / Update Corpus" to ingest authorities.';
+                el.style.color = '#e67e22';
+            } else {
+                el.innerHTML = `✅ Corpus ready — <strong>${chromaCount.toLocaleString()}</strong> vectors embedded` +
+                    (dbCount > chromaCount ? ` (${dbCount - chromaCount} pending embed)` : '') + '.';
+                el.style.color = '#27ae60';
+            }
+        } catch (e) {
+            el.textContent = '⚠️ Could not load corpus status — ' + e.message;
+            el.style.color = '#c0392b';
+        }
+    }
+
+    async function ciIngestAuthority() {
+        const btn = document.getElementById('ci-ac-ingest-btn');
+        const statusEl = document.getElementById('ci-ac-ingest-status');
+        const sources = [];
+        if (document.getElementById('ci-ac-nysenate')?.checked)     sources.push('nysenate');
+        if (document.getElementById('ci-ac-ecfr')?.checked)         sources.push('ecfr');
+        if (document.getElementById('ci-ac-courtlistener')?.checked) sources.push('courtlistener');
+        if (!sources.length) { alert('Select at least one source to ingest.'); return; }
+
+        if (btn) { btn.disabled = true; btn.textContent = '⏳ Ingesting…'; }
+        if (statusEl) {
+            statusEl.style.display = '';
+            statusEl.style.background = '#eaf4fb';
+            statusEl.style.borderColor = '#a9d4df';
+            statusEl.style.color = '#1a6e8e';
+            statusEl.innerHTML = `⏳ Ingestion started for sources: <strong>${sources.join(', ')}</strong>.<br>
+                This runs in the background and may take several minutes.
+                Reload corpus status after a few minutes to confirm completion.`;
+        }
+        try {
+            await apiFetch(apiUrl('/api/ci/authority/ingest'), {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({sources}),
+            });
+        } catch (e) {
+            if (statusEl) {
+                statusEl.style.background = '#fdf0ee';
+                statusEl.style.borderColor = '#f5c6c0';
+                statusEl.style.color = '#c0392b';
+                statusEl.innerHTML = '❌ Failed to start ingestion: ' + escapeHtml(e.message);
+            }
+        }
+        if (btn) { btn.disabled = false; btn.textContent = '⚡ Populate / Update Corpus'; }
     }
 
     async function ciSaveDraft() {
@@ -9554,8 +9681,19 @@
             </tr>`).join('')}
         </table>` : `<div style="background:#f8f8ff; border:1px solid #c8d0e8; border-radius:6px; padding:12px 16px; font-size:12px; color:#666;">
             <strong style="color:#555;">No legal authorities were retrieved for this run.</strong>
-            Legal authority retrieval requires a Cohere API key to be configured and an authority corpus to be indexed.
-            <br><br>If Cohere is not configured, authorities will always be empty. To enable: add <code>COHERE_API_KEY</code> to the container environment and ingest an authority corpus via the authority ingester.
+            Legal authority retrieval requires a Cohere API key and an indexed authority corpus.
+            <br><br>
+            <strong>To enable:</strong>
+            <ol style="margin:6px 0 6px 18px; padding:0; line-height:1.7;">
+              <li>Add <code>COHERE_API_KEY</code> to the container environment.</li>
+              <li>In the <strong>Setup</strong> sub-tab, use the
+                <button onclick="ciSwitchSub('setup'); setTimeout(()=>{document.getElementById('ci-authority-corpus-card')?.scrollIntoView({behavior:'smooth'}); ciLoadAuthorityStatus();},200);"
+                        style="background:#2c3e50; color:white; border:none; border-radius:4px; padding:2px 9px; font-size:12px; cursor:pointer; vertical-align:middle;">
+                  📚 Authority Corpus
+                </button>
+                panel to populate the local index.</li>
+            </ol>
+            <small style="color:#888;">Note: Web research (Phase W) already provides live case law lookups independently of this corpus.</small>
         </div>`;
 
         // ── Web Research ─────────────────────────────────────────────────────
