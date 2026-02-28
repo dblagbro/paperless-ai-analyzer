@@ -61,10 +61,11 @@ Generate theories in JSON:
 
 RULES:
 1. Every theory MUST cite specific documents as supporting evidence.
-2. Be honest about confidence — use 0.4 if evidence is thin, 0.9 if overwhelming.
-3. Generate theories that the {role} can actually USE in proceedings.
-4. Include both strong and developing theories (the latter with lower confidence).
-5. Maximum 8 theories per run. Keep each theory_text concise (1-2 sentences).
+2. Each supporting_evidence item MUST include the numeric paperless_doc_id shown as [Doc #NNN] in the evidence above. NEVER set paperless_doc_id to null.
+3. Be honest about confidence — use 0.4 if evidence is thin, 0.9 if overwhelming.
+4. Generate theories that the {role} can actually USE in proceedings.
+5. Include both strong and developing theories (the latter with lower confidence).
+6. Maximum 8 theories per run. Keep each theory_text concise (1-2 sentences).
 """
 
 ADVERSARIAL_TESTING_PROMPT = """You are opposing counsel tasked with defeating the following theory.
@@ -96,6 +97,7 @@ Attempt to FALSIFY or WEAKEN this theory. Respond in JSON:
 
 Be rigorous. If the theory is genuinely strong, say so (falsification_successful: false, revised_confidence >= original).
 If there are real weaknesses, identify them specifically with document citations.
+IMPORTANT: Each counter_evidence item MUST include the numeric paperless_doc_id from the counter-documents listed above. NEVER set paperless_doc_id to null.
 """
 
 
