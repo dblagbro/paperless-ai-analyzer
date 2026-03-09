@@ -1109,6 +1109,38 @@ def _vision_extract_doc(doc_id: int, title: str, paperless_client, ai_config: di
         return ''
 
 
+def _fetch_url_text(url: str, max_chars: int = 4000) -> tuple:
+    """
+    Fetch a URL and return (text_content, error_message).
+    Strips HTML tags and truncates. Returns ('', error) on failure.
+    """
+    import re as _re
+    try:
+        import requests as _req
+        resp = _req.get(url, timeout=12, headers={
+            'User-Agent': 'Mozilla/5.0 (compatible; PaperlessAI/3.5; +https://paperless-ai.local)',
+        }, allow_redirects=True)
+        resp.raise_for_status()
+        raw = resp.text
+    except Exception as e:
+        return ('', str(e))
+
+    # Strip script/style blocks, then all tags, collapse whitespace
+    raw = _re.sub(r'<(script|style)[^>]*>.*?</(script|style)>', ' ', raw,
+                  flags=_re.DOTALL | _re.IGNORECASE)
+    raw = _re.sub(r'<[^>]+>', ' ', raw)
+    raw = _re.sub(r'[ \t]{2,}', ' ', raw)
+    raw = _re.sub(r'\n{3,}', '\n\n', raw)
+    raw = raw.strip()
+
+    if not raw:
+        return ('', 'Page fetched but contained no readable text (possibly JS-rendered).')
+
+    if len(raw) > max_chars:
+        raw = raw[:max_chars] + f'\n\n[Content truncated — {len(raw):,} chars total, showing first {max_chars:,}]'
+    return (raw, '')
+
+
 @app.route('/api/chat', methods=['POST'])
 @login_required
 def api_chat():
@@ -1122,6 +1154,24 @@ def api_chat():
 
         if not user_message:
             return jsonify({'error': 'Message required'}), 400
+
+        # ── URL detection & fetching ──────────────────────────────────────────
+        import re as _re_chat
+        _url_pattern = _re_chat.compile(r'https?://[^\s<>"\']+', _re_chat.IGNORECASE)
+        _found_urls = _url_pattern.findall(user_message)[:3]  # cap at 3 URLs per message
+
+        _fetched_urls = []   # [(url, text)] — success
+        _failed_urls  = []   # [(url, reason)] — failure
+
+        for _u in _found_urls:
+            _text, _err = _fetch_url_text(_u)
+            if _text:
+                _fetched_urls.append((_u, _text))
+                logger.info(f"Chat URL fetch OK: {_u} ({len(_text)} chars)")
+            else:
+                _failed_urls.append((_u, _err))
+                logger.info(f"Chat URL fetch failed: {_u} — {_err}")
+        # ─────────────────────────────────────────────────────────────────────
 
         # Resolve or create a chat session
         if session_id:
@@ -1511,6 +1561,27 @@ Only include a docs link when it is genuinely relevant to the user's question.""
 
         if vision_ai_used:
             system_prompt += f"\n\n[Note: Vision AI was used during this query to extract content from {len(vision_ai_used)} document(s) with poor OCR: {', '.join(vision_ai_used[:3])}. Their embeddings have been updated for future queries.]"
+
+        # ── Inject fetched URL content into the prompt ────────────────────────
+        if _fetched_urls:
+            system_prompt += "\n\n" + "="*60
+            system_prompt += "\nWEB PAGE CONTENT (fetched live from user-provided URLs):"
+            system_prompt += "\nYou MAY use this content in your response alongside the documents above."
+            for _u, _txt in _fetched_urls:
+                system_prompt += f"\n\n--- URL: {_u} ---\n{_txt}"
+            system_prompt += "\n" + "="*60
+
+        if _failed_urls:
+            system_prompt += "\n\nWEB ACCESS FAILURES — IMPORTANT:"
+            for _u, _reason in _failed_urls:
+                system_prompt += f"\n- Could NOT fetch: {_u} (reason: {_reason})"
+            system_prompt += (
+                "\nFor each URL above that you cannot access, tell the user clearly and directly: "
+                "\"I was unable to access [URL] — [brief reason]\". "
+                "Do NOT attempt to answer questions about that URL's content. "
+                "Do NOT hallucinate or guess what that page might contain."
+            )
+        # ─────────────────────────────────────────────────────────────────────
 
         # Load AI configuration — v2 format: per-project primary/fallback, global keys as fallback
         project_slug = session.get('current_project', 'default')
@@ -6852,6 +6923,21 @@ def ci_goal_assistant():
         jurisdiction = ctx.get('jurisdiction', 'Not specified')
         draft_goal = ctx.get('draft_goal', '').strip()
 
+        # Fetch any URLs the user included in their messages so the AI can reference them
+        import re as _re_goal
+        _goal_url_pat = _re_goal.compile(r'https?://[^\s<>"\']+', _re_goal.IGNORECASE)
+        _goal_url_context = ''
+        _seen_urls = set()
+        for _msg in messages:
+            for _u in _goal_url_pat.findall(_msg.get('content', ''))[:2]:
+                if _u not in _seen_urls:
+                    _seen_urls.add(_u)
+                    _txt, _err = _fetch_url_text(_u, max_chars=3000)
+                    if _txt:
+                        _goal_url_context += f"\n\n--- Content from {_u} ---\n{_txt}"
+                    else:
+                        _goal_url_context += f"\n\n[Could not fetch {_u}: {_err}]"
+
         system_prompt = (
             "You are a legal case strategy advisor helping an attorney write a clear, focused "
             "goal statement for a document-analysis AI called Case Intelligence.\n\n"
@@ -6872,6 +6958,8 @@ def ci_goal_assistant():
         )
         if draft_goal:
             system_prompt += f"  Draft goal: \"{draft_goal}\"\n"
+        if _goal_url_context:
+            system_prompt += f"\nWEB CONTENT PROVIDED BY USER:{_goal_url_context}\nUse the above web content when relevant to help craft the goal statement.\n"
         system_prompt += (
             "\nINSTRUCTIONS:\n"
             "1. On the first turn, briefly acknowledge the context and ask 2-3 targeted "
@@ -7709,6 +7797,155 @@ def ci_key_guide():
         return jsonify({'response': reply})
     except Exception as e:
         logger.error(f"CI key guide error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/ci/runs/<run_id>/forensic-report')
+@login_required
+def ci_forensic_report(run_id):
+    """Return forensic accounting report for a CI run (Tier 3+)."""
+    ok, err = _ci_gate()
+    if not ok:
+        return err
+    try:
+        from analyzer.case_intelligence.db import get_ci_run, get_forensic_report
+        run = get_ci_run(run_id)
+        if not run:
+            return jsonify({'error': 'Run not found'}), 404
+        if not _ci_can_read(run):
+            return jsonify({'error': 'Access denied'}), 403
+        report = get_forensic_report(run_id)
+        if not report:
+            return jsonify({'present': False, 'data': None})
+        # Parse JSON fields
+        for field in ('flagged_transactions', 'cash_flow_by_party', 'balance_discrepancies',
+                      'missing_transactions', 'transaction_chains'):
+            try:
+                report[field] = json.loads(report.get(field) or '[]')
+            except Exception:
+                report[field] = []
+        return jsonify({'present': True, 'data': report})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/ci/runs/<run_id>/discovery-gaps')
+@login_required
+def ci_discovery_gaps(run_id):
+    """Return discovery gap analysis for a CI run (Tier 3+)."""
+    ok, err = _ci_gate()
+    if not ok:
+        return err
+    try:
+        from analyzer.case_intelligence.db import get_ci_run, get_discovery_gaps
+        run = get_ci_run(run_id)
+        if not run:
+            return jsonify({'error': 'Run not found'}), 404
+        if not _ci_can_read(run):
+            return jsonify({'error': 'Access denied'}), 403
+        gaps = get_discovery_gaps(run_id)
+        if not gaps:
+            return jsonify({'present': False, 'data': None})
+        for field in ('missing_doc_types', 'custodian_gaps', 'spoliation_indicators',
+                      'rfp_list', 'subpoena_targets'):
+            try:
+                gaps[field] = json.loads(gaps.get(field) or '[]')
+            except Exception:
+                gaps[field] = []
+        return jsonify({'present': True, 'data': gaps})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/ci/runs/<run_id>/witness-cards')
+@login_required
+def ci_witness_cards(run_id):
+    """Return witness intelligence cards for a CI run (Tier 4+)."""
+    ok, err = _ci_gate()
+    if not ok:
+        return err
+    try:
+        from analyzer.case_intelligence.db import get_ci_run, get_witness_cards
+        run = get_ci_run(run_id)
+        if not run:
+            return jsonify({'error': 'Run not found'}), 404
+        if not _ci_can_read(run):
+            return jsonify({'error': 'Access denied'}), 403
+        cards = get_witness_cards(run_id)
+        # Parse JSON fields
+        parsed = []
+        for card in cards:
+            for field in ('impeachment_points', 'prior_inconsistencies',
+                          'public_record_flags', 'key_questions'):
+                try:
+                    card[field] = json.loads(card.get(field) or '[]')
+                except Exception:
+                    card[field] = []
+            try:
+                card['financial_interest'] = json.loads(card.get('financial_interest') or '{}')
+            except Exception:
+                card['financial_interest'] = {}
+            parsed.append(card)
+        return jsonify({'present': len(parsed) > 0, 'data': parsed})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/ci/runs/<run_id>/war-room')
+@login_required
+def ci_war_room_report(run_id):
+    """Return war room analysis for a CI run (Tier 4+)."""
+    ok, err = _ci_gate()
+    if not ok:
+        return err
+    try:
+        from analyzer.case_intelligence.db import get_ci_run, get_war_room
+        run = get_ci_run(run_id)
+        if not run:
+            return jsonify({'error': 'Run not found'}), 404
+        if not _ci_can_read(run):
+            return jsonify({'error': 'Access denied'}), 403
+        wr = get_war_room(run_id)
+        if not wr:
+            return jsonify({'present': False, 'data': None})
+        for field in ('top_dangerous_arguments', 'client_vulnerabilities', 'smoking_guns'):
+            try:
+                wr[field] = json.loads(wr.get(field) or '[]')
+            except Exception:
+                wr[field] = []
+        try:
+            wr['settlement_analysis'] = json.loads(wr.get('settlement_analysis') or '{}')
+        except Exception:
+            wr['settlement_analysis'] = {}
+        return jsonify({'present': True, 'data': wr})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/ci/cost-estimate')
+@login_required
+def ci_cost_estimate():
+    """
+    Return estimated cost for a CI run.
+    Query params: docs=N&tier=N
+    """
+    ok, err = _ci_gate()
+    if not ok:
+        return err
+    try:
+        docs = max(1, int(request.args.get('docs', 10)))
+        tier = max(1, min(5, int(request.args.get('tier', 3))))
+        from analyzer.case_intelligence.task_registry import estimate_run_cost, TIER_INFO
+        estimate = estimate_run_cost(docs, tier)
+        tier_meta = TIER_INFO.get(tier, {})
+        return jsonify({
+            'estimated_usd': estimate['total_usd'],
+            'breakdown_by_task': estimate['breakdown_by_task'],
+            'tier': tier,
+            'tier_name': tier_meta.get('name', f'Tier {tier}'),
+            'docs': docs,
+        })
+    except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 

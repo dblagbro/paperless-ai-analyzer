@@ -3340,15 +3340,61 @@
                 <div class="ci-budget-row">
                     <div class="ci-form-group" style="flex:0 0 160px;">
                         <label>Budget per run (USD)</label>
-                        <input type="number" id="ci-budget" value="10.00" step="1.00" min="1.00" max="500.00">
+                        <input type="number" id="ci-budget" value="10.00" step="1.00" min="1.00" max="500.00" oninput="ciUpdateCostEstimate()">
                     </div>
-                    <div class="ci-form-group" style="flex:0 0 120px;">
-                        <label>Max tier</label>
-                        <select id="ci-max-tier">
-                            <option value="1">Tier 1 only (fast)</option>
-                            <option value="2">Tier 1–2</option>
-                            <option value="3" selected>Tier 1–3 (full)</option>
-                        </select>
+                    <div class="ci-form-group" style="flex:1; min-width:200px;">
+                        <label>Estimated cost: <span id="ci-cost-estimate" style="color:#27ae60; font-weight:700;">—</span></label>
+                        <div id="ci-cost-breakdown" style="font-size:11px; color:#888; margin-top:2px;"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ── 5-TIER ANALYSIS LEVEL SELECTOR ──────────────────── -->
+            <div class="ci-section-card">
+                <h4>ANALYSIS LEVEL</h4>
+                <!-- Hidden input stores selected tier value -->
+                <input type="hidden" id="ci-max-tier" value="3">
+                <div style="display:grid; grid-template-columns:repeat(5,1fr); gap:8px; margin-bottom:10px;" id="ci-tier-cards">
+                    <div class="ci-tier-card" data-tier="1" onclick="ciSelectTier(1)">
+                        <div class="ci-tier-num">1</div>
+                        <div class="ci-tier-name">Junior Associate</div>
+                        <div class="ci-tier-sub">Extraction only</div>
+                        <div class="ci-tier-detail">Entities, timeline, financial</div>
+                        <div class="ci-tier-cost">$0.05–1</div>
+                        <div class="ci-tier-time">5–30 min</div>
+                    </div>
+                    <div class="ci-tier-card" data-tier="2" onclick="ciSelectTier(2)">
+                        <div class="ci-tier-num">2</div>
+                        <div class="ci-tier-name">Senior Associate</div>
+                        <div class="ci-tier-sub">+ Contradictions</div>
+                        <div class="ci-tier-detail">+ Basic theories, free web</div>
+                        <div class="ci-tier-cost">$0.50–5</div>
+                        <div class="ci-tier-time">15–60 min</div>
+                    </div>
+                    <div class="ci-tier-card ci-tier-recommended" data-tier="3" onclick="ciSelectTier(3)">
+                        <div class="ci-tier-badge">★ RECOMMENDED</div>
+                        <div class="ci-tier-num">3</div>
+                        <div class="ci-tier-name">Partner</div>
+                        <div class="ci-tier-sub">+ Forensic + Discovery</div>
+                        <div class="ci-tier-detail">+ Adversarial testing</div>
+                        <div class="ci-tier-cost">$5–50</div>
+                        <div class="ci-tier-time">30–120 min</div>
+                    </div>
+                    <div class="ci-tier-card" data-tier="4" onclick="ciSelectTier(4)">
+                        <div class="ci-tier-num">4</div>
+                        <div class="ci-tier-name">Senior Partner</div>
+                        <div class="ci-tier-sub">+ Witnesses + War Room</div>
+                        <div class="ci-tier-detail">+ Senior partner review</div>
+                        <div class="ci-tier-cost">$25–200</div>
+                        <div class="ci-tier-time">1–4 hrs</div>
+                    </div>
+                    <div class="ci-tier-card" data-tier="5" onclick="ciSelectTier(5)">
+                        <div class="ci-tier-num">5</div>
+                        <div class="ci-tier-name">White Glove</div>
+                        <div class="ci-tier-sub">+ Multi-model</div>
+                        <div class="ci-tier-detail">+ Trial strategy, settlement</div>
+                        <div class="ci-tier-cost">$100–500</div>
+                        <div class="ci-tier-time">2–8 hrs</div>
                     </div>
                 </div>
             </div>
@@ -3826,13 +3872,16 @@
             <div id="ci-findings-status" style="display:none;" class="ci-section-card">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
                     <span id="ci-f-stage" style="font-weight:600;">Running...</span>
-                    <span id="ci-f-cost" style="font-size:12px; color:#666;"></span>
+                    <span style="display:flex; gap:12px; align-items:center; font-size:12px; color:#666;">
+                        <span id="ci-f-elapsed" style="font-variant-numeric:tabular-nums; color:#2c3e50; font-weight:600;">0:00</span>
+                        <span id="ci-f-cost"></span>
+                    </span>
                 </div>
                 <div class="ci-progress-bar"><div class="ci-progress-fill" id="ci-f-progress" style="width:0%"></div></div>
-                <div style="font-size:11px; color:#888; margin-top:4px;">
+                <div style="font-size:11px; color:#888; margin-top:4px; display:flex; align-items:center; gap:8px;">
                     <span id="ci-f-docs"></span>
                     {% if is_advanced %}
-                    &nbsp;<button class="btn btn-sm" onclick="ciCancelRunFromFindings()" style="background:#e74c3c; color:white; padding:2px 8px; font-size:11px; margin-left:8px;">✕ Cancel</button>
+                    <button class="btn btn-sm" onclick="ciCancelRunFromFindings()" style="background:#e74c3c; color:white; padding:2px 8px; font-size:11px;">✕ Cancel</button>
                     {% endif %}
                 </div>
             </div>
@@ -3851,10 +3900,10 @@
                 <div style="margin-top:8px;"><span style="color:#888;">Goal:</span> <span id="ci-meta-goal" style="color:#2c3e50; font-style:italic;"></span></div>
             </div>
 
-            <!-- Key Findings -->
+            <!-- Key Findings and Rulings -->
             <div id="ci-key-findings-section" style="display:none;">
                 <div class="ci-accordion-header" onclick="ciToggleSection('ci-key-findings-body')">
-                    <span>📌 KEY FINDINGS</span><span id="ci-key-findings-count"></span>
+                    <span>📌 KEY FINDINGS AND RULINGS</span><span id="ci-key-findings-count"></span>
                 </div>
                 <div class="ci-accordion-body" id="ci-key-findings-body">
                     <div id="ci-key-findings-list"></div>
@@ -3908,6 +3957,61 @@
                     </div>
                     <div class="ci-accordion-body" id="ci-webresearch-body">
                         <div id="ci-webresearch-list"></div>
+                    </div>
+                </div>
+
+                <!-- ── FORENSIC ACCOUNTING (Tier 3+) ────────────────── -->
+                <div id="ci-forensic-accordion" style="display:none;">
+                    <div class="ci-accordion-header" onclick="ciToggleSection('ci-forensic-body')">
+                        <span>💰 FORENSIC ACCOUNTING</span><span id="ci-forensic-count"></span>
+                    </div>
+                    <div class="ci-accordion-body" id="ci-forensic-body">
+                        <div id="ci-forensic-summary" style="padding:10px 0; font-size:13px; color:#444; line-height:1.6; border-bottom:1px solid #eee; margin-bottom:10px;"></div>
+                        <div id="ci-forensic-flagged"></div>
+                        <div id="ci-forensic-cashflow"></div>
+                    </div>
+                </div>
+
+                <!-- ── DISCOVERY GAP ANALYSIS (Tier 3+) ─────────────── -->
+                <div id="ci-discovery-accordion" style="display:none;">
+                    <div class="ci-accordion-header" onclick="ciToggleSection('ci-discovery-body')">
+                        <span>🔍 DISCOVERY STRATEGY</span><span id="ci-discovery-count"></span>
+                    </div>
+                    <div class="ci-accordion-body" id="ci-discovery-body">
+                        <div id="ci-discovery-summary" style="padding:10px 0; font-size:13px; color:#444; line-height:1.6; border-bottom:1px solid #eee; margin-bottom:10px;"></div>
+                        <div id="ci-discovery-rfp" style="margin-bottom:10px;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                                <strong style="font-size:12px; color:#2c3e50;">REQUESTS FOR PRODUCTION</strong>
+                                <button class="btn btn-sm" onclick="ciCopyRFPs()" style="font-size:11px; padding:2px 8px; background:#2c3e50; color:white;">Copy RFP List</button>
+                            </div>
+                            <div id="ci-discovery-rfp-list"></div>
+                        </div>
+                        <div id="ci-discovery-gaps"></div>
+                        <div id="ci-discovery-spoliation"></div>
+                    </div>
+                </div>
+
+                <!-- ── WITNESS INTELLIGENCE (Tier 4+) ───────────────── -->
+                <div id="ci-witnesses-accordion" style="display:none;">
+                    <div class="ci-accordion-header" onclick="ciToggleSection('ci-witnesses-body')">
+                        <span>👤 WITNESS INTELLIGENCE</span><span id="ci-witnesses-count"></span>
+                    </div>
+                    <div class="ci-accordion-body" id="ci-witnesses-body">
+                        <div id="ci-witnesses-list"></div>
+                    </div>
+                </div>
+
+                <!-- ── WAR ROOM (Tier 4+) ────────────────────────────── -->
+                <div id="ci-warroom-accordion" style="display:none;">
+                    <div class="ci-accordion-header" onclick="ciToggleSection('ci-warroom-body')">
+                        <span>⚔️ WAR ROOM</span><span id="ci-warroom-badge" style="font-size:11px; padding:2px 6px; border-radius:3px; margin-left:8px;"></span>
+                    </div>
+                    <div class="ci-accordion-body" id="ci-warroom-body">
+                        <div id="ci-warroom-opposing" style="margin-bottom:14px;"></div>
+                        <div id="ci-warroom-arguments" style="margin-bottom:14px;"></div>
+                        <div id="ci-warroom-vulnerabilities" style="margin-bottom:14px;"></div>
+                        <div id="ci-warroom-settlement" style="margin-bottom:14px;"></div>
+                        <div id="ci-warroom-senior-notes" style="display:none; margin-bottom:14px;"></div>
                     </div>
                 </div>
             </div>
@@ -8938,6 +9042,40 @@
         .ci-tag-pill { display:inline-block; background:#e8f4ff; color:#2980b9; padding:2px 8px; border-radius:10px; font-size:11px; margin:2px; }
         #ci-status-bar { background:#f8f9fa; border:1px solid #e0e0e0; border-radius:6px; padding:10px 14px; margin-bottom:12px; display:none; }
         #ci-status-bar.visible { display:block; }
+        /* ── 5-Tier Card Selector ────────────────────────────────── */
+        .ci-tier-card {
+            border:2px solid #dde3ec; border-radius:8px; padding:10px 8px;
+            cursor:pointer; text-align:center; background:#fff;
+            transition:all 0.2s; position:relative; user-select:none;
+        }
+        .ci-tier-card:hover { border-color:#3498db; background:#f0f7ff; }
+        .ci-tier-card.active { border-color:#27ae60; background:#f0faf0; box-shadow:0 0 0 3px rgba(39,174,96,0.15); }
+        .ci-tier-recommended.active { border-color:#27ae60; }
+        .ci-tier-recommended { border-color:#27ae60; }
+        .ci-tier-badge { position:absolute; top:-9px; left:50%; transform:translateX(-50%); background:#27ae60; color:#fff; font-size:9px; font-weight:700; padding:2px 6px; border-radius:8px; white-space:nowrap; }
+        .ci-tier-num { font-size:22px; font-weight:800; color:#2c3e50; line-height:1; margin-bottom:2px; }
+        .ci-tier-card.active .ci-tier-num { color:#27ae60; }
+        .ci-tier-name { font-size:11px; font-weight:700; color:#2c3e50; margin-bottom:2px; }
+        .ci-tier-sub { font-size:10px; color:#555; margin-bottom:2px; }
+        .ci-tier-detail { font-size:10px; color:#888; margin-bottom:4px; }
+        .ci-tier-cost { font-size:11px; font-weight:600; color:#27ae60; }
+        .ci-tier-time { font-size:10px; color:#999; }
+        /* ── Forensic / Discovery / Witness / War Room Findings ──── */
+        .ci-flagged-item { background:#fff8f0; border:1px solid #f39c12; border-radius:6px; padding:10px 12px; margin-bottom:6px; }
+        .ci-flagged-item .flag-type { font-size:10px; font-weight:700; background:#f39c12; color:#fff; padding:1px 6px; border-radius:8px; display:inline-block; margin-bottom:4px; text-transform:uppercase; }
+        .ci-rfp-item { background:#f8f9fa; border-left:3px solid #2980b9; padding:8px 12px; margin-bottom:4px; font-size:12px; }
+        .ci-rfp-item .rfp-priority { float:right; font-size:10px; font-weight:700; color:#666; }
+        .ci-witness-card { background:#fff; border:1px solid #dde3ec; border-radius:8px; padding:14px; margin-bottom:10px; }
+        .ci-witness-card .witness-name { font-size:14px; font-weight:700; color:#2c3e50; margin-bottom:4px; }
+        .ci-credibility-bar { height:6px; border-radius:3px; background:#e0e0e0; margin:6px 0; }
+        .ci-credibility-fill { height:100%; border-radius:3px; }
+        .ci-warroom-arg { background:#fff3f3; border:1px solid #e74c3c; border-radius:6px; padding:12px; margin-bottom:8px; }
+        .ci-warroom-arg .arg-label { font-size:11px; font-weight:700; color:#e74c3c; margin-bottom:4px; }
+        .ci-settlement-table { width:100%; border-collapse:collapse; font-size:12px; }
+        .ci-settlement-table td, .ci-settlement-table th { padding:6px 10px; border:1px solid #e0e0e0; }
+        .ci-settlement-table th { background:#f8f9fa; font-weight:700; color:#2c3e50; }
+        .ci-senior-notes { background:#fff9e6; border:2px solid #f39c12; border-radius:8px; padding:14px; }
+        .ci-senior-notes h5 { color:#e67e22; font-size:13px; margin:0 0 8px; }
     </style>
 
 
@@ -8971,6 +9109,53 @@
     function ciToggleSection(id) {
         const el = document.getElementById(id);
         if (el) el.classList.toggle('open');
+    }
+
+    // ── 5-Tier Card Selector ──────────────────────────────────────────
+    function ciSelectTier(tier) {
+        document.getElementById('ci-max-tier').value = tier;
+        document.querySelectorAll('.ci-tier-card').forEach(card => {
+            card.classList.toggle('active', parseInt(card.dataset.tier) === tier);
+        });
+        ciUpdateCostEstimate();
+    }
+
+    // Initialize tier 3 as selected on load
+    document.addEventListener('DOMContentLoaded', function() {
+        ciSelectTier(3);
+    });
+
+    async function ciUpdateCostEstimate() {
+        const tier = parseInt(document.getElementById('ci-max-tier').value) || 3;
+        // Estimate doc count from any visible run, fallback to 10
+        let docs = 10;
+        try {
+            if (ciSelectedRunId) {
+                const r = await apiFetch(apiUrl(`/api/ci/runs/${ciSelectedRunId}/status`));
+                const d = await r.json();
+                if (d.run && d.run.docs_total) docs = d.run.docs_total;
+            }
+        } catch(e) {}
+        try {
+            const r = await apiFetch(apiUrl(`/api/ci/cost-estimate?docs=${docs}&tier=${tier}`));
+            const d = await r.json();
+            const el = document.getElementById('ci-cost-estimate');
+            if (el && d.estimated_usd !== undefined) {
+                el.textContent = `~$${d.estimated_usd.toFixed(2)} (${docs} docs)`;
+            }
+        } catch(e) {
+            const el = document.getElementById('ci-cost-estimate');
+            if (el) el.textContent = '—';
+        }
+    }
+
+    // Copy RFP list to clipboard
+    function ciCopyRFPs() {
+        const rfpList = document.getElementById('ci-discovery-rfp-list');
+        if (!rfpList) return;
+        const items = rfpList.querySelectorAll('.ci-rfp-item');
+        const text = Array.from(items).map(el => el.querySelector('.rfp-text')?.textContent || el.textContent).join('\n\n');
+        navigator.clipboard.writeText(text).then(() => showToast('RFP list copied to clipboard', 'success', 2500));
     }
 
     // Load jurisdiction profiles on tab open
@@ -9469,7 +9654,19 @@
             const sr = await apiFetch(apiUrl('/api/ci/runs/' + runId + '/status'));
             const sd = await sr.json();
             if (['running', 'queued'].includes(sd.status)) {
+                // Clear any stale findings from a previously-viewed run
+                document.getElementById('ci-key-findings-section').style.display = 'none';
+                document.getElementById('ci-run-meta-header').style.display = 'none';
+                document.getElementById('ci-no-findings').style.display = 'none';
+                // Hide specialist accordions too
+                ['ci-forensic-accordion','ci-discovery-accordion','ci-witnesses-accordion','ci-warroom-accordion'].forEach(id => {
+                    const el = document.getElementById(id); if (el) el.style.display = 'none';
+                });
                 document.getElementById('ci-findings-status').style.display = 'block';
+                // Seed elapsed counter with server value immediately
+                _ciElapsedBase = sd.elapsed_seconds || 0;
+                _ciElapsedTick = Date.now();
+                ciStartElapsedTicker();
                 ciFindingsPollTimer = setInterval(() => ciFindingsPoll(runId), 3000);
                 ciFindingsPoll(runId);
                 return;
@@ -9481,9 +9678,34 @@
             const r = await apiFetch(apiUrl('/api/ci/runs/' + runId + '/findings'));
             const d = await r.json();
             ciRenderFindings(d, runId);
+            ciLoadSpecialistFindings(runId);
         } catch(e) {
             showToast('Error loading findings: ' + e.message, 'error');
         }
+    }
+
+    // ── Elapsed timer helpers ──────────────────────────────────────────
+    let _ciElapsedBase = 0;   // seconds at last server sync
+    let _ciElapsedTick = 0;   // Date.now() at last server sync
+    let _ciElapsedTimer = null;
+
+    function ciStartElapsedTicker() {
+        if (_ciElapsedTimer) clearInterval(_ciElapsedTimer);
+        _ciElapsedTimer = setInterval(() => {
+            const elapsed = _ciElapsedBase + Math.floor((Date.now() - _ciElapsedTick) / 1000);
+            const h = Math.floor(elapsed / 3600);
+            const m = Math.floor((elapsed % 3600) / 60);
+            const s = elapsed % 60;
+            const txt = h > 0
+                ? `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
+                : `${m}:${String(s).padStart(2,'0')}`;
+            const el = document.getElementById('ci-f-elapsed');
+            if (el) el.textContent = txt;
+        }, 1000);
+    }
+
+    function ciStopElapsedTicker() {
+        if (_ciElapsedTimer) { clearInterval(_ciElapsedTimer); _ciElapsedTimer = null; }
     }
 
     async function ciFindingsPoll(runId) {
@@ -9496,11 +9718,30 @@
             if (cost) cost.textContent = '$' + (d.cost_so_far_usd || 0).toFixed(2) + ' / $' + (d.budget_per_run_usd || 10).toFixed(2);
             const progress = document.getElementById('ci-f-progress');
             if (progress) progress.style.width = (d.progress_pct || 0) + '%';
+
+            // Sync elapsed timer base from server
+            if (d.elapsed_seconds != null) {
+                _ciElapsedBase = d.elapsed_seconds;
+                _ciElapsedTick = Date.now();
+            }
+
+            // Docs display: docs_processed counts per-domain tasks (can exceed docs_total).
+            // Show "N / M docs · X tasks" so the numbers make sense.
             const docs = document.getElementById('ci-f-docs');
-            if (docs) docs.textContent = (d.docs_processed || 0) + ' / ' + (d.docs_total || 0) + ' docs';
+            if (docs) {
+                const total = d.docs_total || 0;
+                const tasks = d.docs_processed || 0;
+                if (total > 0) {
+                    const uniqueDone = Math.min(tasks, total);
+                    docs.textContent = `${uniqueDone} / ${total} docs · ${tasks} analysis tasks`;
+                } else {
+                    docs.textContent = `${tasks} analysis tasks`;
+                }
+            }
 
             if (['completed', 'failed', 'cancelled', 'budget_blocked'].includes(d.status)) {
                 clearInterval(ciFindingsPollTimer);
+                ciStopElapsedTicker();
                 document.getElementById('ci-findings-status').style.display = 'none';
                 if (d.status === 'completed') {
                     ciLoadFindings();
@@ -9895,11 +10136,7 @@
                     <div style="overflow-x:auto;">
                     <table style="width:100%; border-collapse:collapse; font-size:12px;">
                         <tr style="background:#ecf0f1;"><th style="padding:4px 8px; text-align:left; font-weight:600;">Type</th><th style="padding:4px 8px; text-align:left; font-weight:600;">Name</th><th style="padding:4px 8px; text-align:left; font-weight:600;">Role in Case</th></tr>
-                        ${items.map(e => `<tr style="border-top:1px solid #f0f0f0;">
-                            <td style="padding:3px 8px; color:#888; font-size:11px;">${escapeHtml(e.entity_type || '')}</td>
-                            <td style="padding:3px 8px; font-weight:600;">${escapeHtml(e.name || '')}</td>
-                            <td style="padding:3px 8px; color:#555;">${escapeHtml(e.role_in_case || '')}</td>
-                        </tr>`).join('')}
+                        ${items.map(e => { let al=''; try { const aa=JSON.parse(e.aliases||'[]'); if(aa.length) al='<div style="font-size:10px;color:#bbb;margin-top:1px;">(also: '+aa.map(x=>escapeHtml(x)).join(', ')+')</div>'; } catch(err){} return `<tr style="border-top:1px solid #f0f0f0;"><td style="padding:3px 8px; color:#888; font-size:11px;">${escapeHtml(e.entity_type || '')}</td><td style="padding:3px 8px; font-weight:600;">${escapeHtml(e.name || '')}${al}</td><td style="padding:3px 8px; color:#555;">${escapeHtml(e.role_in_case || '')}</td></tr>`; }).join('')}
                     </table>
                     </div>
                 </details>`;
@@ -10163,6 +10400,322 @@
         } else if (wrAccordion) {
             wrAccordion.style.display = 'none';
         }
+    }
+
+    // ── Specialist Findings: Forensic, Discovery, Witnesses, War Room ────────
+    async function ciLoadSpecialistFindings(runId) {
+        if (!runId) return;
+        const [forensicRes, discoveryRes, witnessRes, warRoomRes] = await Promise.allSettled([
+            apiFetch(apiUrl('/api/ci/runs/' + runId + '/forensic-report')).then(r => r.json()),
+            apiFetch(apiUrl('/api/ci/runs/' + runId + '/discovery-gaps')).then(r => r.json()),
+            apiFetch(apiUrl('/api/ci/runs/' + runId + '/witness-cards')).then(r => r.json()),
+            apiFetch(apiUrl('/api/ci/runs/' + runId + '/war-room')).then(r => r.json()),
+        ]);
+        ciRenderForensicTab(forensicRes.status  === 'fulfilled' ? forensicRes.value  : null);
+        ciRenderDiscoveryTab(discoveryRes.status === 'fulfilled' ? discoveryRes.value : null);
+        ciRenderWitnessesTab(witnessRes.status   === 'fulfilled' ? witnessRes.value   : null);
+        ciRenderWarRoomTab(warRoomRes.status     === 'fulfilled' ? warRoomRes.value   : null);
+    }
+
+    function ciRenderForensicTab(data) {
+        const acc  = document.getElementById('ci-forensic-accordion');
+        const body = document.getElementById('ci-forensic-body');
+        if (!acc || !body) return;
+        if (!data || data.error || (!data.flagged_transactions?.length && !data.summary)) {
+            acc.style.display = 'none'; return;
+        }
+        acc.style.display = '';
+        const flagged = data.flagged_transactions || [];
+        const flows   = data.cash_flow_by_party  || [];
+        const chains  = data.transaction_chains  || [];
+        let html = '';
+        if (flows.length) {
+            html += `<div style="margin-bottom:14px;">
+                <div style="font-weight:700; color:#1a5276; font-size:12px; margin-bottom:6px;">💵 Cash Flow by Party</div>
+                <table style="width:100%; border-collapse:collapse; font-size:12px;">
+                    <tr style="background:#ecf0f1;"><th style="padding:4px 8px; text-align:left;">Party</th><th style="padding:4px 8px; text-align:right;">In</th><th style="padding:4px 8px; text-align:right;">Out</th><th style="padding:4px 8px; text-align:right;">Net</th></tr>
+                    ${flows.map(f => `<tr style="border-top:1px solid #f0f0f0;">
+                        <td style="padding:3px 8px; font-weight:600;">${escapeHtml(f.party || '')}</td>
+                        <td style="padding:3px 8px; text-align:right; color:#27ae60;">+$${(f.total_in || 0).toLocaleString()}</td>
+                        <td style="padding:3px 8px; text-align:right; color:#c0392b;">-$${(f.total_out || 0).toLocaleString()}</td>
+                        <td style="padding:3px 8px; text-align:right; font-weight:700; color:${(f.net || 0) >= 0 ? '#27ae60' : '#c0392b'};">$${(f.net || 0).toLocaleString()}</td>
+                    </tr>`).join('')}
+                </table>
+            </div>`;
+        }
+        if (flagged.length) {
+            html += `<div style="margin-bottom:14px;">
+                <div style="font-weight:700; color:#c0392b; font-size:12px; margin-bottom:6px;">🚩 Flagged Transactions (${flagged.length})</div>
+                ${flagged.map(ft => `<div class="ci-flagged-item">
+                    <span class="severity-badge ${ft.significance || 'medium'}">${escapeHtml(ft.type || 'flag')}</span>
+                    <strong>$${(ft.amount_usd || 0).toLocaleString()}</strong> — ${escapeHtml(ft.significance || '')}
+                    <br><span style="font-size:11px; color:#666;">${escapeHtml(ft.date || '')}${ft.parties?.length ? ' · ' + ft.parties.join(', ') : ''}</span>
+                </div>`).join('')}
+            </div>`;
+        }
+        if (chains.length) {
+            html += `<div style="margin-bottom:14px;">
+                <div style="font-weight:700; color:#6c3483; font-size:12px; margin-bottom:6px;">🔗 Transaction Chains</div>
+                ${chains.map(c => `<div style="font-size:12px; padding:6px 10px; border:1px solid #e8d5f0; border-radius:5px; margin-bottom:5px;">
+                    <strong>${escapeHtml(c.from || '')} → ${escapeHtml((c.via || []).join(' → '))} → ${escapeHtml(c.to || '')}</strong>
+                    <span style="color:#888; margin-left:8px;">$${(c.total_usd || 0).toLocaleString()}</span>
+                </div>`).join('')}
+            </div>`;
+        }
+        if (data.summary) {
+            html += `<div style="background:#f8f4ff; border:1px solid #d5c8f0; border-radius:6px; padding:12px 14px; font-size:12px; color:#333; line-height:1.6;">
+                <div style="font-weight:700; color:#6c3483; margin-bottom:6px;">📋 Forensic Accounting Memo</div>
+                ${escapeHtml(data.summary).replace(/\n/g, '<br>')}
+                ${data.total_documented_exposure_usd ? `<div style="margin-top:8px; font-weight:700; color:#c0392b; font-size:13px;">Total Documented Exposure: $${data.total_documented_exposure_usd.toLocaleString()}</div>` : ''}
+            </div>`;
+        }
+        body.innerHTML = html || '<p style="color:#888; font-size:13px;">No forensic findings.</p>';
+    }
+
+    function ciRenderDiscoveryTab(data) {
+        const acc  = document.getElementById('ci-discovery-accordion');
+        const body = document.getElementById('ci-discovery-body');
+        if (!acc || !body) return;
+        if (!data || data.error || (!data.rfp_list?.length && !data.missing_document_types?.length)) {
+            acc.style.display = 'none'; return;
+        }
+        acc.style.display = '';
+        const missing    = data.missing_document_types || [];
+        const custodian  = data.custodian_gaps         || [];
+        const spoliation = data.spoliation_indicators  || [];
+        const rfps       = data.rfp_list               || [];
+        const subpoenas  = data.subpoena_targets       || [];
+        let html = '';
+        if (missing.length) {
+            html += `<div style="margin-bottom:14px;">
+                <div style="font-weight:700; color:#c0392b; font-size:12px; margin-bottom:6px;">📭 Missing Documents (${missing.length})</div>
+                ${missing.map(m => `<div class="ci-flagged-item">
+                    <span class="severity-badge ${m.priority || 'medium'}">${(m.priority || 'medium').toUpperCase()}</span>
+                    <strong>${escapeHtml(m.description || '')}</strong>
+                    <p style="font-size:11px; color:#666; margin:2px 0 0 0;">${escapeHtml(m.why_expected || '')}</p>
+                </div>`).join('')}
+            </div>`;
+        }
+        if (spoliation.length) {
+            html += `<div style="margin-bottom:14px;">
+                <div style="font-weight:700; color:#c0392b; font-size:12px; margin-bottom:6px;">⚠️ Spoliation Indicators (${spoliation.length})</div>
+                ${spoliation.map(s => `<div class="ci-flagged-item">
+                    <span class="severity-badge ${s.severity || 'high'}">${(s.severity || 'high').toUpperCase()}</span>
+                    ${escapeHtml(s.indicator || '')}
+                </div>`).join('')}
+            </div>`;
+        }
+        if (rfps.length) {
+            html += `<div style="margin-bottom:14px;">
+                <div style="font-weight:700; color:#1a5276; font-size:12px; margin-bottom:6px;">📝 Requests for Production (${rfps.length})</div>
+                <div id="ci-discovery-rfp-list">
+                    ${rfps.map((r, i) => `<div class="ci-rfp-item">
+                        <span class="rfp-text"><strong>RFP #${i+1}:</strong> ${escapeHtml(typeof r === 'string' ? r : (r.item || ''))}</span>
+                        ${(r.legal_basis && typeof r !== 'string') ? '<div style="font-size:11px; color:#777; margin-top:2px;">Legal basis: ' + escapeHtml(r.legal_basis) + '</div>' : ''}
+                    </div>`).join('')}
+                </div>
+            </div>`;
+        }
+        if (custodian.length) {
+            html += `<div style="margin-bottom:14px;">
+                <div style="font-weight:700; color:#6c3483; font-size:12px; margin-bottom:6px;">👤 Custodian Gaps</div>
+                <table style="width:100%; border-collapse:collapse; font-size:12px;">
+                    <tr style="background:#ecf0f1;"><th style="padding:4px 8px; text-align:left;">Person</th><th style="padding:4px 8px; text-align:left;">Role</th><th style="padding:4px 8px; text-align:left;">Expected</th><th style="padding:4px 8px; text-align:right;">Found</th></tr>
+                    ${custodian.map(c => `<tr style="border-top:1px solid #f0f0f0;">
+                        <td style="padding:3px 8px; font-weight:600;">${escapeHtml(c.person || '')}</td>
+                        <td style="padding:3px 8px; color:#666;">${escapeHtml(c.role || '')}</td>
+                        <td style="padding:3px 8px; color:#555; font-size:11px;">${escapeHtml(c.expected_docs || '')}</td>
+                        <td style="padding:3px 8px; text-align:right;">${c.actual_doc_count ?? '?'}</td>
+                    </tr>`).join('')}
+                </table>
+            </div>`;
+        }
+        if (subpoenas.length) {
+            html += `<div style="margin-bottom:14px;">
+                <div style="font-weight:700; color:#e67e22; font-size:12px; margin-bottom:6px;">📋 Subpoena Targets</div>
+                ${subpoenas.map(s => `<div style="border:1px solid #fdebd0; border-radius:5px; padding:8px 10px; margin-bottom:5px; font-size:12px;">
+                    <strong>${escapeHtml(s.entity || '')}</strong>
+                    <p style="margin:3px 0 0 0; color:#666;">${escapeHtml(s.reason || '')}</p>
+                    ${s.likely_docs ? '<p style="margin:2px 0 0 0; font-size:11px; color:#888;">Likely docs: ' + escapeHtml(s.likely_docs) + '</p>' : ''}
+                </div>`).join('')}
+            </div>`;
+        }
+        if (data.summary) {
+            html += `<div style="background:#f0f8ff; border:1px solid #aed6f1; border-radius:6px; padding:12px 14px; font-size:12px; color:#333; line-height:1.6;">
+                <div style="font-weight:700; color:#1a5276; margin-bottom:6px;">📋 Discovery Strategy Memo</div>
+                ${escapeHtml(data.summary).replace(/\n/g, '<br>')}
+            </div>`;
+        }
+        body.innerHTML = html || '<p style="color:#888; font-size:13px;">No discovery gaps identified.</p>';
+    }
+
+    function ciRenderWitnessesTab(data) {
+        const acc  = document.getElementById('ci-witnesses-accordion');
+        const body = document.getElementById('ci-witnesses-body');
+        if (!acc || !body) return;
+        const witnesses = Array.isArray(data) ? data : (data?.witness_cards || data?.witnesses || []);
+        if (!witnesses.length) { acc.style.display = 'none'; return; }
+        acc.style.display = '';
+        const html = witnesses.map((w, idx) => {
+            const score      = parseFloat(w.credibility_score || 0.5);
+            const scorePct   = Math.round(score * 100);
+            const scoreColor = score >= 0.7 ? '#27ae60' : score >= 0.4 ? '#e67e22' : '#c0392b';
+            const impeachment     = w.impeachment_points       || [];
+            const inconsistencies = w.prior_inconsistencies    || [];
+            const keyQs           = w.deposition_key_questions || [];
+            const panelId = `ci-witness-body-${idx}`;
+            return `<div class="ci-witness-card">
+                <div onclick="const p=document.getElementById('${panelId}');p.style.display=p.style.display==='none'?'block':'none'"
+                     style="display:flex; align-items:center; gap:12px; cursor:pointer;">
+                    <div style="flex:1;">
+                        <div style="font-weight:700; font-size:13px;">${escapeHtml(w.witness_name || 'Unknown')}</div>
+                        ${w.vulnerability_summary ? `<div style="font-size:11px; color:#666; margin-top:2px;">${escapeHtml(w.vulnerability_summary)}</div>` : ''}
+                    </div>
+                    <div style="flex-shrink:0; text-align:center; min-width:70px;">
+                        <div style="font-size:11px; color:#888; margin-bottom:2px;">Credibility</div>
+                        <div class="ci-credibility-bar"><div class="ci-credibility-fill" style="width:${scorePct}%; background:${scoreColor};"></div></div>
+                        <div style="font-size:12px; font-weight:700; color:${scoreColor};">${scorePct}%</div>
+                    </div>
+                    <div style="font-size:18px; color:#aaa;">›</div>
+                </div>
+                <div id="${panelId}" style="display:none; margin-top:10px; padding-top:10px; border-top:1px solid #eee;">
+                    ${impeachment.length ? `<div style="margin-bottom:10px;">
+                        <div style="font-weight:700; font-size:11px; color:#c0392b; margin-bottom:4px;">🎯 Impeachment Points</div>
+                        ${impeachment.map(p => `<div class="ci-flagged-item">
+                            <span class="severity-badge ${p.severity || 'medium'}">${(p.severity || 'medium').toUpperCase()}</span>
+                            ${escapeHtml(typeof p === 'string' ? p : (p.point || ''))}
+                        </div>`).join('')}
+                    </div>` : ''}
+                    ${inconsistencies.length ? `<div style="margin-bottom:10px;">
+                        <div style="font-weight:700; font-size:11px; color:#e67e22; margin-bottom:4px;">⚡ Prior Inconsistent Statements</div>
+                        ${inconsistencies.map(pi => `<div style="font-size:12px; padding:6px 10px; border:1px solid #fde8d0; border-radius:5px; margin-bottom:5px;">
+                            <div style="color:#e67e22;">A: ${escapeHtml(pi.statement_a || '')}</div>
+                            <div style="color:#c0392b; margin-top:3px;">B: ${escapeHtml(pi.statement_b || '')}</div>
+                        </div>`).join('')}
+                    </div>` : ''}
+                    ${keyQs.length ? `<div style="margin-bottom:8px;">
+                        <div style="font-weight:700; font-size:11px; color:#1a5276; margin-bottom:4px;">❓ Key Deposition Questions</div>
+                        ${keyQs.map((q, qi) => `<div style="font-size:12px; padding:4px 0; border-bottom:1px solid #f0f0f0;">Q${qi+1}: ${escapeHtml(q)}</div>`).join('')}
+                    </div>` : ''}
+                    ${w.recommended_deposition_order ? `<div style="font-size:11px; color:#888; margin-top:6px;">Recommended deposition order: #${w.recommended_deposition_order}</div>` : ''}
+                </div>
+            </div>`;
+        }).join('');
+        body.innerHTML = html;
+    }
+
+    function ciRenderWarRoomTab(data) {
+        const acc  = document.getElementById('ci-warroom-accordion');
+        const body = document.getElementById('ci-warroom-body');
+        if (!acc || !body) return;
+        if (!data || data.error || (!data.war_room_memo && !data.opposing_case_summary)) {
+            acc.style.display = 'none';
+            return;
+        }
+        acc.style.display = '';
+        const dangerous      = data.top_3_dangerous_arguments || data.top_dangerous_arguments || [];
+        const vulnerabilities = data.client_vulnerabilities || [];
+        const smokingGuns    = data.smoking_guns_against_client || data.smoking_guns || [];
+        let html = '';
+        if (data.opposing_case_summary) {
+            html += `<div style="margin-bottom:14px; padding:12px 14px; background:#fff5f5; border:1px solid #f5c6cb; border-radius:6px; font-size:12px; line-height:1.6;">
+                <div style="font-weight:700; color:#c0392b; margin-bottom:6px;">⚔️ Opposing Counsel's Case Theory</div>
+                ${escapeHtml(data.opposing_case_summary).replace(/\n/g, '<br>')}
+            </div>`;
+        }
+        if (data.likelihood_of_success_pct != null) {
+            const pct = data.likelihood_of_success_pct;
+            const lc  = pct >= 65 ? '#27ae60' : pct >= 40 ? '#e67e22' : '#c0392b';
+            html += `<div style="margin-bottom:14px; display:flex; align-items:center; gap:12px;">
+                <div style="font-size:28px; font-weight:800; color:${lc};">${pct}%</div>
+                <div style="font-size:12px; color:#555;">Estimated likelihood of success<br><span style="color:#888; font-size:11px;">Based on document analysis and theory strength</span></div>
+            </div>`;
+        }
+        if (dangerous.length) {
+            html += `<div style="margin-bottom:14px;">
+                <div style="font-weight:700; color:#c0392b; font-size:12px; margin-bottom:6px;">🔥 Top ${dangerous.length} Most Dangerous Arguments (Opposing)</div>
+                ${dangerous.map((arg, i) => `<div class="ci-warroom-arg">
+                    <div style="font-weight:700; color:#c0392b; margin-bottom:4px;">Arg ${i+1}: ${escapeHtml(arg.argument || '')}</div>
+                    ${arg.our_response ? `<div style="margin-top:6px;"><span style="font-size:11px; font-weight:700; color:#27ae60;">OUR RESPONSE:</span> <span style="font-size:12px;">${escapeHtml(arg.our_response)}</span></div>` : ''}
+                    ${arg.response_strength ? `<div style="margin-top:3px;"><span class="severity-badge ${arg.response_strength}">${arg.response_strength.toUpperCase()}</span> response strength</div>` : ''}
+                </div>`).join('')}
+            </div>`;
+        }
+        if (vulnerabilities.length) {
+            html += `<div style="margin-bottom:14px;">
+                <div style="font-weight:700; color:#e67e22; font-size:12px; margin-bottom:6px;">⚠️ Client Vulnerabilities</div>
+                ${vulnerabilities.map(v => `<div class="ci-flagged-item">
+                    <span class="severity-badge ${v.severity || 'medium'}">${(v.severity || 'medium').toUpperCase()}</span>
+                    <strong>${escapeHtml(v.vulnerability || '')}</strong>
+                    ${v.mitigation ? '<p style="font-size:11px; color:#27ae60; margin:3px 0 0 0;">Mitigation: ' + escapeHtml(v.mitigation) + '</p>' : ''}
+                </div>`).join('')}
+            </div>`;
+        }
+        if (smokingGuns.length) {
+            html += `<div style="margin-bottom:14px;">
+                <div style="font-weight:700; color:#922b21; font-size:12px; margin-bottom:6px;">💥 Documents Dangerous to Client</div>
+                ${smokingGuns.map(sg => `<div style="border:1px solid #f1948a; border-radius:5px; padding:8px 10px; margin-bottom:5px; font-size:12px; background:#fff8f8;">
+                    <strong>${escapeHtml(sg.doc_title || sg.title || 'Doc #' + (sg.doc_id || sg.paperless_doc_id || '?'))}</strong>
+                    <p style="margin:3px 0 0 0; color:#666;">${escapeHtml(sg.why_dangerous || '')}</p>
+                </div>`).join('')}
+            </div>`;
+        }
+        if (data.settlement_analysis) {
+            const s = data.settlement_analysis;
+            html += `<div style="margin-bottom:14px;">
+                <div style="font-weight:700; color:#1a5276; font-size:12px; margin-bottom:6px;">💼 Settlement Analysis</div>
+                <table class="ci-settlement-table">
+                    <tr><td>Settlement Range</td><td><strong>$${(s.range_low_usd || 0).toLocaleString()} — $${(s.range_high_usd || 0).toLocaleString()}</strong></td></tr>
+                    ${s.walk_away_usd != null ? `<tr><td>Walk-Away Threshold</td><td><strong>$${s.walk_away_usd.toLocaleString()}</strong></td></tr>` : ''}
+                    ${s.rationale ? `<tr><td colspan="2" style="color:#666; font-size:11px; padding-top:6px;">${escapeHtml(s.rationale)}</td></tr>` : ''}
+                </table>
+                ${s.leverage_points?.length ? `<div style="margin-top:8px; font-size:12px;"><strong>Leverage Points:</strong><ul style="margin:4px 0 0 0; padding-left:18px; color:#555;">${s.leverage_points.map(lp => `<li>${escapeHtml(lp)}</li>`).join('')}</ul></div>` : ''}
+            </div>`;
+        }
+        if (data.war_room_memo) {
+            html += `<div style="background:#f8f4ff; border:1px solid #d5c8f0; border-radius:6px; padding:12px 14px; font-size:12px; color:#333; line-height:1.6; margin-bottom:12px;">
+                <div style="font-weight:700; color:#6c3483; margin-bottom:6px;">📋 War Room Memo</div>
+                ${escapeHtml(data.war_room_memo).replace(/\n/g, '<br>')}
+            </div>`;
+        }
+        // Senior partner notes — build inline (body.innerHTML overwrites the child divs)
+        if (data.senior_partner_notes) {
+            const notes = typeof data.senior_partner_notes === 'string'
+                ? (() => { try { return JSON.parse(data.senior_partner_notes); } catch(e) { return {}; } })()
+                : (data.senior_partner_notes || {});
+            let snHtml = '';
+            if (notes.single_most_important_finding) {
+                snHtml += `<div style="margin-bottom:10px; padding:10px 12px; background:#fffbf0; border:1px solid #f0d060; border-radius:5px;">
+                    <div style="font-weight:700; color:#b8860b; font-size:12px; margin-bottom:4px;">⭐ Most Important Finding</div>
+                    <div style="font-size:12px; color:#333;">${escapeHtml(notes.single_most_important_finding)}</div>
+                </div>`;
+            }
+            if (notes.missed_issues?.length) {
+                snHtml += `<div style="margin-bottom:10px;">
+                    <div style="font-weight:700; font-size:11px; color:#c0392b; margin-bottom:4px;">❌ Issues Missed or Understated</div>
+                    ${notes.missed_issues.map(mi => `<div style="font-size:12px; padding:4px 8px; background:#fff5f5; border-left:3px solid #e74c3c; margin-bottom:3px;">${escapeHtml(mi)}</div>`).join('')}
+                </div>`;
+            }
+            if (notes.logical_leaps?.length) {
+                snHtml += `<div style="margin-bottom:10px;">
+                    <div style="font-weight:700; font-size:11px; color:#e67e22; margin-bottom:4px;">⚡ Unsupported Conclusions</div>
+                    ${notes.logical_leaps.map(ll => `<div style="font-size:12px; padding:4px 8px; background:#fffbf0; border-left:3px solid #e67e22; margin-bottom:3px;">${escapeHtml(ll)}</div>`).join('')}
+                </div>`;
+            }
+            if (notes.theories_that_wont_survive_cross?.length) {
+                snHtml += `<div style="margin-bottom:10px;">
+                    <div style="font-weight:700; font-size:11px; color:#922b21; margin-bottom:4px;">🎯 Theories That Won't Survive Cross</div>
+                    ${notes.theories_that_wont_survive_cross.map(t => `<div style="font-size:12px; padding:4px 8px; background:#fff0f0; border-left:3px solid #c0392b; margin-bottom:3px;">${escapeHtml(t)}</div>`).join('')}
+                </div>`;
+            }
+            if (snHtml) {
+                html += `<div style="margin-top:14px; border-top:2px solid #f0d060; padding-top:12px;">
+                    <div style="font-weight:700; color:#b8860b; font-size:12px; margin-bottom:8px;">🧑‍⚖️ Senior Partner Review Notes</div>
+                    ${snHtml}
+                </div>`;
+            }
+        }
+        body.innerHTML = html || '<p style="color:#888; font-size:13px;">No war room data.</p>';
     }
 
     // ── Report builder ───────────────────────────────────────────────

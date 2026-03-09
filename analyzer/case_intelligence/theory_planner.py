@@ -36,6 +36,9 @@ CONTRADICTIONS FOUND:
 RELEVANT AUTHORITIES:
 {authorities_summary}
 
+WEB RESEARCH FINDINGS:
+{web_research_summary}
+
 Generate theories in JSON:
 {{
   "theories": [
@@ -54,7 +57,19 @@ Generate theories in JSON:
       ],
       "legal_basis": "Statute or rule that makes this legally actionable (or null)",
       "what_would_change": "Evidence that would undermine this theory",
-      "discovery_implications": "What additional discovery this theory requires"
+      "discovery_implications": "What specific documents/depositions/RFPs would prove or disprove this theory",
+      "legal_element_mapping": [
+        {{
+          "element": "Element name (e.g., Intent, Knowledge, Materiality)",
+          "proven_by": "How this element is satisfied",
+          "doc_support": [{{"paperless_doc_id": 101, "excerpt": "..."}}],
+          "strength": "strong|moderate|weak"
+        }}
+      ],
+      "theory_legal_memo": "2-paragraph legal argument memo for this theory, as it would appear in a brief",
+      "knowledge_cutoff_date": "YYYY-MM-DD — the earliest date at which the relevant party demonstrably had knowledge of the key fact",
+      "companion_theories": ["Related factual/financial theory type that strengthens this one"],
+      "model_source": "gpt-4o"
     }}
   ]
 }}
@@ -65,7 +80,10 @@ RULES:
 3. Be honest about confidence — use 0.4 if evidence is thin, 0.9 if overwhelming.
 4. Generate theories that the {role} can actually USE in proceedings.
 5. Include both strong and developing theories (the latter with lower confidence).
-6. Maximum 8 theories per run. Keep each theory_text concise (1-2 sentences).
+6. Maximum 12 theories per run. Include factual, legal, AND financial theories where supported.
+7. For each legal theory, map every required element of the cause of action to specific evidence.
+8. theory_legal_memo: write as a litigator — cite specific facts and their legal implications.
+9. knowledge_cutoff_date: identify the earliest document showing party awareness of the key fact.
 """
 
 ADVERSARIAL_TESTING_PROMPT = """You are opposing counsel tasked with defeating the following theory.
@@ -115,6 +133,7 @@ class TheoryPlanner:
                            entities_summary: str, timeline_summary: str,
                            financial_summary: str, contradictions_summary: str,
                            authorities_summary: str,
+                           web_research_summary: str = '',
                            run_id: str = None) -> List[Dict[str, Any]]:
         """
         Generate role-aware theories from all evidence gathered.
@@ -130,6 +149,7 @@ class TheoryPlanner:
             financial_summary=financial_summary[:2500],
             contradictions_summary=contradictions_summary[:2500],
             authorities_summary=authorities_summary[:2000],
+            web_research_summary=(web_research_summary or 'No web research performed.')[:1500],
         )
 
         result = self._call_llm_with_escalation(

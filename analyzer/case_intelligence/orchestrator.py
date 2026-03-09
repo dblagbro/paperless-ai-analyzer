@@ -1,11 +1,16 @@
 """
 CI Orchestrator — Director/Manager/Worker hierarchical run controller.
 
-Architecture:
+Architecture (v3.6.6 5-tier):
   Director D1: reads run config + doc list → produces manager_plan JSON
+  Phase 1M:   Entity merge pass (all tiers)
   Manager (N parallel, one per domain): splits docs → spawns Workers → aggregates
-  Worker  (K per manager, parallel): fetches doc, runs LLM extraction, returns findings
+  Phase 2F:   Forensic Accounting (Tier 3+)
+  Phase 2D:   Discovery Gap Analysis (Tier 3+)
+  Phase 2W:   Witness Intelligence (Tier 4+)
+  Phase 2R:   War Room / Opposing Counsel (Tier 4+)
   Director D2: synthesizes all manager_reports → scientific paper report
+  Phase 3A:   Senior Partner Review (Tier 4+)
   Director D3: Paperless write-back + marks run complete
 
 Budget checkpoints fire every 10% and optionally invoke notification callbacks.
@@ -30,6 +35,9 @@ from analyzer.case_intelligence.db import (
     add_ci_authority, increment_ci_run_cost, increment_ci_run_docs,
     upsert_manager_report, get_manager_reports,
     add_ci_web_research, get_ci_web_research,
+    upsert_forensic_report, upsert_discovery_gaps,
+    upsert_witness_card, upsert_war_room, update_war_room_senior_notes,
+    get_ci_entities_active,
 )
 from analyzer.case_intelligence.budget_manager import BudgetManager
 from analyzer.case_intelligence.entity_extractor import EntityExtractor
@@ -144,6 +152,18 @@ class CIOrchestrator:
         self.theory_planner = TheoryPlanner(llm_clients, usage_tracker)
         self.adversarial_tester = AdversarialTester(llm_clients, usage_tracker)
 
+        # v3.6.6 specialist modules (lazy-imported, tier-gated)
+        from analyzer.case_intelligence.entity_merger import EntityMerger
+        from analyzer.case_intelligence.forensic_accountant import ForensicAccountant
+        from analyzer.case_intelligence.discovery_analyst import DiscoveryAnalyst
+        from analyzer.case_intelligence.witness_analyst import WitnessAnalyst
+        from analyzer.case_intelligence.war_room import WarRoom
+        self.entity_merger = EntityMerger(llm_clients, usage_tracker)
+        self.forensic_accountant = ForensicAccountant(llm_clients, usage_tracker)
+        self.discovery_analyst = DiscoveryAnalyst(llm_clients, usage_tracker)
+        self.witness_analyst = WitnessAnalyst(llm_clients, usage_tracker)
+        self.war_room = WarRoom(llm_clients, usage_tracker)
+
     # -----------------------------------------------------------------------
     # Public entry point
     # -----------------------------------------------------------------------
@@ -214,6 +234,15 @@ class CIOrchestrator:
                 run_id, run, manager_plan, documents, workers_per_mgr, cancel_event
             )
 
+            # ── Phase 2F/2D/2W/2R: Specialist analysis (tier-gated) ───────────
+            run = get_ci_run(run_id)  # re-fetch to get max_tier
+            max_tier = run.get('max_tier', 3)
+            specialist_results = {}
+            if not self._is_cancelled(cancel_event, run_id):
+                specialist_results = self._run_specialist_phases(
+                    run_id, run, documents, max_tier, cancel_event
+                )
+
             # ── Phase D2: Director synthesizes report ──────────────────────
             if self._is_cancelled(cancel_event, run_id):
                 return
@@ -221,6 +250,10 @@ class CIOrchestrator:
             self._set_status(run_id, 'running', stage='Director synthesizing report', progress=90)
             self._director_d2_synthesize(run_id, run, manager_reports,
                                           [d.get('id', 0) for d in documents])
+
+            # ── Phase 3A: Senior Partner Review (Tier 4+) ──────────────────
+            if not self._is_cancelled(cancel_event, run_id) and max_tier >= 4:
+                self._phase_senior_partner_review(run_id, run)
 
             # ── Phase D3: Write-back + finalize ────────────────────────────
             if not self._is_cancelled(cancel_event, run_id):
@@ -491,6 +524,19 @@ class CIOrchestrator:
 
         if cancel_event.is_set():
             return manager_reports
+
+        # ── Phase 1M: Entity merge pass (all tiers) ──────────────────────
+        try:
+            self._set_status(run_id, 'running',
+                             stage='Phase 1M: Merging duplicate entities', progress=60)
+            merge_result = self.entity_merger.merge_run_entities(run_id)
+            if merge_result.get('merged', 0):
+                logger.info(
+                    f"CI run {run_id}: Phase 1M merged {merge_result['merged']} duplicates, "
+                    f"{merge_result['total']} active entities"
+                )
+        except Exception as e:
+            logger.warning(f"Phase 1M entity merge failed (non-fatal): {e}")
 
         # ── Phase W: Web research (between extraction and synthesis) ──────
         self._phase_web_research(run_id, run, cancel_event)
@@ -1073,6 +1119,23 @@ class CIOrchestrator:
         if not self.budget_manager.check_and_charge(run_id, 'theory_generation', 0.05):
             return findings, cost
 
+        # Build web research summary for theories
+        web_research_summary = ''
+        try:
+            web_rows = get_ci_web_research(run_id)
+            web_lines = []
+            for wr in web_rows[:5]:
+                results_data = json.loads(wr.get('results_json') or '[]')
+                if isinstance(results_data, dict) and results_data.get('summary'):
+                    web_lines.append(f"- {results_data['summary'][:200]}")
+                elif isinstance(results_data, list):
+                    for item in results_data[:2]:
+                        if isinstance(item, dict) and item.get('title'):
+                            web_lines.append(f"- {item.get('title', '')}: {item.get('excerpt', '')[:150]}")
+            web_research_summary = '\n'.join(web_lines)
+        except Exception:
+            pass
+
         try:
             theories = self.theory_planner.generate_theories(
                 role=run['role'],
@@ -1083,6 +1146,7 @@ class CIOrchestrator:
                 financial_summary='\n'.join(financial_lines) or 'None',
                 contradictions_summary=contradictions_summary,
                 authorities_summary=authorities_summary,
+                web_research_summary=web_research_summary,
                 run_id=run_id,
             )
             cost += 0.05
@@ -1153,6 +1217,7 @@ class CIOrchestrator:
                         financial_summary='\n'.join(financial_lines) or 'None',
                         contradictions_summary=contradictions_summary,
                         authorities_summary=authorities_summary,
+                        web_research_summary=web_research_summary,
                         run_id=run_id,
                     )
                     cost += 0.05
@@ -1254,6 +1319,261 @@ class CIOrchestrator:
             logger.warning(f"Web authority injection error: {e}")
 
         return findings, cost
+
+    # -----------------------------------------------------------------------
+    # Phase 2F/2D/2W/2R: Specialist analysis (tier 3+/4+)
+    # -----------------------------------------------------------------------
+
+    def _run_specialist_phases(self, run_id: str, run, documents: List[Dict],
+                                max_tier: int,
+                                cancel_event: threading.Event) -> Dict:
+        """
+        Run Tier 3+ specialist phases in parallel where possible.
+
+        Phase 2F: Forensic Accounting (Tier 3+)
+        Phase 2D: Discovery Gap Analysis (Tier 3+)
+        Phase 2W: Witness Intelligence (Tier 4+)
+        Phase 2R: War Room (Tier 4+)
+        """
+        results = {}
+        if max_tier < 3:
+            return results
+
+        # Fetch all Phase 1 results from DB
+        entities = [dict(e) for e in get_ci_entities_active(run_id)]
+        timeline = [dict(ev) for ev in get_ci_timeline(run_id)]
+        contradictions = [dict(c) for c in get_ci_contradictions(run_id)]
+        theories = [dict(t) for t in get_ci_theories(run_id)]
+
+        # Extract financial facts from manager reports
+        financial = self._extract_financial_facts(run_id)
+
+        jurisdiction_name = 'Not specified'
+        try:
+            jd = json.loads(run.get('jurisdiction_json') or '{}')
+            jurisdiction_name = jd.get('display_name', 'Not specified')
+        except Exception:
+            pass
+
+        role = run.get('role', 'neutral')
+        goal = run.get('goal_text') or ''
+
+        # ── Phase 2F: Forensic Accounting (Tier 3+) ─────────────────────
+        if max_tier >= 3 and not cancel_event.is_set():
+            self._set_status(run_id, 'running',
+                             stage='Phase 2F: Forensic accounting analysis', progress=86)
+            if self.budget_manager.check_and_charge(run_id, 'forensic_accounting', 0.025):
+                try:
+                    fa_result = self.forensic_accountant.analyze(
+                        run_id=run_id, role=role, goal_text=goal,
+                        financial_data=financial,
+                        timeline_data=timeline,
+                        entities_data=entities,
+                    )
+                    upsert_forensic_report(
+                        run_id=run_id,
+                        flagged_transactions=json.dumps(fa_result.get('flagged_transactions', [])),
+                        cash_flow_by_party=json.dumps(fa_result.get('cash_flow_by_party', [])),
+                        balance_discrepancies=json.dumps(fa_result.get('balance_discrepancies', [])),
+                        missing_transactions=json.dumps(fa_result.get('missing_transactions', [])),
+                        transaction_chains=json.dumps(fa_result.get('transaction_chains', [])),
+                        summary=fa_result.get('summary'),
+                        total_exposure_usd=fa_result.get('total_documented_exposure_usd', 0),
+                    )
+                    increment_ci_run_cost(run_id, 0.025)
+                    results['forensic'] = fa_result
+                    logger.info(f"CI run {run_id}: Phase 2F complete")
+                except Exception as e:
+                    logger.warning(f"Phase 2F forensic accounting failed: {e}")
+
+        # ── Phase 2D: Discovery Gap Analysis (Tier 3+) ───────────────────
+        if max_tier >= 3 and not cancel_event.is_set():
+            self._set_status(run_id, 'running',
+                             stage='Phase 2D: Discovery gap analysis', progress=87)
+            if self.budget_manager.check_and_charge(run_id, 'discovery_gap_analysis', 0.020):
+                try:
+                    da_result = self.discovery_analyst.analyze(
+                        run_id=run_id, role=role, goal_text=goal,
+                        jurisdiction=jurisdiction_name,
+                        documents=documents,
+                        entities=entities,
+                        timeline=timeline,
+                        financial=financial,
+                    )
+                    upsert_discovery_gaps(
+                        run_id=run_id,
+                        missing_doc_types=json.dumps(da_result.get('missing_document_types', [])),
+                        custodian_gaps=json.dumps(da_result.get('custodian_gaps', [])),
+                        spoliation_indicators=json.dumps(da_result.get('spoliation_indicators', [])),
+                        rfp_list=json.dumps(da_result.get('rfp_list', [])),
+                        subpoena_targets=json.dumps(da_result.get('subpoena_targets', [])),
+                        summary=da_result.get('summary'),
+                    )
+                    increment_ci_run_cost(run_id, 0.020)
+                    results['discovery'] = da_result
+                    logger.info(f"CI run {run_id}: Phase 2D complete")
+                except Exception as e:
+                    logger.warning(f"Phase 2D discovery gap analysis failed: {e}")
+
+        if max_tier < 4:
+            return results
+
+        # ── Phase 2W + 2R: Witness Intelligence + War Room (Tier 4+) ────
+        # Run in parallel
+        def run_witnesses():
+            if cancel_event.is_set():
+                return
+            if not self.budget_manager.check_and_charge(run_id, 'witness_intelligence', 0.15):
+                return
+            try:
+                dossiers = self.witness_analyst.build_dossiers(
+                    run_id=run_id, role=role, goal_text=goal,
+                    entities=entities, documents=documents,
+                    contradictions=contradictions, financial=financial,
+                )
+                for dossier in dossiers:
+                    upsert_witness_card(
+                        run_id=run_id,
+                        witness_name=dossier.get('witness_name', 'Unknown'),
+                        credibility_score=dossier.get('credibility_score', 0.5),
+                        impeachment_points=json.dumps(dossier.get('impeachment_points', [])),
+                        financial_interest=json.dumps(dossier.get('financial_interest', {})),
+                        prior_inconsistencies=json.dumps(dossier.get('prior_inconsistencies', [])),
+                        public_record_flags=json.dumps(dossier.get('public_record_flags', [])),
+                        deposition_order=dossier.get('recommended_deposition_order', 99),
+                        key_questions=json.dumps(dossier.get('deposition_key_questions', [])),
+                        vulnerability_summary=dossier.get('vulnerability_summary'),
+                    )
+                increment_ci_run_cost(run_id, 0.03 * max(len(dossiers), 1))
+                results['witnesses'] = dossiers
+                logger.info(f"CI run {run_id}: Phase 2W complete ({len(dossiers)} dossiers)")
+            except Exception as e:
+                logger.warning(f"Phase 2W witness intelligence failed: {e}")
+
+        def run_war_room():
+            if cancel_event.is_set():
+                return
+            if not self.budget_manager.check_and_charge(run_id, 'war_room_strategy', 0.060):
+                return
+            try:
+                wr_result = self.war_room.run_war_room(
+                    run_id=run_id, role=role, goal_text=goal,
+                    jurisdiction=jurisdiction_name,
+                    entities=entities, timeline=timeline, financial=financial,
+                    contradictions=contradictions, theories=theories,
+                    documents=documents,
+                )
+                upsert_war_room(
+                    run_id=run_id,
+                    opposing_case_summary=wr_result.get('opposing_case_summary'),
+                    top_dangerous_arguments=json.dumps(
+                        wr_result.get('top_3_dangerous_arguments', [])),
+                    client_vulnerabilities=json.dumps(
+                        wr_result.get('client_vulnerabilities', [])),
+                    smoking_guns=json.dumps(wr_result.get('smoking_guns_against_client', [])),
+                    settlement_analysis=json.dumps(wr_result.get('settlement_analysis', {})),
+                    likelihood_pct=wr_result.get('likelihood_of_success_pct', 50),
+                    war_room_memo=wr_result.get('war_room_memo'),
+                )
+                increment_ci_run_cost(run_id, 0.060)
+                results['war_room'] = wr_result
+                logger.info(f"CI run {run_id}: Phase 2R complete")
+            except Exception as e:
+                logger.warning(f"Phase 2R war room failed: {e}")
+
+        self._set_status(run_id, 'running',
+                         stage='Phase 2W/2R: Witness intelligence + War room (parallel)',
+                         progress=88)
+        with ThreadPoolExecutor(max_workers=2,
+                                thread_name_prefix='ci-specialist') as executor:
+            futures = [
+                executor.submit(run_witnesses),
+                executor.submit(run_war_room),
+            ]
+            for f in as_completed(futures):
+                try:
+                    f.result()
+                except Exception as e:
+                    logger.warning(f"Specialist phase future failed: {e}")
+
+        return results
+
+    def _extract_financial_facts(self, run_id: str) -> List[Dict]:
+        """Extract financial facts from manager reports for specialist phases."""
+        try:
+            mgr_reports = get_manager_reports(run_id)
+            fin = next((r for r in mgr_reports
+                        if r.get('manager_id') == 'financial'
+                        or r.get('domain') == 'financial'), None)
+            if fin and fin.get('report_json'):
+                findings = json.loads(fin['report_json'] or '[]')
+                result = []
+                for f in findings:
+                    if isinstance(f, dict) and f.get('content'):
+                        result.append({'description': f['content'],
+                                       'source': f.get('source', ''),
+                                       'doc_id': None})
+                return result
+        except Exception:
+            pass
+        return []
+
+    # -----------------------------------------------------------------------
+    # Phase 3A: Senior Partner Review (Tier 4+)
+    # -----------------------------------------------------------------------
+
+    def _phase_senior_partner_review(self, run_id: str, run):
+        """
+        Phase 3A: Senior partner challenges the D2 analysis.
+        Stores result as senior_partner_notes in ci_war_room.
+        """
+        if not self.budget_manager.check_and_charge(run_id, 'senior_partner_review', 0.030):
+            return
+
+        try:
+            self._set_status(run_id, 'running',
+                             stage='Phase 3A: Senior partner review', progress=95)
+            # Build analysis summary from D2 findings
+            run_obj = get_ci_run(run_id)
+            findings_summary = run_obj.get('findings_summary') or ''
+            theories = get_ci_theories(run_id)
+            contradictions = get_ci_contradictions(run_id)
+
+            analysis_summary = f"""FINDINGS SUMMARY:
+{findings_summary[:4000]}
+
+THEORIES ({len(theories)}):
+{chr(10).join(f"- [{t['theory_type']}] {t['theory_text'][:150]} (confidence {t.get('confidence',0):.0%})" for t in theories[:8])}
+
+CONTRADICTIONS ({len(contradictions)}):
+{chr(10).join(f"- [{c['severity']}] {c['description']}" for c in contradictions[:8])}
+"""
+
+            review = self.war_room.run_senior_partner_review(
+                run_id=run_id,
+                role=run.get('role', 'neutral'),
+                goal_text=run.get('goal_text') or '',
+                analysis_summary=analysis_summary,
+            )
+
+            if review:
+                senior_notes = review.get('senior_partner_notes', '')
+                missed = review.get('missed_issues', [])
+                most_important = review.get('single_most_important_finding', '')
+                if missed or most_important:
+                    notes_text = (
+                        f"**Senior Partner Review**\n\n"
+                        f"**Most Important Finding:** {most_important}\n\n"
+                        f"**Missed Issues:**\n" +
+                        '\n'.join(f"- {m['issue']}: {m.get('why_significant', '')}"
+                                  for m in missed[:5]) +
+                        f"\n\n{senior_notes}"
+                    )
+                    update_war_room_senior_notes(run_id, notes_text)
+                increment_ci_run_cost(run_id, 0.030)
+                logger.info(f"CI run {run_id}: Phase 3A complete")
+        except Exception as e:
+            logger.warning(f"Phase 3A senior partner review failed: {e}")
 
     # -----------------------------------------------------------------------
     # Phase D2: Director synthesizes report
