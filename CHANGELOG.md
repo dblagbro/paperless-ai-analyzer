@@ -4,6 +4,22 @@ All notable changes to Paperless AI Analyzer are documented here.
 
 ---
 
+## v3.6.9 — 2026-03-09
+
+### Added
+- **Web search in AI Chat** — say "search for...", "find online...", "look up...", or any similar phrase and the AI now runs a live DuckDuckGo search and incorporates the results. No manual URL needed.
+- **Persistent web context across chat turns** — URLs fetched and searches performed in earlier turns of a conversation are remembered and available for follow-up questions. The AI no longer "forgets" what it fetched from a prior message.
+- **AI web capability statement** — the chat system prompt now explicitly instructs the AI that it has web access via this system, preventing responses that claim it "cannot browse the internet."
+
+---
+
+## v3.6.8 — 2026-03-09
+
+### Added
+- **Smart court docket URL resolver** — Justia docket URLs (which block automated fetches with 403) are now automatically resolved through CourtListener's free public API, returning case name, parties, attorneys, judge, cause, and nature of suit.
+
+---
+
 ## v3.6.7 — 2026-03-09
 
 ### Added
