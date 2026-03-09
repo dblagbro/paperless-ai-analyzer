@@ -89,6 +89,8 @@ def init_db():
         for _tbl, _col in (
             ("chat_sessions",       "project_slug TEXT NOT NULL DEFAULT 'default'"),
             ("chat_sessions",       "web_context TEXT NOT NULL DEFAULT '{}'"),
+            ("chat_sessions",       "active_leaf_id INTEGER"),
+            ("chat_messages",       "parent_id INTEGER"),
             ("processed_documents", "project_slug TEXT NOT NULL DEFAULT 'default'"),
         ):
             try:
@@ -250,17 +252,18 @@ def get_messages(session_id: str):
         ).fetchall()
 
 
-def append_message(session_id: str, role: str, content: str) -> int:
+def append_message(session_id: str, role: str, content: str, parent_id: int = None) -> int:
     with _get_conn() as conn:
         cur = conn.execute(
-            "INSERT INTO chat_messages (session_id, role, content) VALUES (?, ?, ?)",
-            (session_id, role, content)
+            "INSERT INTO chat_messages (session_id, role, content, parent_id) VALUES (?, ?, ?, ?)",
+            (session_id, role, content, parent_id)
         )
+        new_id = cur.lastrowid
         conn.execute(
-            "UPDATE chat_sessions SET updated_at = datetime('now') WHERE id = ?",
-            (session_id,)
+            "UPDATE chat_sessions SET updated_at = datetime('now'), active_leaf_id = ? WHERE id = ?",
+            (new_id, session_id)
         )
-        return cur.lastrowid
+        return new_id
 
 
 def update_message_content(message_id: int, session_id: str, new_content: str) -> None:
@@ -277,6 +280,31 @@ def delete_messages_from(session_id: str, from_message_id: int) -> None:
         conn.execute(
             "DELETE FROM chat_messages WHERE session_id = ? AND id >= ?",
             (session_id, from_message_id)
+        )
+
+
+def get_message_by_id(message_id: int, session_id: str):
+    with _get_conn() as conn:
+        return conn.execute(
+            "SELECT * FROM chat_messages WHERE id = ? AND session_id = ?",
+            (message_id, session_id)
+        ).fetchone()
+
+
+def get_active_leaf(session_id: str):
+    """Return active_leaf_id for the session, or None."""
+    with _get_conn() as conn:
+        row = conn.execute(
+            "SELECT active_leaf_id FROM chat_sessions WHERE id = ?", (session_id,)
+        ).fetchone()
+        return row['active_leaf_id'] if row else None
+
+
+def set_active_leaf(session_id: str, leaf_id: int):
+    with _get_conn() as conn:
+        conn.execute(
+            "UPDATE chat_sessions SET active_leaf_id = ? WHERE id = ?",
+            (leaf_id, session_id)
         )
 
 
