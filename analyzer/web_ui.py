@@ -1109,6 +1109,98 @@ def _vision_extract_doc(doc_id: int, title: str, paperless_client, ai_config: di
         return ''
 
 
+def _load_session_web_context(session_id: str) -> dict:
+    """Load persisted URL/search context for a chat session."""
+    import json as _j
+    try:
+        from analyzer.db import _get_conn
+        with _get_conn() as conn:
+            row = conn.execute(
+                "SELECT web_context FROM chat_sessions WHERE id=?", (session_id,)
+            ).fetchone()
+        if row and row['web_context']:
+            return _j.loads(row['web_context']) or {}
+    except Exception:
+        pass
+    return {}
+
+
+def _save_session_web_context(session_id: str, ctx: dict):
+    """Persist URL/search context back to the session row."""
+    import json as _j
+    try:
+        from analyzer.db import _get_conn
+        with _get_conn() as conn:
+            conn.execute(
+                "UPDATE chat_sessions SET web_context=? WHERE id=?",
+                (_j.dumps(ctx), session_id)
+            )
+    except Exception as e:
+        logger.debug(f"_save_session_web_context failed: {e}")
+
+
+def _ddg_search(query: str, max_results: int = 6) -> list:
+    """
+    DuckDuckGo web search — returns [{title, excerpt, url}].
+    No API key required. Self-contained (no web_researcher import needed).
+    """
+    import re as _re
+    import urllib.request as _ur
+    import urllib.parse as _up
+    try:
+        encoded = _up.quote(query[:200])
+        url = f'https://html.duckduckgo.com/html/?q={encoded}&kl=us-en'
+        req = _ur.Request(url, headers={
+            'User-Agent': ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                           'AppleWebKit/537.36 (KHTML, like Gecko) '
+                           'Chrome/120.0.0.0 Safari/537.36'),
+            'Accept': 'text/html,application/xhtml+xml',
+            'Accept-Language': 'en-US,en;q=0.9',
+        })
+        with _ur.urlopen(req, timeout=15) as resp:
+            html = resp.read().decode('utf-8', errors='replace')
+
+        link_re = _re.compile(
+            r'class="result__a"[^>]*href="([^"]+)"[^>]*>(.*?)</a>',
+            _re.DOTALL | _re.IGNORECASE)
+        snip_re = _re.compile(
+            r'class="result__snippet"[^>]*>(.*?)</(?:span|td|div)',
+            _re.DOTALL | _re.IGNORECASE)
+
+        links    = link_re.findall(html)
+        snippets = [_re.sub(r'<[^>]+>', '', s).strip() for s in snip_re.findall(html)]
+        out = []
+        snip_i = 0
+        for raw_url, title_html in links:
+            if len(out) >= max_results:
+                break
+            real_url = raw_url
+            m = _re.search(r'uddg=([^&]+)', raw_url)
+            if m:
+                real_url = _up.unquote(m.group(1))
+            if 'y.js?' in real_url or 'duckduckgo.com/y.js' in real_url:
+                continue
+            out.append({
+                'title':   _re.sub(r'<[^>]+>', '', title_html).strip(),
+                'excerpt': snippets[snip_i] if snip_i < len(snippets) else '',
+                'url':     real_url,
+            })
+            snip_i += 1
+        return out
+    except Exception as e:
+        logger.warning(f"DuckDuckGo search failed: {e}")
+        return []
+
+
+_SEARCH_INTENT_PHRASES = (
+    'search online', 'search the web', 'search for', 'find online',
+    'find more information', 'look up online', 'look this up',
+    'google this', 'google for', 'search google', 'browse the web',
+    'find information online', 'search the internet', 'go online',
+    'find more about', 'research online', 'search news',
+)
+
+
 def _resolve_court_docket_url(url: str) -> tuple:
     """
     Detect Justia or PACER docket URLs and resolve them via CourtListener's
@@ -1253,26 +1345,10 @@ def api_chat():
         if not user_message:
             return jsonify({'error': 'Message required'}), 400
 
-        # ── URL detection & fetching ──────────────────────────────────────────
+        # ── Web context helpers (populated after session_id resolved below) ────
         import re as _re_chat
-        _url_pattern = _re_chat.compile(r'https?://[^\s<>"\']+', _re_chat.IGNORECASE)
-        _found_urls = _url_pattern.findall(user_message)[:3]  # cap at 3 URLs per message
-
-        _fetched_urls = []   # [(url, text)] — success
-        _failed_urls  = []   # [(url, reason)] — failure
-
-        for _u in _found_urls:
-            # 1. Try smart court-docket resolver first (Justia → CourtListener)
-            _text, _err = _resolve_court_docket_url(_u)
-            if not _text and not _err:
-                # Not a court docket URL — use regular HTML fetch
-                _text, _err = _fetch_url_text(_u)
-            if _text:
-                _fetched_urls.append((_u, _text))
-                logger.info(f"Chat URL fetch OK: {_u} ({len(_text)} chars)")
-            else:
-                _failed_urls.append((_u, _err))
-                logger.info(f"Chat URL fetch failed: {_u} — {_err}")
+        _fetched_urls = []     # [(key, text)] injected into prompt
+        _failed_urls  = []     # [(url, reason)]
         # ─────────────────────────────────────────────────────────────────────
 
         # Resolve or create a chat session
@@ -1286,6 +1362,36 @@ def api_chat():
                 title='New Chat',
                 document_type=document_type,
             )
+
+        # ── Load persisted web context + process current message ─────────────
+        _web_ctx = _load_session_web_context(session_id)
+        _url_pat = _re_chat.compile(r'https?://[^\s<>"\']+', _re_chat.IGNORECASE)
+        for _u in _url_pat.findall(user_message)[:3]:
+            if _u not in _web_ctx:
+                _text, _err = _resolve_court_docket_url(_u)
+                if not _text and not _err:
+                    _text, _err = _fetch_url_text(_u)
+                if _text:
+                    _web_ctx[_u] = _text
+                    logger.info(f"Chat URL fetch OK: {_u} ({len(_text)} chars)")
+                else:
+                    _failed_urls.append((_u, _err))
+                    logger.info(f"Chat URL fetch failed: {_u} — {_err}")
+
+        _msg_lower = user_message.lower()
+        if any(p in _msg_lower for p in _SEARCH_INTENT_PHRASES):
+            _search_q = user_message[:200]
+            _sr = _ddg_search(_search_q, max_results=6)
+            if _sr:
+                _sk = f"search:{_search_q[:60]}"
+                _st = f"WEB SEARCH RESULTS for: {_search_q}\n\n"
+                for _i, _r in enumerate(_sr, 1):
+                    _st += f"{_i}. {_r['title']}\n   {_r['excerpt']}\n   {_r['url']}\n\n"
+                _web_ctx[_sk] = _st
+                logger.info(f"Chat web search: {_search_q[:60]} ({len(_sr)} results)")
+
+        _fetched_urls = list(_web_ctx.items())   # all persisted context for this session
+        # ─────────────────────────────────────────────────────────────────────
 
         # Get stats
         with ui_state['lock']:
@@ -1659,30 +1765,41 @@ Available documentation pages (prepend the app URL prefix):
 - LLM usage & cost tracking: /docs/llm-usage
 - API reference: /docs/api
 Example: "You can learn more about projects in the [Projects documentation](/docs/projects)."
-Only include a docs link when it is genuinely relevant to the user's question."""
+Only include a docs link when it is genuinely relevant to the user's question.
+
+WEB ACCESS CAPABILITY — CRITICAL:
+You CAN access URLs and search the web. This system automatically fetches URLs and runs web searches on your behalf.
+- Any URLs the user pastes are fetched and their content is injected below under "WEB CONTENT".
+- Any search requests (e.g. "search for...", "find online...") trigger a live DuckDuckGo search — results appear below.
+- NEVER tell the user you cannot browse the internet, cannot access URLs, or cannot search online.
+- NEVER apologize for not having web access — you DO have it through this system.
+- If no web content appears below, either no URL/search was provided, or the fetch failed (failure reason will be shown)."""
 
         if vision_ai_used:
             system_prompt += f"\n\n[Note: Vision AI was used during this query to extract content from {len(vision_ai_used)} document(s) with poor OCR: {', '.join(vision_ai_used[:3])}. Their embeddings have been updated for future queries.]"
 
-        # ── Inject fetched URL content into the prompt ────────────────────────
+        # ── Inject web context (URLs + searches) into the prompt ─────────────
         if _fetched_urls:
             system_prompt += "\n\n" + "="*60
-            system_prompt += "\nWEB PAGE CONTENT (fetched live from user-provided URLs):"
-            system_prompt += "\nYou MAY use this content in your response alongside the documents above."
-            for _u, _txt in _fetched_urls:
-                system_prompt += f"\n\n--- URL: {_u} ---\n{_txt}"
+            system_prompt += "\nWEB CONTENT (fetched live — URLs and search results from this session):"
+            system_prompt += "\nUse this content freely alongside the documents above."
+            for _ck, _cv in _fetched_urls:
+                system_prompt += f"\n\n--- {_ck} ---\n{_cv}"
             system_prompt += "\n" + "="*60
 
         if _failed_urls:
-            system_prompt += "\n\nWEB ACCESS FAILURES — IMPORTANT:"
+            system_prompt += "\n\nWEB FETCH FAILURES:"
             for _u, _reason in _failed_urls:
                 system_prompt += f"\n- Could NOT fetch: {_u} (reason: {_reason})"
             system_prompt += (
-                "\nFor each URL above that you cannot access, tell the user clearly and directly: "
-                "\"I was unable to access [URL] — [brief reason]\". "
+                "\nTell the user clearly: \"I was unable to access [URL] — [brief reason]\". "
                 "Do NOT attempt to answer questions about that URL's content. "
                 "Do NOT hallucinate or guess what that page might contain."
             )
+
+        # Save updated web context back to session for future turns
+        if _web_ctx:
+            _save_session_web_context(session_id, _web_ctx)
         # ─────────────────────────────────────────────────────────────────────
 
         # Load AI configuration — v2 format: per-project primary/fallback, global keys as fallback
