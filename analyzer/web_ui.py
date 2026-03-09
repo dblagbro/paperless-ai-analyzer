@@ -143,6 +143,7 @@ from analyzer.db import (
     get_sessions, get_all_sessions_by_user, create_session, get_session,
     get_messages, append_message, update_session_title, delete_session,
     update_message_content, delete_messages_from,
+    get_message_by_id, get_active_leaf, set_active_leaf,
     share_session, unshare_session, get_session_shares, can_access_session,
     list_users, create_user as db_create_user, update_user as db_update_user,
     log_import, get_import_history,
@@ -1299,6 +1300,82 @@ def _resolve_court_docket_url(url: str) -> tuple:
     return ('\n'.join(lines), '')
 
 
+def _compute_branch_data(session_id: str):
+    """
+    Returns (active_path, fork_points) for a chat session.
+
+    active_path  — list of message dicts in conversation order, root → leaf,
+                   representing the currently active branch.
+    fork_points  — list of dicts:
+                   { parent_id, variants: [{id, content, leaf_id, is_active}],
+                     active_variant_index }
+                   One entry per position where the user has edited and branched.
+
+    Falls back to linear order when no branching exists (legacy sessions).
+    """
+    rows = get_messages(session_id)   # all messages, ordered by id
+    if not rows:
+        return [], []
+
+    msgs = {r['id']: dict(r) for r in rows}
+    active_leaf_id = get_active_leaf(session_id)
+
+    # Legacy / linear sessions: no parent_id set on any message
+    has_tree = any(m.get('parent_id') for m in msgs.values())
+    if not has_tree or not active_leaf_id:
+        return [dict(r) for r in rows], []
+
+    # Build children map  (parent_id → [child_id, ...])
+    children = {}
+    for mid, msg in msgs.items():
+        pid = msg.get('parent_id')
+        children.setdefault(pid, []).append(mid)
+
+    # Walk from active_leaf up to root
+    active_path, cur, seen = [], active_leaf_id, set()
+    while cur is not None and cur not in seen:
+        seen.add(cur)
+        msg = msgs.get(cur)
+        if not msg:
+            break
+        active_path.append(msg)
+        cur = msg.get('parent_id')
+    active_path.reverse()
+    active_ids = {m['id'] for m in active_path}
+
+    # Find fork points: parents with 2+ children
+    def _find_leaf(node_id, depth=0):
+        if depth > 100:
+            return node_id
+        kids = children.get(node_id, [])
+        return _find_leaf(max(kids), depth + 1) if kids else node_id
+
+    fork_points = []
+    for parent_id, kids in children.items():
+        if len(kids) < 2:
+            continue
+        # parent_id=None means the fork is at the conversation root (first message edited)
+        variants, active_idx = [], 0
+        for i, kid_id in enumerate(sorted(kids)):
+            kid = msgs[kid_id]
+            is_active = kid_id in active_ids
+            if is_active:
+                active_idx = i
+            variants.append({
+                'id':       kid_id,
+                'content':  kid['content'][:100],
+                'leaf_id':  _find_leaf(kid_id),
+                'is_active': is_active,
+            })
+        fork_points.append({
+            'parent_id':            parent_id,
+            'variants':             variants,
+            'active_variant_index': active_idx,
+        })
+
+    return active_path, fork_points
+
+
 def _fetch_url_text(url: str, max_chars: int = 4000) -> tuple:
     """
     Fetch a URL and return (text_content, error_message).
@@ -1341,6 +1418,10 @@ def api_chat():
         history = data.get('history', [])
         document_type = data.get('document_type', None)  # Optional filter by document type
         session_id = data.get('session_id', None)
+        # branch_parent_id: set by the branch edit flow so we attach messages to the right node.
+        # Use a sentinel so we can distinguish "explicitly null root branch" from "not provided".
+        _UNSET = object()
+        branch_parent_id = data.get('branch_parent_id', _UNSET)
 
         if not user_message:
             return jsonify({'error': 'Message required'}), 400
@@ -1362,6 +1443,14 @@ def api_chat():
                 title='New Chat',
                 document_type=document_type,
             )
+
+        # Determine parent_id for the user message being inserted:
+        # - branch edit flow:  use branch_parent_id from request (may be None for root messages)
+        # - normal flow:       use the session's current active_leaf_id
+        if branch_parent_id is _UNSET:
+            _user_msg_parent = get_active_leaf(session_id)
+        else:
+            _user_msg_parent = branch_parent_id  # explicit value (possibly None)
 
         # ── Load persisted web context + process current message ─────────────
         _web_ctx = _load_session_web_context(session_id)
@@ -1918,9 +2007,9 @@ You CAN access URLs and search the web. This system automatically fetches URLs a
 
         logger.info(f"Chat query: {user_message[:100]}")
 
-        # Persist messages to the session
-        user_msg_id = append_message(session_id, 'user', user_message)
-        append_message(session_id, 'assistant', ai_response)
+        # Persist messages to the session (with branch parent chain)
+        user_msg_id = append_message(session_id, 'user', user_message, parent_id=_user_msg_parent)
+        append_message(session_id, 'assistant', ai_response, parent_id=user_msg_id)
 
         # Auto-title: set from first user message if still 'New Chat'
         current_sess = get_session(session_id)
@@ -2040,8 +2129,9 @@ def api_chat_compare():
         secondary_error = bool(sec_result.get('error'))
 
         # Save primary response to DB for conversation continuity
-        user_msg_id = append_message(session_id, 'user', user_message)
-        append_message(session_id, 'assistant', primary_response)
+        _cmp_parent = get_active_leaf(session_id)
+        user_msg_id = append_message(session_id, 'user', user_message, parent_id=_cmp_parent)
+        append_message(session_id, 'assistant', primary_response, parent_id=user_msg_id)
 
         # Auto-title
         cur_sess = get_session(session_id)
@@ -6558,8 +6648,9 @@ def api_chat_session_get(session_id):
         # Check access
         if not current_user.is_admin and not can_access_session(session_id, current_user.id):
             return jsonify({'error': 'Access denied'}), 403
-        msgs = get_messages(session_id)
+        active_path, fork_points = _compute_branch_data(session_id)
         shares = get_session_shares(session_id)
+        # All messages in active path (with parent_id for client-side tree awareness)
         return jsonify({
             'session': {
                 'id': session['id'],
@@ -6570,7 +6661,15 @@ def api_chat_session_get(session_id):
                 'user_id': session['user_id'],
                 'is_owner': session['user_id'] == current_user.id,
             },
-            'messages': [{'id': m['id'], 'role': m['role'], 'content': m['content'], 'created_at': m['created_at']} for m in msgs],
+            'messages': [
+                {
+                    'id': m['id'], 'role': m['role'], 'content': m['content'],
+                    'created_at': m['created_at'], 'parent_id': m.get('parent_id'),
+                }
+                for m in active_path
+            ],
+            'active_path': [m['id'] for m in active_path],
+            'fork_points': fork_points,
             'shared_with': [{'id': s['id'], 'username': s['username']} for s in shares],
         })
     except Exception as e:
@@ -6635,6 +6734,102 @@ def api_chat_message_edit(session_id, message_id):
         return jsonify({'ok': True})
     except Exception as e:
         logger.error(f"Edit message error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/chat/sessions/<session_id>/branch', methods=['POST'])
+@login_required
+def api_chat_branch(session_id):
+    """
+    Compute branch parent for an edit without inserting any message.
+    Returns {parent_id, history_path} so the client can call /api/chat with
+    branch_parent_id and rebuild chatHistory from the shared prefix.
+
+    Body: {edit_from_id: N}
+    """
+    try:
+        sess = get_session(session_id)
+        if not sess or not can_access_session(session_id, current_user.id):
+            return jsonify({'error': 'Access denied'}), 403
+        data = request.json or {}
+        edit_from_id = data.get('edit_from_id')
+        if not edit_from_id:
+            return jsonify({'error': 'edit_from_id required'}), 400
+
+        original = get_message_by_id(edit_from_id, session_id)
+        if not original:
+            return jsonify({'error': 'Message not found'}), 404
+
+        # The new user message will be a sibling of the original — same parent
+        parent_id = original['parent_id']
+
+        # For legacy sessions where parent_id is NULL, infer the parent as the
+        # message just before this one in insertion order
+        if parent_id is None:
+            all_msgs = get_messages(session_id)
+            before = [m for m in all_msgs if m['id'] < edit_from_id]
+            parent_id = before[-1]['id'] if before else None
+
+        # Build the shared history path (root up to and including parent)
+        _, _ = _compute_branch_data(session_id)   # warm the cache (no-op here)
+        all_msgs = get_messages(session_id)
+        msg_map = {m['id']: dict(m) for m in all_msgs}
+
+        # Walk from parent to root
+        history_path = []
+        cur = parent_id
+        seen = set()
+        while cur is not None and cur not in seen:
+            seen.add(cur)
+            msg = msg_map.get(cur)
+            if not msg:
+                break
+            history_path.append({'id': msg['id'], 'role': msg['role'], 'content': msg['content']})
+            cur = msg.get('parent_id')
+        history_path.reverse()
+
+        return jsonify({
+            'parent_id': parent_id,
+            'history_path': history_path,
+        })
+    except Exception as e:
+        logger.error(f"Branch error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/chat/sessions/<session_id>/set-leaf', methods=['PATCH'])
+@login_required
+def api_chat_set_leaf(session_id):
+    """
+    Switch the active branch by pointing active_leaf_id to a different leaf.
+    Body: {leaf_id: N}
+    Returns: {active_path: [...ids], fork_points: [...]}
+    """
+    try:
+        sess = get_session(session_id)
+        if not sess or not can_access_session(session_id, current_user.id):
+            return jsonify({'error': 'Access denied'}), 403
+        data = request.json or {}
+        leaf_id = data.get('leaf_id')
+        if not leaf_id:
+            return jsonify({'error': 'leaf_id required'}), 400
+        # Verify the leaf belongs to this session
+        leaf_msg = get_message_by_id(leaf_id, session_id)
+        if not leaf_msg:
+            return jsonify({'error': 'Message not found in this session'}), 404
+        set_active_leaf(session_id, leaf_id)
+        active_path, fork_points = _compute_branch_data(session_id)
+        return jsonify({
+            'active_path': [m['id'] for m in active_path],
+            'fork_points': fork_points,
+            'messages': [
+                {'id': m['id'], 'role': m['role'], 'content': m['content'],
+                 'created_at': m['created_at'], 'parent_id': m.get('parent_id')}
+                for m in active_path
+            ],
+        })
+    except Exception as e:
+        logger.error(f"Set-leaf error: {e}")
         return jsonify({'error': str(e)}), 500
 
 

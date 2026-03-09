@@ -4,6 +4,15 @@ All notable changes to Paperless AI Analyzer are documented here.
 
 ---
 
+## v3.7.0 — 2026-03-09
+
+### Added
+- **Branching chat history** — editing a user message no longer destroys the original exchange. Instead, a new branch is created and both the original and edited conversation threads are preserved. You can navigate between them with **← 1/2 →** arrows that appear on the left of any edited message.
+- **Variant navigation** — each fork point in a chat session shows the variant counter and left/right arrows. Clicking switches the full view (user message + all subsequent AI replies) to the other branch. You can continue chatting from any branch independently.
+- **Persistent tree structure** — the `chat_messages` table now uses a `parent_id` linked-list; `chat_sessions` tracks `active_leaf_id`. Old sessions continue to work unchanged (linear order, no arrows shown).
+
+---
+
 ## v3.6.9 — 2026-03-09
 
 ### Added
