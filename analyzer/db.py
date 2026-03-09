@@ -88,6 +88,7 @@ def init_db():
         # Migrations — ADD COLUMN is idempotent-safe (ignored if column exists)
         for _tbl, _col in (
             ("chat_sessions",       "project_slug TEXT NOT NULL DEFAULT 'default'"),
+            ("chat_sessions",       "web_context TEXT NOT NULL DEFAULT '{}'"),
             ("processed_documents", "project_slug TEXT NOT NULL DEFAULT 'default'"),
         ):
             try:

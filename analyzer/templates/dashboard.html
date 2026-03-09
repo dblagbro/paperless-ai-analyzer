@@ -9619,7 +9619,9 @@
                 const date = run.created_at ? run.created_at.substring(0,16).replace('T',' ') : '';
                 const ownerNote = run._shared ? ` · shared by ${run.owner_name}` :
                                   (run.owner_name && run.user_id !== {{ current_user.id }} ? ` · ${run.owner_name}` : '');
-                o.textContent = `Run ${run.id.substr(0,8)} — ${date} (${run.status})${ownerNote}`;
+                const goalSnip = run.goal_text ? ` — ${run.goal_text.substring(0, 40)}${run.goal_text.length > 40 ? '…' : ''}` : '';
+                const statusIcon = run.status === 'completed' ? '✓' : run.status === 'failed' ? '✗' : run.status === 'running' ? '⟳' : '○';
+                o.textContent = `${statusIcon} ${date}${goalSnip} (${run.status})${ownerNote}`;
                 o.dataset.status = run.status;
                 o.dataset.ownerId = run.user_id;
                 sel.appendChild(o);
