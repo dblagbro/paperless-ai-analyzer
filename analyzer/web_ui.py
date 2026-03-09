@@ -1109,6 +1109,104 @@ def _vision_extract_doc(doc_id: int, title: str, paperless_client, ai_config: di
         return ''
 
 
+def _resolve_court_docket_url(url: str) -> tuple:
+    """
+    Detect Justia or PACER docket URLs and resolve them via CourtListener's
+    free public API instead of scraping the blocked page directly.
+
+    Returns (text_content, error_message) — same contract as _fetch_url_text.
+    Justia format: https://dockets.justia.com/docket/{state}/{court-id}/{case-num}/{pacer-id}
+    """
+    import re as _re
+    import urllib.request as _ur
+    import json as _json
+
+    # Only handle known court docket hosts
+    justia_pat = _re.compile(
+        r'dockets\.justia\.com/docket/[^/]+/([a-z0-9]+)/([\w:%-]+?)(?:/(\d+))?/?$',
+        _re.IGNORECASE
+    )
+    m = justia_pat.search(url)
+    if not m:
+        return ('', '')   # Not a Justia docket URL — caller should use regular fetch
+
+    raw_court, raw_case, _pacer_id = m.groups()
+
+    # Map Justia court code to CourtListener court slug:
+    # nysdce → nysd  (strip trailing 'ce' civil / 'cr' criminal)
+    cl_court = _re.sub(r'(ce|cr|bk|mj|mc|po|ap)$', '', raw_court.lower())
+
+    # Normalise case number: '1:2025cv10573' → '1:25-cv-10573'
+    case_num = (raw_case or '').replace('%3A', ':').replace('%2B', '+')
+    cn_m = _re.match(r'^(\d+):(20)?(\d{2})(cv|cr|bk|mj|mc|po|ap)(\d+)$', case_num, _re.I)
+    if cn_m:
+        div, _, yr2, tp, num = cn_m.groups()
+        case_num = f"{div}:{yr2}-{tp.lower()}-{num}"
+
+    # Query CourtListener public search API (no auth required)
+    search_url = (
+        'https://www.courtlistener.com/api/rest/v4/search/'
+        f'?type=d&docket_number={case_num}&court={cl_court}&page_size=1'
+    )
+    try:
+        req = _ur.Request(search_url, headers={
+            'User-Agent': 'Paperless-AI-Analyzer/3.6 (legal-research)'
+        })
+        with _ur.urlopen(req, timeout=10) as resp:
+            data = _json.loads(resp.read().decode())
+    except Exception as e:
+        return ('', f'CourtListener lookup failed: {e}')
+
+    results = data.get('results', [])
+    if not results:
+        # Broader fallback: search by last component of case number only
+        num_only = case_num.split('-')[-1].lstrip('0') or case_num
+        fallback_url = (
+            f'https://www.courtlistener.com/api/rest/v4/search/'
+            f'?type=d&q={num_only}&court={cl_court}&page_size=3'
+        )
+        try:
+            req2 = _ur.Request(fallback_url, headers={
+                'User-Agent': 'Paperless-AI-Analyzer/3.6 (legal-research)'
+            })
+            with _ur.urlopen(req2, timeout=10) as resp2:
+                data = _json.loads(resp2.read().decode())
+            results = data.get('results', [])
+        except Exception:
+            pass
+
+    if not results:
+        return ('', f'No results found in CourtListener for case {case_num} in {cl_court}')
+
+    r = results[0]
+
+    def _fmt_list(v):
+        if isinstance(v, list):
+            return ', '.join(str(x) for x in v[:10])
+        return str(v) if v else ''
+
+    lines = [
+        f"COURT DOCKET — fetched via CourtListener (Justia was blocked)",
+        f"",
+        f"Case Name:     {r.get('caseName', '')}",
+        f"Docket No.:    {r.get('docketNumber', '')}",
+        f"Court:         {r.get('court', '')} ({r.get('court_citation_string', '')})",
+        f"Filed:         {r.get('dateFiled', '')}",
+        f"Judge:         {r.get('assignedTo', '')}",
+        f"Cause:         {r.get('cause', '')}",
+        f"Nature of Suit:{r.get('suitNature', '')}",
+        f"Jurisdiction:  {r.get('jurisdictionType', '')}",
+        f"Jury Demand:   {r.get('juryDemand', '')}",
+        f"",
+        f"Parties:       {_fmt_list(r.get('party', []))}",
+        f"Attorneys:     {_fmt_list(r.get('attorney', []))}",
+        f"Firms:         {_fmt_list(r.get('firm', []))}",
+        f"",
+        f"CourtListener: https://www.courtlistener.com{r.get('docket_absolute_url', '')}",
+    ]
+    return ('\n'.join(lines), '')
+
+
 def _fetch_url_text(url: str, max_chars: int = 4000) -> tuple:
     """
     Fetch a URL and return (text_content, error_message).
@@ -1164,7 +1262,11 @@ def api_chat():
         _failed_urls  = []   # [(url, reason)] — failure
 
         for _u in _found_urls:
-            _text, _err = _fetch_url_text(_u)
+            # 1. Try smart court-docket resolver first (Justia → CourtListener)
+            _text, _err = _resolve_court_docket_url(_u)
+            if not _text and not _err:
+                # Not a court docket URL — use regular HTML fetch
+                _text, _err = _fetch_url_text(_u)
             if _text:
                 _fetched_urls.append((_u, _text))
                 logger.info(f"Chat URL fetch OK: {_u} ({len(_text)} chars)")
