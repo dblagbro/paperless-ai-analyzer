@@ -9,7 +9,7 @@ import sqlite3
 import uuid
 import logging
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 
@@ -236,6 +236,71 @@ def init_ci_db():
             CREATE INDEX IF NOT EXISTS idx_ci_web_research_run ON ci_web_research(run_id, search_type);
         """)
 
+        # v3.6.6 new specialist tables
+        conn.executescript("""
+            -- Forensic accounting report (Tier 3+)
+            CREATE TABLE IF NOT EXISTS ci_forensic_report (
+                id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id                  TEXT NOT NULL REFERENCES ci_runs(id) ON DELETE CASCADE,
+                flagged_transactions    TEXT NOT NULL DEFAULT '[]',
+                cash_flow_by_party      TEXT NOT NULL DEFAULT '[]',
+                balance_discrepancies   TEXT NOT NULL DEFAULT '[]',
+                missing_transactions    TEXT NOT NULL DEFAULT '[]',
+                transaction_chains      TEXT NOT NULL DEFAULT '[]',
+                summary                 TEXT,
+                total_exposure_usd      REAL DEFAULT 0,
+                created_at              TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_ci_forensic_run ON ci_forensic_report(run_id);
+
+            -- Discovery gap analysis (Tier 3+)
+            CREATE TABLE IF NOT EXISTS ci_discovery_gaps (
+                id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id                  TEXT NOT NULL REFERENCES ci_runs(id) ON DELETE CASCADE,
+                missing_doc_types       TEXT NOT NULL DEFAULT '[]',
+                custodian_gaps          TEXT NOT NULL DEFAULT '[]',
+                spoliation_indicators   TEXT NOT NULL DEFAULT '[]',
+                rfp_list                TEXT NOT NULL DEFAULT '[]',
+                subpoena_targets        TEXT NOT NULL DEFAULT '[]',
+                summary                 TEXT,
+                created_at              TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_ci_discovery_run ON ci_discovery_gaps(run_id);
+
+            -- Witness intelligence cards (Tier 4+)
+            CREATE TABLE IF NOT EXISTS ci_witness_cards (
+                id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id                  TEXT NOT NULL REFERENCES ci_runs(id) ON DELETE CASCADE,
+                witness_name            TEXT NOT NULL,
+                credibility_score       REAL DEFAULT 0.5,
+                impeachment_points      TEXT NOT NULL DEFAULT '[]',
+                financial_interest      TEXT NOT NULL DEFAULT '{}',
+                prior_inconsistencies   TEXT NOT NULL DEFAULT '[]',
+                public_record_flags     TEXT NOT NULL DEFAULT '[]',
+                deposition_order        INTEGER DEFAULT 99,
+                key_questions           TEXT NOT NULL DEFAULT '[]',
+                vulnerability_summary   TEXT,
+                created_at              TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_ci_witness_run ON ci_witness_cards(run_id);
+
+            -- War room / opposing counsel simulation (Tier 4+)
+            CREATE TABLE IF NOT EXISTS ci_war_room (
+                id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id                  TEXT NOT NULL REFERENCES ci_runs(id) ON DELETE CASCADE,
+                opposing_case_summary   TEXT,
+                top_dangerous_arguments TEXT NOT NULL DEFAULT '[]',
+                client_vulnerabilities  TEXT NOT NULL DEFAULT '[]',
+                smoking_guns            TEXT NOT NULL DEFAULT '[]',
+                settlement_analysis     TEXT NOT NULL DEFAULT '{}',
+                likelihood_pct          REAL DEFAULT 50,
+                war_room_memo           TEXT,
+                senior_partner_notes    TEXT,
+                created_at              TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_ci_warroom_run ON ci_war_room(run_id);
+        """)
+
         # Idempotent migrations — new columns for hierarchical orchestrator + web research
         for col in (
             "director_count INTEGER DEFAULT 1",
@@ -252,6 +317,8 @@ def init_ci_db():
             "active_workers INTEGER DEFAULT 0",
             # Web research config (Phase W)
             "web_research_config TEXT DEFAULT '{}'",
+            # v3.6.6: analysis_tier alias for max_tier (same value, read from max_tier)
+            "analysis_tier INTEGER DEFAULT 3",
         ):
             try:
                 conn.execute(f"ALTER TABLE ci_runs ADD COLUMN {col}")
@@ -259,7 +326,64 @@ def init_ci_db():
             except Exception:
                 pass  # column already exists
 
+        # v3.6.6: new ci_theory_ledger columns
+        for col in (
+            "legal_element_mapping TEXT",
+            "theory_legal_memo TEXT",
+            "companion_theories TEXT",
+            "discovery_needed TEXT",
+            "model_source TEXT",
+        ):
+            try:
+                conn.execute(f"ALTER TABLE ci_theory_ledger ADD COLUMN {col}")
+            except Exception:
+                pass
+
+        # v3.6.6: entity merge support
+        try:
+            conn.execute("ALTER TABLE ci_entities ADD COLUMN merged_into INTEGER")
+        except Exception:
+            pass
+        try:
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_ci_entities_merged "
+                "ON ci_entities(run_id, merged_into)"
+            )
+        except Exception:
+            pass
+
     logger.info("Case Intelligence DB initialized")
+    recover_orphaned_runs()
+
+
+def recover_orphaned_runs():
+    """Mark any 'running'/'queued' runs as failed on startup.
+
+    When the service restarts, orchestrator threads are killed.  Any run
+    that was still in-flight at shutdown will be stuck in 'running' forever
+    unless we reset it here.
+    """
+    with _get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, started_at FROM ci_runs WHERE status IN ('running', 'queued')"
+        ).fetchall()
+        if not rows:
+            return
+        now_str = datetime.now(timezone.utc).isoformat()
+        for row in rows:
+            conn.execute(
+                """UPDATE ci_runs
+                   SET status='failed',
+                       current_stage='Failed',
+                       error_message='Run interrupted by service restart.',
+                       completed_at=?
+                   WHERE id=?""",
+                (now_str, row['id'])
+            )
+        logger.warning(
+            f"recover_orphaned_runs: marked {len(rows)} orphaned run(s) as failed: "
+            + ', '.join(r['id'] for r in rows)
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -784,3 +908,245 @@ def get_ci_web_research(run_id: str,
                 (run_id,)
             ).fetchall()
         return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# ci_forensic_report CRUD  (Tier 3+)
+# ---------------------------------------------------------------------------
+
+def upsert_forensic_report(run_id: str,
+                            flagged_transactions: str = '[]',
+                            cash_flow_by_party: str = '[]',
+                            balance_discrepancies: str = '[]',
+                            missing_transactions: str = '[]',
+                            transaction_chains: str = '[]',
+                            summary: str = None,
+                            total_exposure_usd: float = 0.0) -> int:
+    """Insert or replace the forensic report for a run. Returns row id."""
+    with _get_conn() as conn:
+        existing = conn.execute(
+            "SELECT id FROM ci_forensic_report WHERE run_id=?", (run_id,)
+        ).fetchone()
+        if existing:
+            conn.execute("""
+                UPDATE ci_forensic_report
+                SET flagged_transactions=?, cash_flow_by_party=?, balance_discrepancies=?,
+                    missing_transactions=?, transaction_chains=?, summary=?, total_exposure_usd=?
+                WHERE run_id=?
+            """, (flagged_transactions, cash_flow_by_party, balance_discrepancies,
+                  missing_transactions, transaction_chains, summary, total_exposure_usd, run_id))
+            return existing['id']
+        cur = conn.execute("""
+            INSERT INTO ci_forensic_report
+                (run_id, flagged_transactions, cash_flow_by_party, balance_discrepancies,
+                 missing_transactions, transaction_chains, summary, total_exposure_usd)
+            VALUES (?,?,?,?,?,?,?,?)
+        """, (run_id, flagged_transactions, cash_flow_by_party, balance_discrepancies,
+              missing_transactions, transaction_chains, summary, total_exposure_usd))
+        return cur.lastrowid
+
+
+def get_forensic_report(run_id: str) -> Optional[Dict[str, Any]]:
+    with _get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM ci_forensic_report WHERE run_id=?", (run_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+
+# ---------------------------------------------------------------------------
+# ci_discovery_gaps CRUD  (Tier 3+)
+# ---------------------------------------------------------------------------
+
+def upsert_discovery_gaps(run_id: str,
+                           missing_doc_types: str = '[]',
+                           custodian_gaps: str = '[]',
+                           spoliation_indicators: str = '[]',
+                           rfp_list: str = '[]',
+                           subpoena_targets: str = '[]',
+                           summary: str = None) -> int:
+    """Insert or replace the discovery gap analysis for a run. Returns row id."""
+    with _get_conn() as conn:
+        existing = conn.execute(
+            "SELECT id FROM ci_discovery_gaps WHERE run_id=?", (run_id,)
+        ).fetchone()
+        if existing:
+            conn.execute("""
+                UPDATE ci_discovery_gaps
+                SET missing_doc_types=?, custodian_gaps=?, spoliation_indicators=?,
+                    rfp_list=?, subpoena_targets=?, summary=?
+                WHERE run_id=?
+            """, (missing_doc_types, custodian_gaps, spoliation_indicators,
+                  rfp_list, subpoena_targets, summary, run_id))
+            return existing['id']
+        cur = conn.execute("""
+            INSERT INTO ci_discovery_gaps
+                (run_id, missing_doc_types, custodian_gaps, spoliation_indicators,
+                 rfp_list, subpoena_targets, summary)
+            VALUES (?,?,?,?,?,?,?)
+        """, (run_id, missing_doc_types, custodian_gaps, spoliation_indicators,
+              rfp_list, subpoena_targets, summary))
+        return cur.lastrowid
+
+
+def get_discovery_gaps(run_id: str) -> Optional[Dict[str, Any]]:
+    with _get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM ci_discovery_gaps WHERE run_id=?", (run_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+
+# ---------------------------------------------------------------------------
+# ci_witness_cards CRUD  (Tier 4+)
+# ---------------------------------------------------------------------------
+
+def upsert_witness_card(run_id: str, witness_name: str,
+                         credibility_score: float = 0.5,
+                         impeachment_points: str = '[]',
+                         financial_interest: str = '{}',
+                         prior_inconsistencies: str = '[]',
+                         public_record_flags: str = '[]',
+                         deposition_order: int = 99,
+                         key_questions: str = '[]',
+                         vulnerability_summary: str = None) -> int:
+    """Upsert a witness card by run_id + name. Returns row id."""
+    with _get_conn() as conn:
+        existing = conn.execute(
+            "SELECT id FROM ci_witness_cards WHERE run_id=? AND witness_name=?",
+            (run_id, witness_name)
+        ).fetchone()
+        if existing:
+            conn.execute("""
+                UPDATE ci_witness_cards
+                SET credibility_score=?, impeachment_points=?, financial_interest=?,
+                    prior_inconsistencies=?, public_record_flags=?, deposition_order=?,
+                    key_questions=?, vulnerability_summary=?
+                WHERE run_id=? AND witness_name=?
+            """, (credibility_score, impeachment_points, financial_interest,
+                  prior_inconsistencies, public_record_flags, deposition_order,
+                  key_questions, vulnerability_summary, run_id, witness_name))
+            return existing['id']
+        cur = conn.execute("""
+            INSERT INTO ci_witness_cards
+                (run_id, witness_name, credibility_score, impeachment_points,
+                 financial_interest, prior_inconsistencies, public_record_flags,
+                 deposition_order, key_questions, vulnerability_summary)
+            VALUES (?,?,?,?,?,?,?,?,?,?)
+        """, (run_id, witness_name, credibility_score, impeachment_points,
+              financial_interest, prior_inconsistencies, public_record_flags,
+              deposition_order, key_questions, vulnerability_summary))
+        return cur.lastrowid
+
+
+def get_witness_cards(run_id: str) -> List[Dict[str, Any]]:
+    with _get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM ci_witness_cards WHERE run_id=? ORDER BY deposition_order, id",
+            (run_id,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# ci_war_room CRUD  (Tier 4+)
+# ---------------------------------------------------------------------------
+
+def upsert_war_room(run_id: str,
+                     opposing_case_summary: str = None,
+                     top_dangerous_arguments: str = '[]',
+                     client_vulnerabilities: str = '[]',
+                     smoking_guns: str = '[]',
+                     settlement_analysis: str = '{}',
+                     likelihood_pct: float = 50.0,
+                     war_room_memo: str = None,
+                     senior_partner_notes: str = None) -> int:
+    """Insert or replace the war room report for a run. Returns row id."""
+    with _get_conn() as conn:
+        existing = conn.execute(
+            "SELECT id FROM ci_war_room WHERE run_id=?", (run_id,)
+        ).fetchone()
+        if existing:
+            conn.execute("""
+                UPDATE ci_war_room
+                SET opposing_case_summary=?, top_dangerous_arguments=?,
+                    client_vulnerabilities=?, smoking_guns=?, settlement_analysis=?,
+                    likelihood_pct=?, war_room_memo=?, senior_partner_notes=?
+                WHERE run_id=?
+            """, (opposing_case_summary, top_dangerous_arguments,
+                  client_vulnerabilities, smoking_guns, settlement_analysis,
+                  likelihood_pct, war_room_memo, senior_partner_notes, run_id))
+            return existing['id']
+        cur = conn.execute("""
+            INSERT INTO ci_war_room
+                (run_id, opposing_case_summary, top_dangerous_arguments,
+                 client_vulnerabilities, smoking_guns, settlement_analysis,
+                 likelihood_pct, war_room_memo, senior_partner_notes)
+            VALUES (?,?,?,?,?,?,?,?,?)
+        """, (run_id, opposing_case_summary, top_dangerous_arguments,
+              client_vulnerabilities, smoking_guns, settlement_analysis,
+              likelihood_pct, war_room_memo, senior_partner_notes))
+        return cur.lastrowid
+
+
+def get_war_room(run_id: str) -> Optional[Dict[str, Any]]:
+    with _get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM ci_war_room WHERE run_id=?", (run_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def update_war_room_senior_notes(run_id: str, senior_partner_notes: str):
+    """Update only the senior partner notes in war room (Phase 3A output)."""
+    with _get_conn() as conn:
+        conn.execute(
+            "UPDATE ci_war_room SET senior_partner_notes=? WHERE run_id=?",
+            (senior_partner_notes, run_id)
+        )
+
+
+# ---------------------------------------------------------------------------
+# ci_entities — query filtered for non-merged
+# ---------------------------------------------------------------------------
+
+def get_ci_entities_active(run_id: str, entity_type: str = None) -> List[sqlite3.Row]:
+    """Return only non-merged entities (merged_into IS NULL)."""
+    with _get_conn() as conn:
+        if entity_type:
+            return conn.execute(
+                "SELECT * FROM ci_entities "
+                "WHERE run_id=? AND entity_type=? AND merged_into IS NULL "
+                "ORDER BY entity_type, name",
+                (run_id, entity_type)
+            ).fetchall()
+        return conn.execute(
+            "SELECT * FROM ci_entities "
+            "WHERE run_id=? AND merged_into IS NULL "
+            "ORDER BY entity_type, name",
+            (run_id,)
+        ).fetchall()
+
+
+def mark_entity_merged(entity_id: int, canonical_id: int):
+    """Mark entity_id as merged into canonical_id."""
+    with _get_conn() as conn:
+        conn.execute(
+            "UPDATE ci_entities SET merged_into=? WHERE id=?",
+            (canonical_id, entity_id)
+        )
+
+
+def update_entity_aliases(entity_id: int, aliases: str, provenance: str = None):
+    """Update aliases (and optionally provenance) on an entity."""
+    with _get_conn() as conn:
+        if provenance:
+            conn.execute(
+                "UPDATE ci_entities SET aliases=?, provenance=? WHERE id=?",
+                (aliases, provenance, entity_id)
+            )
+        else:
+            conn.execute(
+                "UPDATE ci_entities SET aliases=? WHERE id=?",
+                (aliases, entity_id)
+            )

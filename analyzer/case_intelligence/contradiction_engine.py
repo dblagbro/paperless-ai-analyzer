@@ -30,7 +30,7 @@ Respond in JSON:
     {{
       "description": "Clear description of the contradiction",
       "severity": "low|medium|high|critical",
-      "contradiction_type": "date_conflict|amount_conflict|party_conflict|factual_conflict|status_conflict",
+      "contradiction_type": "date_conflict|amount_conflict|party_conflict|factual_conflict|status_conflict|pattern_of_conduct|behavioral_tell|communication_gap",
       "doc_a": {{
         "paperless_doc_id": 101,
         "title": "Document A",
@@ -46,7 +46,12 @@ Respond in JSON:
         "claimed_fact": "What doc B claims (contradicting doc A)"
       }},
       "explanation": "Why this is a meaningful contradiction",
-      "suggested_action": "What to do about this contradiction"
+      "suggested_action": "What to do about this contradiction",
+      "knowledge_cutoff": {{
+        "party": "Party name",
+        "earliest_awareness_date": "YYYY-MM-DD",
+        "earliest_awareness_doc": 101
+      }}
     }}
   ],
   "disputed_facts": [
@@ -59,6 +64,38 @@ Respond in JSON:
       "key_docs_a": [101, 103],
       "key_docs_b": [102, 104]
     }}
+  ],
+  "patterns_of_conduct": [
+    {{
+      "pattern": "Description of the repeated behavioral pattern",
+      "instances": [
+        {{
+          "paperless_doc_id": 101,
+          "date": "YYYY-MM-DD",
+          "description": "How this instance manifests the pattern"
+        }}
+      ],
+      "significance": "Why this pattern matters legally",
+      "party": "Which party exhibits the pattern"
+    }}
+  ],
+  "behavioral_tells": [
+    {{
+      "tell": "Description of the linguistic or behavioral anomaly",
+      "doc_id": 101,
+      "excerpt": "exact quote showing the tell",
+      "type": "hedging_language|formality_shift|reply_all_then_private|communication_gap|unusual_cc|phone_shift",
+      "significance": "What this suggests about knowledge or intent"
+    }}
+  ],
+  "communication_gaps": [
+    {{
+      "description": "Description of the suspicious communication gap",
+      "date_range": "Start - End date range with no communications",
+      "parties_involved": ["Party A", "Party B"],
+      "what_was_happening": "What was happening legally/factually during this gap",
+      "significance": "Why this gap matters"
+    }}
   ]
 }}
 
@@ -68,11 +105,21 @@ SEVERITY GUIDE:
 - medium: Notable inconsistency requiring explanation
 - low: Minor discrepancy that may have an innocent explanation
 
+BEHAVIORAL TELLS TO WATCH FOR:
+- Hedging language: "I believe", "as far as I know", "I think" — suggests uncertainty or evasion
+- Unusual formality shifts: Very casual email suddenly formal — suggests awareness of record
+- Reply-all then private: Same conversation, sudden shift to private channel — suggests concealment
+- Communication gaps: Extended silence on a topic that was previously active
+- Unusual CC/BCC patterns: Normally CCed person suddenly dropped — they were cut out
+- Phone shift: Email thread suddenly switches to phone calls — creating non-written record
+
 RULES:
 1. Only identify genuine contradictions — not just different perspectives on the same fact.
 2. Cite specific text from BOTH documents for every contradiction.
 3. Do NOT fabricate contradictions not supported by the provided text.
 4. Critical severity = direct conflict on a legally operative fact (dates, amounts, parties, admissions).
+5. For patterns_of_conduct: only flag if you see the SAME pattern in 3+ documents.
+6. For behavioral_tells: only flag if the tell is meaningful in context (not routine usage).
 """
 
 DISPUTED_FACTS_PROMPT = """You are building a disputed facts matrix for legal proceedings.
