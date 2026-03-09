@@ -787,6 +787,35 @@
             border-color: #bfdbfe;
         }
 
+        /* Branch variant navigation ─────────────────────────────── */
+        .variant-nav {
+            display: flex;
+            align-items: center;
+            gap: 3px;
+            align-self: flex-end;
+            margin-right: 6px;
+            font-size: 11px;
+        }
+        .variant-btn {
+            background: #f3f4f6;
+            border: 1px solid #d1d5db;
+            border-radius: 3px;
+            color: #6b7280;
+            cursor: pointer;
+            font-size: 13px;
+            line-height: 1;
+            padding: 1px 5px;
+            transition: background 0.12s, color 0.12s;
+        }
+        .variant-btn:disabled { opacity: 0.3; cursor: default; }
+        .variant-btn:not(:disabled):hover { background: #dbeafe; color: #2563eb; border-color: #93c5fd; }
+        .variant-counter {
+            color: #6b7280;
+            font-size: 11px;
+            min-width: 26px;
+            text-align: center;
+        }
+
         .msg-edit-area {
             width: 100%;
             padding: 6px 8px;
@@ -7602,15 +7631,20 @@
 
                 currentSessionId = sessionId;
                 chatHistory = [];
+                _sessionForkPoints = data.fork_points || [];
 
                 // Update header title
                 document.getElementById('active-session-title').textContent = data.session.title;
 
-                // Populate chat messages
+                // Populate chat messages (active branch only)
                 const messagesDiv = document.getElementById('chat-messages');
                 messagesDiv.innerHTML = '';
                 data.messages.forEach(m => {
-                    addChatMessage(m.role, m.content, m.role === 'user' ? m.id : null);
+                    // Find if this user message sits at a fork point
+                    const fp = (m.role === 'user')
+                        ? _sessionForkPoints.find(f => f.variants.some(v => v.id === m.id))
+                        : null;
+                    addChatMessage(m.role, m.content, m.role === 'user' ? m.id : null, fp);
                     chatHistory.push({role: m.role, content: m.content});
                 });
 
@@ -7924,6 +7958,8 @@
         let chatHistory = [];
         let _chatAbortController = null;
         let _compareMode = false;
+        let _sessionForkPoints = [];   // fork point data from last loadSession
+        let _branchParentId = null;    // set before sendChatMessage for edit-branch flow
 
         /**
          * Replace [Document #NNN] / Document #NNN references in rendered HTML
@@ -7950,7 +7986,53 @@
             return btn;
         }
 
-        function addChatMessage(role, content, messageId = null) {
+        function _makeVariantNav(forkPoint) {
+            const total = forkPoint.variants.length;
+            const active = forkPoint.active_variant_index;
+            const nav = document.createElement('div');
+            nav.className = 'variant-nav';
+
+            const prevBtn = document.createElement('button');
+            prevBtn.className = 'variant-btn';
+            prevBtn.textContent = '←';
+            prevBtn.title = 'Previous version of this message';
+            prevBtn.disabled = active === 0;
+            if (active > 0) prevBtn.onclick = () => switchVariant(forkPoint.variants[active - 1].leaf_id);
+
+            const counter = document.createElement('span');
+            counter.className = 'variant-counter';
+            counter.textContent = `${active + 1}/${total}`;
+
+            const nextBtn = document.createElement('button');
+            nextBtn.className = 'variant-btn';
+            nextBtn.textContent = '→';
+            nextBtn.title = 'Next version of this message';
+            nextBtn.disabled = active === total - 1;
+            if (active < total - 1) nextBtn.onclick = () => switchVariant(forkPoint.variants[active + 1].leaf_id);
+
+            nav.appendChild(prevBtn);
+            nav.appendChild(counter);
+            nav.appendChild(nextBtn);
+            return nav;
+        }
+
+        async function switchVariant(leafId) {
+            if (!currentSessionId) return;
+            try {
+                const res = await apiFetch(apiUrl(`/api/chat/sessions/${currentSessionId}/set-leaf`), {
+                    method: 'PATCH',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({leaf_id: leafId}),
+                });
+                if (!res.ok) { console.error('switchVariant failed'); return; }
+                // Re-render the session with the new active branch
+                await loadSession(currentSessionId);
+            } catch (e) {
+                console.error('switchVariant error:', e);
+            }
+        }
+
+        function addChatMessage(role, content, messageId = null, forkPoint = null) {
             const messagesDiv = document.getElementById('chat-messages');
             const messageDiv = document.createElement('div');
             messageDiv.className = `chat-message ${role}`;
@@ -7970,9 +8052,11 @@
                 bubble.textContent = content;
             }
 
-            // For user messages with a tracked ID, add the Edit button BEFORE the bubble
-            // (flex-row, justify-end → button sits to the left of the blue bubble)
+            // For user messages with a tracked ID: add variant nav (if branched) + edit button
             if (role === 'user' && messageId) {
+                if (forkPoint && forkPoint.variants.length > 1) {
+                    messageDiv.appendChild(_makeVariantNav(forkPoint));
+                }
                 messageDiv.appendChild(_makeEditBtn(messageId));
             }
 
@@ -8028,15 +8112,29 @@
 
         async function confirmEditMessage(messageId, newText) {
             if (!newText || !currentSessionId) return;
-            try {
-                await apiFetch(apiUrl(`/api/chat/sessions/${currentSessionId}/messages/${messageId}/edit`), {
-                    method: 'PATCH',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({content: newText})
-                });
-            } catch (_) { /* non-fatal — UI still truncates */ }
 
-            // Remove all message divs at or after the edited user message
+            // Ask the server for the branch parent (shared prefix root) without inserting anything
+            let branchParent = null;
+            let historyPath = [];
+            try {
+                const bRes = await apiFetch(apiUrl(`/api/chat/sessions/${currentSessionId}/branch`), {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({edit_from_id: messageId}),
+                });
+                if (bRes.ok) {
+                    const bData = await bRes.json();
+                    branchParent = bData.parent_id;
+                    historyPath = bData.history_path || [];
+                }
+            } catch (_) { /* fall through: send without branch parent */ }
+
+            // Rebuild chatHistory from the shared prefix (history_path)
+            // so the LLM gets only the common ancestor context
+            chatHistory = historyPath.map(m => ({role: m.role, content: m.content}));
+
+            // Remove DOM messages from the edited position onwards so the user
+            // sees a clean continuation (the branch will show after response + reload)
             const messagesDiv = document.getElementById('chat-messages');
             const allMsgDivs = [...messagesDiv.querySelectorAll('.chat-message')];
             const editedIdx = allMsgDivs.findIndex(d => d.dataset.msgId == messageId);
@@ -8044,19 +8142,11 @@
                 allMsgDivs.slice(editedIdx).forEach(d => d.remove());
             }
 
-            // Truncate chatHistory to just before the edited message
-            const userDivsBefore = allMsgDivs.slice(0, editedIdx).filter(d => d.classList.contains('user')).length;
-            let userSeen = 0;
-            let cutIdx = 0;
-            for (let i = 0; i < chatHistory.length; i++) {
-                if (chatHistory[i].role === 'user') {
-                    if (userSeen === userDivsBefore) { cutIdx = i; break; }
-                    userSeen++;
-                }
-            }
-            chatHistory = chatHistory.slice(0, cutIdx);
+            // Pass branch parent so api_chat attaches the new message to the right tree node
+            _branchParentId = branchParent;
 
-            // Send the edited text as a new message
+            // Send edited text; after AI response comes back, loadSession re-renders
+            // the full view including the variant navigation arrows
             document.getElementById('chat-input').value = newText;
             sendChatMessage();
         }
@@ -8185,6 +8275,12 @@
                     session_id: currentSessionId,
                 };
 
+                // Branch edit flow: pass parent node so the server links to the right tree branch
+                if (_branchParentId !== null) {
+                    requestBody.branch_parent_id = _branchParentId;
+                    _branchParentId = null;  // consume immediately
+                }
+
                 // Add document type filter if selected
                 if (documentTypeFilter && documentTypeFilter.value !== 'all') {
                     requestBody.document_type = documentTypeFilter.value;
@@ -8238,6 +8334,10 @@
                             document.getElementById('active-session-title').textContent = autoTitle;
                         }
                         loadSessions();
+                    }
+                    // If this was a branch edit, reload so variant nav arrows appear
+                    if ('branch_parent_id' in requestBody && currentSessionId) {
+                        setTimeout(() => loadSession(currentSessionId), 300);
                     }
                 } else {
                     addChatMessage('assistant', 'Sorry, I encountered an error: ' + (data.error || 'Unknown error'));
