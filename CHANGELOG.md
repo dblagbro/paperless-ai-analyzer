@@ -4,6 +4,48 @@ All notable changes to Paperless AI Analyzer are documented here.
 
 ---
 
+## v3.6.7 — 2026-03-09
+
+### Added
+- **Web URL fetching in AI Chat** — when a user includes a URL in a chat message, the AI now fetches the page content and uses it in its answer. Up to 3 URLs per message; content truncated to 4,000 chars each. HTML, `<script>`, and `<style>` blocks stripped to clean text.
+- **Honest URL failure responses** — if a URL cannot be fetched (domain not found, SSL error, timeout, etc.), the AI explicitly tells the user it could not access that URL and gives the reason, rather than hallucinating or answering with irrelevant content.
+- **URL fetching in CI Goal Assistant** — the "Refine with AI" goal assistant chat also now fetches URLs shared by the user, so they can paste a case link and have it inform the goal statement.
+
+---
+
+## v3.6.6 — 2026-02-27
+
+### Added
+- **5-Tier Analysis System** — Replaces the prior 3-tier `max_tier` select with a 5-card visual tier selector:
+  - Tier 1 Junior Associate: extraction only (entities, timeline, financial)
+  - Tier 2 Senior Associate: + contradictions, basic theories, free web research
+  - Tier 3 Partner ★ (default): + forensic accounting, discovery gap analysis, adversarial theory testing
+  - Tier 4 Senior Partner: + witness intelligence dossiers, war room opposing-counsel simulation, senior partner review
+  - Tier 5 White Glove: + multi-model comparison, deep financial forensics, trial strategy
+  - Live cost estimate badge updates as tier or document count changes
+- **Phase 1M — Entity Merge Pass** — After extraction, merges duplicate entity names (deterministic normalization + AI-assisted fuzzy match); shows `(also: J. Smith, ...)` aliases in the entities display; merged duplicates count shown in status
+- **Phase 2F — Forensic Accounting** (Tier 3+) — New `ForensicAccountant` module: detects structuring, round-number anomalies, timing correlations, cash-flow reconciliation, balance discontinuities, transaction chain tracing; new **Forensic Accounting** accordion tab in findings
+- **Phase 2D — Discovery Gap Analysis** (Tier 3+) — New `DiscoveryAnalyst` module: identifies missing document types, custodian gaps, spoliation indicators, RFP list, subpoena targets; new **Discovery Strategy** accordion tab with Copy RFP List button
+- **Phase 2W — Witness Intelligence** (Tier 4+) — New `WitnessAnalyst` module: builds per-witness dossiers with credibility score, impeachment points, prior inconsistent statements, financial interests, and key deposition questions; new **Witness Intelligence** accordion tab with collapsible per-witness cards and credibility bars
+- **Phase 2R — War Room** (Tier 4+) — New `WarRoom` module: simulates full opposing-counsel case theory, identifies top 3 dangerous arguments with client responses, ranks client vulnerabilities with mitigations, flags documents dangerous to client, generates settlement valuation range; new **War Room** accordion tab
+- **Phase 3A — Senior Partner Review** (Tier 4+) — Second LLM pass that challenges the Director synthesis: finds missed issues, unsupported conclusions, theories that won't survive cross-examination; Senior Partner notes displayed at bottom of War Room tab
+- **Enhanced Theory Generation** — 12 theories max (up from 8); each theory now includes legal element mapping, 2-paragraph legal argument memo, knowledge cutoff date, companion theories, and discovery implications
+- **Enhanced Contradiction Detection** — Contradiction engine now detects patterns of conduct (3+ instances), behavioral tells (hedging language, formality shifts, CC drops, phone shifts), communication gaps, and knowledge cutoff per disputed fact
+- **4 New DB Tables**: `ci_forensic_report`, `ci_discovery_gaps`, `ci_witness_cards`, `ci_war_room`
+- **5 New API Endpoints**: `/api/ci/runs/<id>/forensic-report`, `/api/ci/runs/<id>/discovery-gaps`, `/api/ci/runs/<id>/witness-cards`, `/api/ci/runs/<id>/war-room`, `/api/ci/cost-estimate`
+- **New Specialist Modules**: `entity_merger.py`, `forensic_accountant.py`, `discovery_analyst.py`, `witness_analyst.py`, `war_room.py`
+
+### Changed
+- **"Key Findings" → "Key Findings and Rulings"** — Renamed everywhere in the findings panel
+- `estimate_run_cost()` now returns `{total_usd, breakdown_by_task}` dict; `estimate_run_cost_simple()` added for backward compat
+- `task_registry.py` — 9 new task types added with tier assignments and per-run cost estimates
+- `ci_theory_ledger` — new columns: `legal_element_mapping`, `theory_legal_memo`, `companion_theories`, `discovery_needed`, `model_source`
+- `ci_entities` — new column: `merged_into` (FK to canonical entity), `aliases` (JSON array of name variants)
+- `ci_runs` — new column: `analysis_tier`
+- Entity display now shows `(also: ...)` aliases under canonical name
+
+---
+
 ## v3.6.5 — 2026-02-28 (updated 2026-02-28 — pass 4)
 
 ### Added

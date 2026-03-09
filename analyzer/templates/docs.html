@@ -283,6 +283,7 @@
                 </div>
                 <div class="nav-tree-ch">
                     <a href="{{ url_prefix }}/docs/chat#starting-session" class="nav-child">↳ Sessions</a>
+                    <a href="{{ url_prefix }}/docs/chat#web-url-access" class="nav-child">↳ Web URL Access</a>
                     <a href="{{ url_prefix }}/docs/chat#editing-messages" class="nav-child">↳ Edit &amp; Stop</a>
                     <a href="{{ url_prefix }}/docs/chat#compare-mode" class="nav-child">↳ Compare LLMs</a>
                     <a href="{{ url_prefix }}/docs/chat#sharing-sessions" class="nav-child">↳ Export &amp; Share</a>
@@ -783,6 +784,18 @@
             <li>Type your first question and press <kbd class="kbd">Enter</kbd>.</li>
             <li>The session title is auto-generated from your first message. You can rename it by clicking the pencil icon next to the title.</li>
         </ol>
+
+        <h2 id="web-url-access">Web URL access</h2>
+        <p>You can paste a URL directly into any chat message and the AI will fetch the page and use its content in its answer. This is useful for:</p>
+        <ul>
+            <li>Comparing your documents to a published court decision or news article</li>
+            <li>Asking the AI to summarize an external case and relate it to your documents</li>
+            <li>Providing supplemental reference material (statute text, regulatory guidance, etc.) without uploading it</li>
+        </ul>
+        <p>Up to <strong>3 URLs</strong> per message are fetched. HTML formatting is stripped — only readable text is sent to the AI. Each URL is truncated to approximately 4,000 characters.</p>
+        <div class="callout callout-warn">
+            <strong>Limitations:</strong> Pages that rely on JavaScript to render (single-page apps, court dockets behind login walls) may return little or no readable text. In that case the AI will tell you it could not read the page and suggest you paste the text directly. The AI will <em>never</em> guess or fabricate content from a URL it could not access.
+        </div>
 
         <h2 id="vision-ai">Vision AI fallback</h2>
         <p>If a retrieved document has very little OCR text (fewer than ~500 characters), the system automatically:</p>
