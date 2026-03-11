@@ -1,7 +1,7 @@
 """
 CI Orchestrator — Director/Manager/Worker hierarchical run controller.
 
-Architecture (v3.6.6 5-tier):
+Architecture (v3.7.2 5-tier):
   Director D1: reads run config + doc list → produces manager_plan JSON
   Phase 1M:   Entity merge pass (all tiers)
   Manager (N parallel, one per domain): splits docs → spawns Workers → aggregates
@@ -11,9 +11,10 @@ Architecture (v3.6.6 5-tier):
   Phase 2R:   War Room / Opposing Counsel (Tier 4+)
   Director D2: synthesizes all manager_reports → scientific paper report
   Phase 3A:   Senior Partner Review (Tier 4+)
+  Phase 3B:   White Glove — Deep Forensics + Trial Strategy + Multi-Model (Tier 5)
   Director D3: Paperless write-back + marks run complete
 
-Budget checkpoints fire every 10% and optionally invoke notification callbacks.
+Budget checkpoints fire at 50/70/80/90% and optionally invoke notification callbacks.
 """
 
 import json
@@ -38,6 +39,8 @@ from analyzer.case_intelligence.db import (
     upsert_forensic_report, upsert_discovery_gaps,
     upsert_witness_card, upsert_war_room, update_war_room_senior_notes,
     get_ci_entities_active,
+    upsert_deep_forensics, upsert_trial_strategy, upsert_multi_model_comparison,
+    get_war_room, get_witness_cards,
 )
 from analyzer.case_intelligence.budget_manager import BudgetManager
 from analyzer.case_intelligence.entity_extractor import EntityExtractor
@@ -157,12 +160,19 @@ class CIOrchestrator:
         from analyzer.case_intelligence.forensic_accountant import ForensicAccountant
         from analyzer.case_intelligence.discovery_analyst import DiscoveryAnalyst
         from analyzer.case_intelligence.witness_analyst import WitnessAnalyst
-        from analyzer.case_intelligence.war_room import WarRoom
+        from analyzer.case_intelligence.war_room import WarRoom, TrialStrategist
         self.entity_merger = EntityMerger(llm_clients, usage_tracker)
         self.forensic_accountant = ForensicAccountant(llm_clients, usage_tracker)
         self.discovery_analyst = DiscoveryAnalyst(llm_clients, usage_tracker)
         self.witness_analyst = WitnessAnalyst(llm_clients, usage_tracker)
         self.war_room = WarRoom(llm_clients, usage_tracker)
+        self.trial_strategist = TrialStrategist(llm_clients, usage_tracker)
+
+        # v3.7.2 Tier 5 modules
+        from analyzer.case_intelligence.deep_financial_forensics import DeepFinancialForensics
+        from analyzer.case_intelligence.multi_model_synthesis import MultiModelSynthesis
+        self.deep_forensics = DeepFinancialForensics(llm_clients, usage_tracker)
+        self.multi_model = MultiModelSynthesis(llm_clients, usage_tracker)
 
     # -----------------------------------------------------------------------
     # Public entry point
@@ -254,6 +264,11 @@ class CIOrchestrator:
             # ── Phase 3A: Senior Partner Review (Tier 4+) ──────────────────
             if not self._is_cancelled(cancel_event, run_id) and max_tier >= 4:
                 self._phase_senior_partner_review(run_id, run)
+
+            # ── Phase 3B: White Glove (Tier 5) ─────────────────────────────
+            if not self._is_cancelled(cancel_event, run_id) and max_tier >= 5:
+                self._phase_3b_tier5(run_id, run, documents, specialist_results,
+                                     cancel_event)
 
             # ── Phase D3: Write-back + finalize ────────────────────────────
             if not self._is_cancelled(cancel_event, run_id):
@@ -995,6 +1010,56 @@ class CIOrchestrator:
                         'source': str(prov)[:100],
                         'confidence': 'high' if c.get('severity') in ('high', 'critical') else 'medium',
                     })
+
+                # Store patterns of conduct (same behavioral pattern repeated 3+ times)
+                for p in result.get('patterns_of_conduct', []):
+                    instances = p.get('instances', [])
+                    doc_ids = [inst.get('paperless_doc_id') for inst in instances if inst.get('paperless_doc_id')]
+                    prov = json.dumps([{'paperless_doc_id': d} for d in doc_ids[:3]])
+                    add_ci_contradiction(
+                        run_id=run_id,
+                        description=f"[Pattern] {p.get('party', '')} — {p.get('pattern', '')}",
+                        severity='high',
+                        doc_a_provenance=prov,
+                        doc_b_provenance='[]',
+                        contradiction_type='pattern_of_conduct',
+                        explanation=p.get('significance'),
+                        suggested_action=None,
+                    )
+                    findings.append({
+                        'content': p.get('pattern', ''),
+                        'source': 'pattern_of_conduct',
+                        'confidence': 'high',
+                    })
+
+                # Store behavioral tells (hedging language, formality shifts, CC drops, etc.)
+                for t in result.get('behavioral_tells', []):
+                    doc_id = t.get('doc_id')
+                    prov = json.dumps([{'paperless_doc_id': doc_id, 'excerpt': t.get('excerpt', '')}]) if doc_id else '[]'
+                    add_ci_contradiction(
+                        run_id=run_id,
+                        description=f"[Behavioral Tell: {t.get('type', 'unknown')}] {t.get('tell', '')}",
+                        severity='medium',
+                        doc_a_provenance=prov,
+                        doc_b_provenance='[]',
+                        contradiction_type='behavioral_tell',
+                        explanation=t.get('significance'),
+                        suggested_action=None,
+                    )
+
+                # Store communication gaps
+                for g in result.get('communication_gaps', []):
+                    add_ci_contradiction(
+                        run_id=run_id,
+                        description=f"[Communication Gap] {g.get('description', '')} ({g.get('date_range', '')})",
+                        severity='medium',
+                        doc_a_provenance='[]',
+                        doc_b_provenance='[]',
+                        contradiction_type='communication_gap',
+                        explanation=g.get('significance'),
+                        suggested_action=f"Parties involved: {', '.join(g.get('parties_involved', []))}",
+                    )
+
                 cost += 0.015
             except Exception as e:
                 logger.warning(f"Contradiction detection error: {e}")
@@ -1477,6 +1542,8 @@ class CIOrchestrator:
                     settlement_analysis=json.dumps(wr_result.get('settlement_analysis', {})),
                     likelihood_pct=wr_result.get('likelihood_of_success_pct', 50),
                     war_room_memo=wr_result.get('war_room_memo'),
+                    opposing_counsel_checklist=json.dumps(
+                        wr_result.get('opposing_counsel_checklist', [])),
                 )
                 increment_ci_run_cost(run_id, 0.060)
                 results['war_room'] = wr_result
@@ -1586,6 +1653,187 @@ CONTRADICTIONS ({len(contradictions)}):
                 logger.info(f"CI run {run_id}: Phase 3A complete")
         except Exception as e:
             logger.warning(f"Phase 3A senior partner review failed: {e}")
+
+    # -----------------------------------------------------------------------
+    # Phase 3B: White Glove (Tier 5)
+    # -----------------------------------------------------------------------
+
+    def _phase_3b_tier5(self, run_id: str, run, documents: List[Dict],
+                        specialist_results: Dict,
+                        cancel_event: threading.Event):
+        """
+        Phase 3B: Tier 5 White Glove analysis.
+
+        Runs in parallel:
+          2F+: Deep financial forensics (Benford's, beneficial ownership, round-trips)
+          3B-T: Trial strategy memo
+          3B-M: Multi-model synthesis (Anthropic + OpenAI)
+        """
+        role = run.get('role', 'neutral')
+        goal = run.get('goal_text') or ''
+
+        jurisdiction_name = 'Not specified'
+        try:
+            jd = json.loads(run.get('jurisdiction_json') or '{}')
+            jurisdiction_name = jd.get('display_name', 'Not specified')
+        except Exception:
+            pass
+
+        entities = [dict(e) for e in get_ci_entities_active(run_id)]
+        timeline = [dict(ev) for ev in get_ci_timeline(run_id)]
+        contradictions = [dict(c) for c in get_ci_contradictions(run_id)]
+        theories = [dict(t) for t in get_ci_theories(run_id)]
+        financial = self._extract_financial_facts(run_id)
+
+        run_obj = get_ci_run(run_id)
+        findings_summary = run_obj.get('findings_summary') or ''
+
+        # Fetch already-computed specialist data for trial strategy
+        war_room_data = get_war_room(run_id) or {}
+        witness_data = [dict(w) for w in get_witness_cards(run_id)]
+
+        from analyzer.case_intelligence.db import get_discovery_gaps
+        discovery_data = get_discovery_gaps(run_id) or {}
+
+        self._set_status(run_id, 'running',
+                         stage='Phase 3B: White Glove analysis (parallel)', progress=96)
+
+        def run_deep_forensics():
+            if cancel_event.is_set():
+                return
+            if not self.budget_manager.check_and_charge(run_id, 'deep_financial_forensics', 0.050):
+                return
+            try:
+                df_result = self.deep_forensics.analyze(
+                    run_id=run_id, role=role, goal_text=goal,
+                    financial_data=financial,
+                    timeline_data=timeline,
+                    entities_data=entities,
+                )
+                upsert_deep_forensics(
+                    run_id=run_id,
+                    beneficial_ownership=json.dumps(df_result.get('beneficial_ownership', [])),
+                    round_trip_transactions=json.dumps(df_result.get('round_trip_transactions', [])),
+                    shell_entity_flags=json.dumps(df_result.get('shell_entity_flags', [])),
+                    advanced_structuring=json.dumps(df_result.get('advanced_structuring', [])),
+                    layering_schemes=json.dumps(df_result.get('layering_schemes', [])),
+                    suspicious_clusters=json.dumps(df_result.get('suspicious_clusters', [])),
+                    benford_analysis=json.dumps(df_result.get('benford_analysis', {})),
+                    benford_interpretation=df_result.get('benford_interpretation'),
+                    summary=df_result.get('summary'),
+                    risk_score=df_result.get('risk_score', 0),
+                    highest_priority_investigation=df_result.get('highest_priority_investigation'),
+                )
+                increment_ci_run_cost(run_id, 0.050)
+                logger.info(f"CI run {run_id}: Phase 3B deep forensics complete")
+            except Exception as e:
+                logger.warning(f"Phase 3B deep forensics failed: {e}")
+
+        def run_trial_strategy():
+            if cancel_event.is_set():
+                return
+            if not self.budget_manager.check_and_charge(run_id, 'trial_strategy', 0.040):
+                return
+            try:
+                # Parse discovery data JSON fields if they're strings
+                disc = {}
+                if discovery_data:
+                    disc = dict(discovery_data)
+                    for field in ('rfp_list', 'missing_doc_types', 'spoliation_indicators'):
+                        if isinstance(disc.get(field), str):
+                            try:
+                                disc[field] = json.loads(disc[field])
+                            except Exception:
+                                disc[field] = []
+
+                # Parse war room data JSON fields if they're strings
+                wr = {}
+                if war_room_data:
+                    wr = dict(war_room_data)
+                    for field in ('top_dangerous_arguments', 'client_vulnerabilities'):
+                        if isinstance(wr.get(field), str):
+                            try:
+                                wr[field] = json.loads(wr[field])
+                            except Exception:
+                                wr[field] = []
+
+                ts_result = self.trial_strategist.build_strategy(
+                    run_id=run_id, role=role, goal_text=goal,
+                    jurisdiction=jurisdiction_name,
+                    case_summary=findings_summary[:6000],
+                    war_room_data=wr or None,
+                    witness_data=witness_data,
+                    discovery_data=disc or None,
+                )
+                upsert_trial_strategy(
+                    run_id=run_id,
+                    opening_theme=ts_result.get('opening_theme'),
+                    our_narrative=ts_result.get('our_narrative'),
+                    their_narrative=ts_result.get('their_narrative'),
+                    witness_order=json.dumps(ts_result.get('witness_order', [])),
+                    key_exhibits=json.dumps(ts_result.get('key_exhibits', [])),
+                    motions_in_limine=json.dumps(ts_result.get('motions_in_limine', [])),
+                    closing_themes=json.dumps(ts_result.get('closing_themes', [])),
+                    jury_profile=json.dumps(ts_result.get('jury_profile', {})),
+                    trial_risks=json.dumps(ts_result.get('trial_risks', [])),
+                    strategy_memo=ts_result.get('strategy_memo'),
+                    case_type=ts_result.get('case_type', 'unknown'),
+                )
+                increment_ci_run_cost(run_id, 0.040)
+                logger.info(f"CI run {run_id}: Phase 3B trial strategy complete")
+            except Exception as e:
+                logger.warning(f"Phase 3B trial strategy failed: {e}")
+
+        def run_multi_model():
+            if cancel_event.is_set():
+                return
+            if not self.budget_manager.check_and_charge(run_id, 'multi_model_synthesis', 0.080):
+                return
+            try:
+                # Build financial summary string
+                fin_summary = '\n'.join(
+                    f"{f.get('date', '?')}: ${f.get('amount', 0):,} — {f.get('description', '')}"
+                    for f in financial[:10] if isinstance(f, dict)
+                ) or 'No financial data.'
+
+                mm_result = self.multi_model.synthesize(
+                    run_id=run_id, role=role, goal_text=goal,
+                    case_summary=findings_summary[:6000],
+                    existing_theories=theories,
+                    contradictions=contradictions,
+                    financial_summary=fin_summary,
+                )
+                upsert_multi_model_comparison(
+                    run_id=run_id,
+                    anthropic_analysis=json.dumps(mm_result.get('anthropic_analysis') or {}),
+                    openai_analysis=json.dumps(mm_result.get('openai_analysis') or {}),
+                    agreed_theories=json.dumps(mm_result.get('agreed_theories', [])),
+                    model_a_only=json.dumps(mm_result.get('model_a_only', [])),
+                    model_b_only=json.dumps(mm_result.get('model_b_only', [])),
+                    disagreements=json.dumps(mm_result.get('disagreements', [])),
+                    merged_summary=mm_result.get('merged_summary'),
+                    confidence_in_analysis=mm_result.get('confidence_in_analysis', 0.0),
+                    models_agreement_rate=mm_result.get('models_agreement_rate', 0.0),
+                )
+                increment_ci_run_cost(run_id, 0.080)
+                logger.info(f"CI run {run_id}: Phase 3B multi-model synthesis complete")
+            except Exception as e:
+                logger.warning(f"Phase 3B multi-model synthesis failed: {e}")
+
+        with ThreadPoolExecutor(max_workers=3,
+                                thread_name_prefix='ci-tier5') as executor:
+            futures = [
+                executor.submit(run_deep_forensics),
+                executor.submit(run_trial_strategy),
+                executor.submit(run_multi_model),
+            ]
+            for f in as_completed(futures):
+                try:
+                    f.result()
+                except Exception as e:
+                    logger.warning(f"Phase 3B future failed: {e}")
+
+        logger.info(f"CI run {run_id}: Phase 3B complete")
 
     # -----------------------------------------------------------------------
     # Phase D2: Director synthesizes report

@@ -8345,7 +8345,8 @@ def ci_war_room_report(run_id):
         wr = get_war_room(run_id)
         if not wr:
             return jsonify({'present': False, 'data': None})
-        for field in ('top_dangerous_arguments', 'client_vulnerabilities', 'smoking_guns'):
+        for field in ('top_dangerous_arguments', 'client_vulnerabilities',
+                      'smoking_guns', 'opposing_counsel_checklist'):
             try:
                 wr[field] = json.loads(wr.get(field) or '[]')
             except Exception:
@@ -8355,6 +8356,102 @@ def ci_war_room_report(run_id):
         except Exception:
             wr['settlement_analysis'] = {}
         return jsonify({'present': True, 'data': wr})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/ci/runs/<run_id>/deep-forensics')
+@login_required
+def ci_deep_forensics_report(run_id):
+    """Return deep financial forensics report for a CI run (Tier 5)."""
+    ok, err = _ci_gate()
+    if not ok:
+        return err
+    try:
+        from analyzer.case_intelligence.db import get_ci_run, get_deep_forensics
+        run = get_ci_run(run_id)
+        if not run:
+            return jsonify({'error': 'Run not found'}), 404
+        if not _ci_can_read(run):
+            return jsonify({'error': 'Access denied'}), 403
+        report = get_deep_forensics(run_id)
+        if not report:
+            return jsonify({'present': False, 'data': None})
+        for field in ('beneficial_ownership', 'round_trip_transactions', 'shell_entity_flags',
+                      'advanced_structuring', 'layering_schemes', 'suspicious_clusters'):
+            try:
+                report[field] = json.loads(report.get(field) or '[]')
+            except Exception:
+                report[field] = []
+        try:
+            report['benford_analysis'] = json.loads(report.get('benford_analysis') or '{}')
+        except Exception:
+            report['benford_analysis'] = {}
+        return jsonify({'present': True, 'data': report})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/ci/runs/<run_id>/trial-strategy')
+@login_required
+def ci_trial_strategy_report(run_id):
+    """Return trial strategy memo for a CI run (Tier 5)."""
+    ok, err = _ci_gate()
+    if not ok:
+        return err
+    try:
+        from analyzer.case_intelligence.db import get_ci_run, get_trial_strategy
+        run = get_ci_run(run_id)
+        if not run:
+            return jsonify({'error': 'Run not found'}), 404
+        if not _ci_can_read(run):
+            return jsonify({'error': 'Access denied'}), 403
+        strategy = get_trial_strategy(run_id)
+        if not strategy:
+            return jsonify({'present': False, 'data': None})
+        for field in ('witness_order', 'key_exhibits', 'motions_in_limine',
+                      'closing_themes', 'trial_risks'):
+            try:
+                strategy[field] = json.loads(strategy.get(field) or '[]')
+            except Exception:
+                strategy[field] = []
+        try:
+            strategy['jury_profile'] = json.loads(strategy.get('jury_profile') or '{}')
+        except Exception:
+            strategy['jury_profile'] = {}
+        return jsonify({'present': True, 'data': strategy})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/ci/runs/<run_id>/multi-model')
+@login_required
+def ci_multi_model_report(run_id):
+    """Return multi-model comparison for a CI run (Tier 5)."""
+    ok, err = _ci_gate()
+    if not ok:
+        return err
+    try:
+        from analyzer.case_intelligence.db import get_ci_run, get_multi_model_comparison
+        run = get_ci_run(run_id)
+        if not run:
+            return jsonify({'error': 'Run not found'}), 404
+        if not _ci_can_read(run):
+            return jsonify({'error': 'Access denied'}), 403
+        mm = get_multi_model_comparison(run_id)
+        if not mm:
+            return jsonify({'present': False, 'data': None})
+        for field in ('agreed_theories', 'model_a_only', 'model_b_only', 'disagreements'):
+            try:
+                mm[field] = json.loads(mm.get(field) or '[]')
+            except Exception:
+                mm[field] = []
+        for field in ('anthropic_analysis', 'openai_analysis'):
+            try:
+                mm[field] = json.loads(mm.get(field) or '{}')
+            except Exception:
+                mm[field] = {}
+        return jsonify({'present': True, 'data': mm})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
