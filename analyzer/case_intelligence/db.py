@@ -357,6 +357,25 @@ def init_ci_db():
                 created_at              TEXT NOT NULL DEFAULT (datetime('now'))
             );
             CREATE INDEX IF NOT EXISTS idx_ci_multimodel_run ON ci_multi_model_comparison(run_id);
+
+            -- Settlement valuation (Tier 5)
+            CREATE TABLE IF NOT EXISTS ci_settlement_valuation (
+                id                          INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id                      TEXT NOT NULL REFERENCES ci_runs(id) ON DELETE CASCADE,
+                damages_breakdown           TEXT NOT NULL DEFAULT '[]',
+                total_exposure              TEXT NOT NULL DEFAULT '{}',
+                comparable_verdict_context  TEXT,
+                litigation_cost_model       TEXT NOT NULL DEFAULT '{}',
+                fee_shifting_risk           TEXT NOT NULL DEFAULT '{}',
+                insurance_flags             TEXT NOT NULL DEFAULT '[]',
+                leverage_timeline           TEXT NOT NULL DEFAULT '[]',
+                settlement_recommendation   TEXT NOT NULL DEFAULT '{}',
+                optimal_settlement_timing   TEXT,
+                mediation_strategy          TEXT NOT NULL DEFAULT '{}',
+                summary_memo                TEXT,
+                created_at                  TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_ci_settlement_run ON ci_settlement_valuation(run_id);
         """)
 
         # Idempotent migrations — new columns for hierarchical orchestrator + web research
@@ -1381,6 +1400,61 @@ def get_multi_model_comparison(run_id: str) -> Optional[Dict[str, Any]]:
     with _get_conn() as conn:
         row = conn.execute(
             "SELECT * FROM ci_multi_model_comparison WHERE run_id=?", (run_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+
+# ---------------------------------------------------------------------------
+# ci_settlement_valuation CRUD  (Tier 5)
+# ---------------------------------------------------------------------------
+
+def upsert_settlement_valuation(run_id: str,
+                                 damages_breakdown: str = '[]',
+                                 total_exposure: str = '{}',
+                                 comparable_verdict_context: str = None,
+                                 litigation_cost_model: str = '{}',
+                                 fee_shifting_risk: str = '{}',
+                                 insurance_flags: str = '[]',
+                                 leverage_timeline: str = '[]',
+                                 settlement_recommendation: str = '{}',
+                                 optimal_settlement_timing: str = None,
+                                 mediation_strategy: str = '{}',
+                                 summary_memo: str = None) -> int:
+    with _get_conn() as conn:
+        existing = conn.execute(
+            "SELECT id FROM ci_settlement_valuation WHERE run_id=?", (run_id,)
+        ).fetchone()
+        if existing:
+            conn.execute("""
+                UPDATE ci_settlement_valuation
+                SET damages_breakdown=?, total_exposure=?, comparable_verdict_context=?,
+                    litigation_cost_model=?, fee_shifting_risk=?, insurance_flags=?,
+                    leverage_timeline=?, settlement_recommendation=?,
+                    optimal_settlement_timing=?, mediation_strategy=?, summary_memo=?
+                WHERE run_id=?
+            """, (damages_breakdown, total_exposure, comparable_verdict_context,
+                  litigation_cost_model, fee_shifting_risk, insurance_flags,
+                  leverage_timeline, settlement_recommendation,
+                  optimal_settlement_timing, mediation_strategy, summary_memo, run_id))
+            return existing['id']
+        cur = conn.execute("""
+            INSERT INTO ci_settlement_valuation
+                (run_id, damages_breakdown, total_exposure, comparable_verdict_context,
+                 litigation_cost_model, fee_shifting_risk, insurance_flags,
+                 leverage_timeline, settlement_recommendation,
+                 optimal_settlement_timing, mediation_strategy, summary_memo)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+        """, (run_id, damages_breakdown, total_exposure, comparable_verdict_context,
+              litigation_cost_model, fee_shifting_risk, insurance_flags,
+              leverage_timeline, settlement_recommendation,
+              optimal_settlement_timing, mediation_strategy, summary_memo))
+        return cur.lastrowid
+
+
+def get_settlement_valuation(run_id: str) -> Optional[Dict[str, Any]]:
+    with _get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM ci_settlement_valuation WHERE run_id=?", (run_id,)
         ).fetchone()
         return dict(row) if row else None
 

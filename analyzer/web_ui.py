@@ -8456,6 +8456,39 @@ def ci_multi_model_report(run_id):
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/ci/runs/<run_id>/settlement-valuation')
+@login_required
+def ci_settlement_valuation_report(run_id):
+    """Return settlement valuation analysis for a CI run (Tier 5)."""
+    ok, err = _ci_gate()
+    if not ok:
+        return err
+    try:
+        from analyzer.case_intelligence.db import get_ci_run, get_settlement_valuation
+        run = get_ci_run(run_id)
+        if not run:
+            return jsonify({'error': 'Run not found'}), 404
+        if not _ci_can_read(run):
+            return jsonify({'error': 'Access denied'}), 403
+        sv = get_settlement_valuation(run_id)
+        if not sv:
+            return jsonify({'present': False, 'data': None})
+        for field in ('damages_breakdown', 'insurance_flags', 'leverage_timeline'):
+            try:
+                sv[field] = json.loads(sv.get(field) or '[]')
+            except Exception:
+                sv[field] = []
+        for field in ('total_exposure', 'litigation_cost_model', 'fee_shifting_risk',
+                      'settlement_recommendation', 'mediation_strategy'):
+            try:
+                sv[field] = json.loads(sv.get(field) or '{}')
+            except Exception:
+                sv[field] = {}
+        return jsonify({'present': True, 'data': sv})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/ci/cost-estimate')
 @login_required
 def ci_cost_estimate():

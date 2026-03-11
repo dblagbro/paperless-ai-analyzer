@@ -40,6 +40,7 @@ from analyzer.case_intelligence.db import (
     upsert_witness_card, upsert_war_room, update_war_room_senior_notes,
     get_ci_entities_active,
     upsert_deep_forensics, upsert_trial_strategy, upsert_multi_model_comparison,
+    upsert_settlement_valuation,
     get_war_room, get_witness_cards,
 )
 from analyzer.case_intelligence.budget_manager import BudgetManager
@@ -160,13 +161,14 @@ class CIOrchestrator:
         from analyzer.case_intelligence.forensic_accountant import ForensicAccountant
         from analyzer.case_intelligence.discovery_analyst import DiscoveryAnalyst
         from analyzer.case_intelligence.witness_analyst import WitnessAnalyst
-        from analyzer.case_intelligence.war_room import WarRoom, TrialStrategist
+        from analyzer.case_intelligence.war_room import WarRoom, TrialStrategist, SettlementValuator
         self.entity_merger = EntityMerger(llm_clients, usage_tracker)
         self.forensic_accountant = ForensicAccountant(llm_clients, usage_tracker)
         self.discovery_analyst = DiscoveryAnalyst(llm_clients, usage_tracker)
         self.witness_analyst = WitnessAnalyst(llm_clients, usage_tracker)
         self.war_room = WarRoom(llm_clients, usage_tracker)
         self.trial_strategist = TrialStrategist(llm_clients, usage_tracker)
+        self.settlement_valuator = SettlementValuator(llm_clients, usage_tracker)
 
         # v3.7.2 Tier 5 modules
         from analyzer.case_intelligence.deep_financial_forensics import DeepFinancialForensics
@@ -1820,12 +1822,47 @@ CONTRADICTIONS ({len(contradictions)}):
             except Exception as e:
                 logger.warning(f"Phase 3B multi-model synthesis failed: {e}")
 
-        with ThreadPoolExecutor(max_workers=3,
+        def run_settlement_valuation():
+            if cancel_event.is_set():
+                return
+            if not self.budget_manager.check_and_charge(run_id, 'settlement_valuation', 0.030):
+                return
+            try:
+                case_summary = f"{goal}\n\n{findings_summary}"
+                sv_result = self.settlement_valuator.valuate(
+                    run_id=run_id, role=role, goal_text=goal,
+                    jurisdiction=jurisdiction_name,
+                    case_summary=case_summary,
+                    war_room_data=war_room_data,
+                    financial_data=financial,
+                    theories=theories,
+                )
+                upsert_settlement_valuation(
+                    run_id=run_id,
+                    damages_breakdown=json.dumps(sv_result.get('damages_breakdown', [])),
+                    total_exposure=json.dumps(sv_result.get('total_exposure', {})),
+                    comparable_verdict_context=sv_result.get('comparable_verdict_context'),
+                    litigation_cost_model=json.dumps(sv_result.get('litigation_cost_model', {})),
+                    fee_shifting_risk=json.dumps(sv_result.get('fee_shifting_risk', {})),
+                    insurance_flags=json.dumps(sv_result.get('insurance_flags', [])),
+                    leverage_timeline=json.dumps(sv_result.get('leverage_timeline', [])),
+                    settlement_recommendation=json.dumps(sv_result.get('settlement_recommendation', {})),
+                    optimal_settlement_timing=sv_result.get('optimal_settlement_timing'),
+                    mediation_strategy=json.dumps(sv_result.get('mediation_strategy', {})),
+                    summary_memo=sv_result.get('summary_memo'),
+                )
+                increment_ci_run_cost(run_id, 0.030)
+                logger.info(f"CI run {run_id}: Phase 3B settlement valuation complete")
+            except Exception as e:
+                logger.warning(f"Phase 3B settlement valuation failed: {e}")
+
+        with ThreadPoolExecutor(max_workers=4,
                                 thread_name_prefix='ci-tier5') as executor:
             futures = [
                 executor.submit(run_deep_forensics),
                 executor.submit(run_trial_strategy),
                 executor.submit(run_multi_model),
+                executor.submit(run_settlement_valuation),
             ]
             for f in as_completed(futures):
                 try:

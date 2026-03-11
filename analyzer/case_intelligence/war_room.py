@@ -441,6 +441,273 @@ Respond in JSON:
 """
 
 
+SETTLEMENT_VALUATION_PROMPT = """You are a senior litigation partner specializing in case valuation and settlement strategy. You have tried 100+ cases and advised on hundreds of settlements.
+
+OUR ROLE: {role}
+CASE GOAL: {goal_text}
+JURISDICTION: {jurisdiction}
+
+CASE SUMMARY:
+{case_summary}
+
+TIER 4 WAR ROOM SETTLEMENT ESTIMATE (baseline — your job is to go deeper):
+{war_room_settlement}
+
+FINANCIAL EXPOSURE DOCUMENTED:
+{financial_summary}
+
+THEORIES / LEGAL CLAIMS:
+{theories_summary}
+
+Your task: Produce a deep, standalone settlement valuation. Go well beyond the basic range estimate.
+
+1. DAMAGES ANALYSIS: Break down every recoverable damage category — actual, consequential, punitive, statutory multipliers, attorney fees, interest. Quantify each with low/likely/high scenarios.
+2. COMPARABLE VERDICTS: Identify the types of comparable cases and what verdicts typically look like in {jurisdiction} for these claims (use your training knowledge — do not fabricate specific case citations).
+3. COST OF LITIGATION: Model both sides' costs to trial — attorney fees, expert witnesses, discovery costs. Include in settlement math.
+4. FEE-SHIFTING ANALYSIS: Does {jurisdiction} have fee-shifting for these claims? What's the risk multiplier?
+5. INSURANCE/INDEMNIFICATION: Flag any insurance coverage or indemnification provisions that affect settlement calculus.
+6. LEVERAGE ANALYSIS: What events (rulings, depositions, document productions) will shift leverage and when?
+7. WALK-AWAY MATH: At what point does litigation cost more than settlement for each side?
+8. MEDIATION STRATEGY: Optimal timing, mediator profile, opening position, and BATNA.
+
+Respond in JSON:
+{{
+  "damages_breakdown": [
+    {{
+      "category": "Compensatory / Lost profits / Punitive / Attorney fees / etc.",
+      "low_usd": 0,
+      "likely_usd": 0,
+      "high_usd": 0,
+      "notes": "How calculated, what supports it, what undermines it",
+      "recoverability": "strong|moderate|weak"
+    }}
+  ],
+  "total_exposure": {{
+    "low_usd": 0,
+    "likely_usd": 0,
+    "high_usd": 0
+  }},
+  "comparable_verdict_context": "2-3 sentences on what similar cases typically resolve for in this jurisdiction and claim type, based on general knowledge",
+  "litigation_cost_model": {{
+    "our_cost_to_trial_usd": 0,
+    "opposing_cost_to_trial_usd": 0,
+    "combined_litigation_waste_usd": 0,
+    "notes": "Key cost drivers"
+  }},
+  "fee_shifting_risk": {{
+    "applies": true,
+    "basis": "Statutory basis or contractual",
+    "our_exposure_usd": 0,
+    "their_exposure_usd": 0
+  }},
+  "insurance_flags": [
+    "Insurance or indemnification issues that affect settlement value"
+  ],
+  "leverage_timeline": [
+    {{
+      "event": "Upcoming event that shifts leverage",
+      "timing": "When (motion ruling, key deposition, discovery deadline)",
+      "shifts_leverage_to": "us|them|neutral",
+      "impact": "How it changes settlement value"
+    }}
+  ],
+  "settlement_recommendation": {{
+    "open_usd": 0,
+    "target_usd": 0,
+    "walk_away_usd": 0,
+    "rationale": "2-3 sentence rationale tying together exposure, cost, and leverage"
+  }},
+  "optimal_settlement_timing": "When in the litigation is the best time to settle and why",
+  "mediation_strategy": {{
+    "recommended_timing": "When to mediate",
+    "mediator_profile": "What kind of mediator (retired judge, industry expert, etc.)",
+    "opening_position_usd": 0,
+    "key_themes_for_mediation": ["Theme 1", "Theme 2"],
+    "opposing_likely_opening_usd": 0,
+    "batna": "Our best alternative to a negotiated agreement"
+  }},
+  "summary_memo": "4-5 paragraph settlement valuation memo written to senior counsel. Cover: total exposure range, key value drivers, litigation cost math, timing recommendation, and opening/walk-away positions. Be direct and specific."
+}}
+
+RULES:
+1. All dollar amounts must be grounded in the documented financial data or reasonable extrapolation.
+2. Do not fabricate specific case names or citations — describe verdict ranges in general terms.
+3. Be realistic, not optimistic — the purpose is accurate valuation, not advocacy.
+4. If this is a non-monetary dispute, adapt the framework to the relevant equitable relief value.
+"""
+
+
+class SettlementValuator:
+    """
+    Tier 5 deep settlement valuation.
+    Produces a standalone, comprehensive settlement analysis beyond the Tier 4
+    war room's basic settlement_analysis field.
+    """
+
+    def __init__(self, llm_clients: dict, usage_tracker=None):
+        self.llm_clients = llm_clients
+        self.usage_tracker = usage_tracker
+        self.task_def = get_task('settlement_valuation')
+
+    def valuate(self, run_id: str, role: str, goal_text: str,
+                jurisdiction: str, case_summary: str,
+                war_room_data: Optional[Dict],
+                financial_data: List[Dict],
+                theories: List[Dict]) -> Dict[str, Any]:
+        """
+        Produce a deep settlement valuation.
+
+        Returns:
+            Settlement valuation dict (mirrors ci_settlement_valuation schema)
+        """
+        # Build war room settlement baseline
+        war_room_settlement = ''
+        if war_room_data:
+            sa = war_room_data.get('settlement_analysis') or {}
+            if isinstance(sa, str):
+                try:
+                    sa = json.loads(sa)
+                except Exception:
+                    sa = {}
+            war_room_settlement = (
+                f"Range: ${sa.get('range_low_usd', 0):,} — ${sa.get('range_high_usd', 0):,}\n"
+                f"Most likely: ${sa.get('most_likely_usd', 0):,}\n"
+                f"Walk-away: ${sa.get('walk_away_usd', 0):,}\n"
+                f"Rationale: {sa.get('rationale', 'Not provided')}"
+            )
+
+        # Build financial summary
+        fin_lines = []
+        for f in financial_data[:20]:
+            if isinstance(f, dict):
+                fin_lines.append(
+                    f"${f.get('amount', f.get('amount_usd', 0)):,} — "
+                    f"{f.get('description', '')} ({f.get('date', '?')})"
+                )
+        financial_summary = '\n'.join(fin_lines) or 'No financial data extracted.'
+
+        # Build theories summary
+        theory_lines = [
+            f"[{t.get('theory_type', '?')}] {t.get('theory_text', '')[:120]} "
+            f"(conf: {t.get('confidence', 0):.0%})"
+            for t in theories[:8]
+        ]
+        theories_summary = '\n'.join(theory_lines) or 'No theories identified.'
+
+        prompt = SETTLEMENT_VALUATION_PROMPT.format(
+            role=role,
+            goal_text=goal_text or 'Maximize recovery',
+            jurisdiction=jurisdiction or 'Not specified',
+            case_summary=case_summary[:8000],
+            war_room_settlement=war_room_settlement[:800],
+            financial_summary=financial_summary[:3000],
+            theories_summary=theories_summary[:2000],
+        )
+
+        result = self._call_llm_with_escalation(prompt, 'ci:settlement_valuation')
+        if not result:
+            return self._empty_result()
+
+        total = result.get('total_exposure', {})
+        logger.info(
+            f"SettlementValuator run {run_id}: "
+            f"exposure=${total.get('likely_usd', 0):,.0f}, "
+            f"target=${result.get('settlement_recommendation', {}).get('target_usd', 0):,.0f}"
+        )
+        return result
+
+    def _call_llm_with_escalation(self, prompt: str, operation: str) -> Optional[Dict]:
+        for model_key in ('primary', 'escalate'):
+            model = (self.task_def.primary_model if model_key == 'primary'
+                     else self.task_def.escalate_model)
+            provider = (self.task_def.primary_provider if model_key == 'primary'
+                        else self.task_def.escalate_provider)
+            client = self.llm_clients.get(provider)
+            if not client:
+                continue
+            try:
+                result = self._call_llm(client, model, prompt, provider, operation)
+                if result:
+                    return result
+            except Exception as e:
+                logger.error(f"SettlementValuator {provider}/{model} failed: {e}")
+        return None
+
+    def _call_llm(self, client, model: str, prompt: str,
+                  provider: str, operation: str) -> Optional[Dict]:
+        text = ''
+        try:
+            if provider == 'anthropic':
+                response = client.client.messages.create(
+                    model=model,
+                    max_tokens=self.task_def.max_output_tokens,
+                    messages=[{'role': 'user', 'content': prompt}],
+                )
+                text = response.content[0].text
+                usage = response.usage
+                if self.usage_tracker:
+                    self.usage_tracker.log_usage(
+                        provider=provider, model=model, operation=operation,
+                        input_tokens=usage.input_tokens, output_tokens=usage.output_tokens,
+                    )
+            elif provider == 'openai':
+                response = client.client.chat.completions.create(
+                    model=model,
+                    max_tokens=self.task_def.max_output_tokens,
+                    response_format={'type': 'json_object'},
+                    messages=[{'role': 'user', 'content': prompt}],
+                )
+                text = response.choices[0].message.content
+                usage = response.usage
+                if self.usage_tracker:
+                    self.usage_tracker.log_usage(
+                        provider=provider, model=model, operation=operation,
+                        input_tokens=usage.prompt_tokens, output_tokens=usage.completion_tokens,
+                    )
+            else:
+                return None
+
+            if '```json' in text:
+                text = text.split('```json')[1].split('```')[0].strip()
+            elif '```' in text:
+                text = text.split('```')[1].split('```')[0].strip()
+            return json.loads(text)
+        except json.JSONDecodeError as e:
+            logger.warning(f"SettlementValuator JSON error: {e} — preview={text[:300]!r}")
+            return None
+        except Exception as e:
+            logger.error(f"SettlementValuator LLM error: {e}")
+            return None
+
+    @staticmethod
+    def _empty_result() -> Dict:
+        return {
+            'damages_breakdown': [],
+            'total_exposure': {'low_usd': 0, 'likely_usd': 0, 'high_usd': 0},
+            'comparable_verdict_context': '',
+            'litigation_cost_model': {
+                'our_cost_to_trial_usd': 0,
+                'opposing_cost_to_trial_usd': 0,
+                'combined_litigation_waste_usd': 0,
+                'notes': '',
+            },
+            'fee_shifting_risk': {'applies': False, 'basis': '', 'our_exposure_usd': 0, 'their_exposure_usd': 0},
+            'insurance_flags': [],
+            'leverage_timeline': [],
+            'settlement_recommendation': {'open_usd': 0, 'target_usd': 0, 'walk_away_usd': 0, 'rationale': ''},
+            'optimal_settlement_timing': '',
+            'mediation_strategy': {
+                'recommended_timing': '',
+                'mediator_profile': '',
+                'opening_position_usd': 0,
+                'key_themes_for_mediation': [],
+                'opposing_likely_opening_usd': 0,
+                'batna': '',
+            },
+            'summary_memo': 'Settlement valuation could not be completed.',
+        }
+
+
 class TrialStrategist:
     """
     Tier 5 trial strategy analysis.
