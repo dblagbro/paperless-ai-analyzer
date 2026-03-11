@@ -9300,8 +9300,19 @@
 
     async function ciUpdateCostEstimate() {
         const tier = parseInt(document.getElementById('ci-max-tier').value) || 3;
-        // Estimate doc count from any visible run, fallback to 10
+        // Use paperless_total from stats (full project doc count), fall back to
+        // docs_total from a previously selected run, then to total_analyzed
         let docs = 10;
+        try {
+            const sr = await apiFetch(apiUrl('/api/stats'));
+            const sd = await sr.json();
+            if (sd.paperless_total > 0) {
+                docs = sd.paperless_total;
+            } else if (sd.stats && sd.stats.total_analyzed > 0) {
+                docs = sd.stats.total_analyzed;
+            }
+        } catch(e) {}
+        // If we have a selected run with a known doc count, prefer that (it may differ from project total)
         try {
             if (ciSelectedRunId) {
                 const r = await apiFetch(apiUrl(`/api/ci/runs/${ciSelectedRunId}/status`));
