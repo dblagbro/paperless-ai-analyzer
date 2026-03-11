@@ -4095,6 +4095,21 @@
                         <div id="ci-multimodel-summary" style="padding:10px 0; font-size:13px; color:#444; line-height:1.6;"></div>
                     </div>
                 </div>
+
+                <!-- ── SETTLEMENT VALUATION (Tier 5) ─────────────────── -->
+                <div id="ci-settlement-accordion" style="display:none;">
+                    <div class="ci-accordion-header" onclick="ciToggleSection('ci-settlement-body')">
+                        <span>💰 SETTLEMENT VALUATION</span><span id="ci-settlement-badge" style="font-size:10px; background:#6c3483; color:#fff; padding:2px 7px; border-radius:8px; margin-left:8px; font-weight:700;">WHITE GLOVE</span>
+                    </div>
+                    <div class="ci-accordion-body" id="ci-settlement-body">
+                        <div id="ci-settlement-exposure" style="margin-bottom:14px;"></div>
+                        <div id="ci-settlement-damages" style="margin-bottom:14px;"></div>
+                        <div id="ci-settlement-recommendation" style="margin-bottom:14px;"></div>
+                        <div id="ci-settlement-leverage" style="margin-bottom:14px;"></div>
+                        <div id="ci-settlement-mediation" style="margin-bottom:14px;"></div>
+                        <div id="ci-settlement-memo" style="padding:10px 0; font-size:13px; color:#444; line-height:1.6;"></div>
+                    </div>
+                </div>
             </div>
 
             <!-- No findings yet -->
@@ -9838,7 +9853,7 @@
                 document.getElementById('ci-no-findings').style.display = 'none';
                 // Hide specialist accordions too
                 ['ci-forensic-accordion','ci-discovery-accordion','ci-witnesses-accordion','ci-warroom-accordion',
-                 'ci-deepforensics-accordion','ci-trialstrategy-accordion','ci-multimodel-accordion'].forEach(id => {
+                 'ci-deepforensics-accordion','ci-trialstrategy-accordion','ci-multimodel-accordion','ci-settlement-accordion'].forEach(id => {
                     const el = document.getElementById(id); if (el) el.style.display = 'none';
                 });
                 document.getElementById('ci-findings-status').style.display = 'block';
@@ -10596,7 +10611,8 @@
     async function ciLoadSpecialistFindings(runId) {
         if (!runId) return;
         const [forensicRes, discoveryRes, witnessRes, warRoomRes,
-               deepForensicsRes, trialStrategyRes, multiModelRes] = await Promise.allSettled([
+               deepForensicsRes, trialStrategyRes, multiModelRes,
+               settlementRes] = await Promise.allSettled([
             apiFetch(apiUrl('/api/ci/runs/' + runId + '/forensic-report')).then(r => r.json()),
             apiFetch(apiUrl('/api/ci/runs/' + runId + '/discovery-gaps')).then(r => r.json()),
             apiFetch(apiUrl('/api/ci/runs/' + runId + '/witness-cards')).then(r => r.json()),
@@ -10604,6 +10620,7 @@
             apiFetch(apiUrl('/api/ci/runs/' + runId + '/deep-forensics')).then(r => r.json()),
             apiFetch(apiUrl('/api/ci/runs/' + runId + '/trial-strategy')).then(r => r.json()),
             apiFetch(apiUrl('/api/ci/runs/' + runId + '/multi-model')).then(r => r.json()),
+            apiFetch(apiUrl('/api/ci/runs/' + runId + '/settlement-valuation')).then(r => r.json()),
         ]);
         // Each API returns {present, data: <payload>} — unwrap before passing to renderers
         ciRenderForensicTab(forensicRes.status      === 'fulfilled' ? (forensicRes.value?.data      || null) : null);
@@ -10613,6 +10630,7 @@
         ciRenderDeepForensicsTab(deepForensicsRes.status  === 'fulfilled' ? (deepForensicsRes.value?.data  || null) : null);
         ciRenderTrialStrategyTab(trialStrategyRes.status  === 'fulfilled' ? (trialStrategyRes.value?.data  || null) : null);
         ciRenderMultiModelTab(multiModelRes.status        === 'fulfilled' ? (multiModelRes.value?.data     || null) : null);
+        ciRenderSettlementTab(settlementRes.status        === 'fulfilled' ? (settlementRes.value?.data     || null) : null);
     }
 
     function ciRenderForensicTab(data) {
@@ -11214,6 +11232,129 @@
                 </div>
                 ${data.merged_summary ? `<div style="font-size:13px; color:#444; line-height:1.7; white-space:pre-wrap;">${escapeHtml(data.merged_summary)}</div>` : ''}
             </div>`;
+    }
+
+    // ── Tier 5: Settlement Valuation ─────────────────────────────────
+    function ciRenderSettlementTab(data) {
+        const acc  = document.getElementById('ci-settlement-accordion');
+        const body = document.getElementById('ci-settlement-body');
+        if (!acc || !body) return;
+        if (!data || data.error || (!data.summary_memo && !data.settlement_recommendation)) {
+            acc.style.display = 'none'; return;
+        }
+        acc.style.display = '';
+
+        // Total exposure summary
+        const exp = data.total_exposure || {};
+        let exposureHtml = '';
+        if (exp.low_usd || exp.likely_usd || exp.high_usd) {
+            const fmtUsd = v => v ? '$' + Number(v).toLocaleString() : '—';
+            exposureHtml = `<div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:10px;">
+                <div style="flex:1; min-width:120px; padding:12px; background:#f8f9fa; border:1px solid #dee2e6; border-radius:6px; text-align:center;">
+                    <div style="font-size:10px; color:#888; font-weight:600; text-transform:uppercase; margin-bottom:4px;">Low Exposure</div>
+                    <div style="font-size:18px; font-weight:700; color:#27ae60;">${fmtUsd(exp.low_usd)}</div>
+                </div>
+                <div style="flex:1; min-width:120px; padding:12px; background:#fff3cd; border:1px solid #ffc107; border-radius:6px; text-align:center;">
+                    <div style="font-size:10px; color:#856404; font-weight:600; text-transform:uppercase; margin-bottom:4px;">Likely Exposure</div>
+                    <div style="font-size:18px; font-weight:700; color:#856404;">${fmtUsd(exp.likely_usd)}</div>
+                </div>
+                <div style="flex:1; min-width:120px; padding:12px; background:#f8d7da; border:1px solid #f5c6cb; border-radius:6px; text-align:center;">
+                    <div style="font-size:10px; color:#721c24; font-weight:600; text-transform:uppercase; margin-bottom:4px;">High Exposure</div>
+                    <div style="font-size:18px; font-weight:700; color:#c0392b;">${fmtUsd(exp.high_usd)}</div>
+                </div>
+            </div>`;
+            if (exp.notes) {
+                exposureHtml += `<div style="font-size:12px; color:#666; margin-bottom:8px; font-style:italic;">${escapeHtml(exp.notes)}</div>`;
+            }
+        }
+        document.getElementById('ci-settlement-exposure').innerHTML = exposureHtml;
+
+        // Damages breakdown
+        const damages = data.damages_breakdown || [];
+        let damagesHtml = '';
+        if (damages.length) {
+            damagesHtml = `<div>
+                <div style="font-weight:700; color:#2c3e50; font-size:12px; margin-bottom:6px;">📊 Damages Breakdown by Category</div>
+                <table style="width:100%; border-collapse:collapse; font-size:12px;">
+                    <thead><tr style="background:#f8f9fa; font-size:11px; color:#555;">
+                        <th style="padding:6px 8px; text-align:left; border-bottom:2px solid #dee2e6;">Category</th>
+                        <th style="padding:6px 8px; text-align:right; border-bottom:2px solid #dee2e6;">Low</th>
+                        <th style="padding:6px 8px; text-align:right; border-bottom:2px solid #dee2e6;">Likely</th>
+                        <th style="padding:6px 8px; text-align:right; border-bottom:2px solid #dee2e6;">High</th>
+                    </tr></thead>
+                    <tbody>
+                        ${damages.map(d => `<tr style="border-bottom:1px solid #f0f0f0;">
+                            <td style="padding:6px 8px;">${escapeHtml(d.category || '')}</td>
+                            <td style="padding:6px 8px; text-align:right; color:#27ae60;">${d.low_usd ? '$'+Number(d.low_usd).toLocaleString() : '—'}</td>
+                            <td style="padding:6px 8px; text-align:right; color:#856404; font-weight:600;">${d.likely_usd ? '$'+Number(d.likely_usd).toLocaleString() : '—'}</td>
+                            <td style="padding:6px 8px; text-align:right; color:#c0392b;">${d.high_usd ? '$'+Number(d.high_usd).toLocaleString() : '—'}</td>
+                        </tr>`).join('')}
+                    </tbody>
+                </table>
+            </div>`;
+        }
+        document.getElementById('ci-settlement-damages').innerHTML = damagesHtml;
+
+        // Settlement recommendation
+        const rec = data.settlement_recommendation || {};
+        let recHtml = '';
+        if (rec.open_at_usd || rec.target_usd || rec.walk_away_usd) {
+            const fmtUsd = v => v ? '$' + Number(v).toLocaleString() : '—';
+            recHtml = `<div>
+                <div style="font-weight:700; color:#2c3e50; font-size:12px; margin-bottom:8px;">🤝 Settlement Recommendation</div>
+                <div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:8px;">
+                    <div style="flex:1; min-width:100px; padding:10px; background:#e8f5e9; border:1px solid #c8e6c9; border-radius:5px; text-align:center;">
+                        <div style="font-size:10px; color:#2e7d32; font-weight:600; text-transform:uppercase; margin-bottom:3px;">Open At</div>
+                        <div style="font-size:16px; font-weight:700; color:#1b5e20;">${fmtUsd(rec.open_at_usd)}</div>
+                    </div>
+                    <div style="flex:1; min-width:100px; padding:10px; background:#fff8e1; border:1px solid #ffe082; border-radius:5px; text-align:center;">
+                        <div style="font-size:10px; color:#f57f17; font-weight:600; text-transform:uppercase; margin-bottom:3px;">Target</div>
+                        <div style="font-size:16px; font-weight:700; color:#e65100;">${fmtUsd(rec.target_usd)}</div>
+                    </div>
+                    <div style="flex:1; min-width:100px; padding:10px; background:#ffebee; border:1px solid #ef9a9a; border-radius:5px; text-align:center;">
+                        <div style="font-size:10px; color:#b71c1c; font-weight:600; text-transform:uppercase; margin-bottom:3px;">Walk Away</div>
+                        <div style="font-size:16px; font-weight:700; color:#b71c1c;">${fmtUsd(rec.walk_away_usd)}</div>
+                    </div>
+                </div>
+                ${rec.rationale ? `<div style="font-size:12px; color:#444; font-style:italic; padding:8px; background:#f8f9fa; border-radius:4px;">${escapeHtml(rec.rationale)}</div>` : ''}
+            </div>`;
+        }
+        document.getElementById('ci-settlement-recommendation').innerHTML = recHtml;
+
+        // Leverage timeline
+        const leverage = data.leverage_timeline || [];
+        let leverageHtml = '';
+        if (leverage.length) {
+            leverageHtml = `<div>
+                <div style="font-weight:700; color:#2c3e50; font-size:12px; margin-bottom:6px;">⏱️ Leverage Timeline</div>
+                ${leverage.map(l => `<div style="display:flex; gap:10px; padding:6px 10px; border-left:3px solid #3498db; margin-bottom:5px; background:#f8f9ff; font-size:12px;">
+                    <div style="font-weight:600; color:#2980b9; min-width:80px;">${escapeHtml(l.milestone || l.phase || '')}</div>
+                    <div style="flex:1;">${escapeHtml(l.leverage_shift || l.description || '')}</div>
+                </div>`).join('')}
+            </div>`;
+        }
+        document.getElementById('ci-settlement-leverage').innerHTML = leverageHtml;
+
+        // Mediation strategy
+        const med = data.mediation_strategy || {};
+        let mediationHtml = '';
+        if (med.recommended_timing || med.mediator_profile || med.opening_position) {
+            mediationHtml = `<div>
+                <div style="font-weight:700; color:#2c3e50; font-size:12px; margin-bottom:6px;">🕊️ Mediation Strategy</div>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; font-size:12px;">
+                    ${med.recommended_timing ? `<div style="padding:6px 10px; background:#f0f4ff; border-radius:4px;"><strong>Best Timing:</strong> ${escapeHtml(med.recommended_timing)}</div>` : ''}
+                    ${med.mediator_profile ? `<div style="padding:6px 10px; background:#f0f4ff; border-radius:4px;"><strong>Mediator Profile:</strong> ${escapeHtml(med.mediator_profile)}</div>` : ''}
+                    ${med.opening_position ? `<div style="padding:6px 10px; background:#f0f4ff; border-radius:4px;"><strong>Opening Position:</strong> ${escapeHtml(med.opening_position)}</div>` : ''}
+                    ${med.fallback_strategy ? `<div style="padding:6px 10px; background:#f0f4ff; border-radius:4px;"><strong>Fallback:</strong> ${escapeHtml(med.fallback_strategy)}</div>` : ''}
+                </div>
+            </div>`;
+        }
+        document.getElementById('ci-settlement-mediation').innerHTML = mediationHtml;
+
+        // Summary memo
+        document.getElementById('ci-settlement-memo').innerHTML = data.summary_memo
+            ? `<div style="border-top:1px solid #eee; padding-top:12px; font-size:13px; color:#444; line-height:1.7; white-space:pre-wrap;">${escapeHtml(data.summary_memo)}</div>`
+            : '';
     }
 
     // ── Report builder ───────────────────────────────────────────────
