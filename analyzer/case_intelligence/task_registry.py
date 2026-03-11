@@ -182,7 +182,7 @@ TASK_REGISTRY: Dict[str, TaskDefinition] = {
         estimated_cost_per_doc=0.025,
         description="Forensic accounting: structuring, round-number anomalies, cash flow gaps",
         requires_citation=True,
-        max_output_tokens=8000,
+        max_output_tokens=16000,
         is_per_run=True,
     ),
     "discovery_gap_analysis": TaskDefinition(
@@ -195,7 +195,7 @@ TASK_REGISTRY: Dict[str, TaskDefinition] = {
         estimated_cost_per_doc=0.020,
         description="Discovery gap analysis: missing docs, spoliation, custodian gaps, RFP list",
         requires_citation=True,
-        max_output_tokens=8000,
+        max_output_tokens=16000,
         is_per_run=True,
     ),
 
@@ -210,7 +210,7 @@ TASK_REGISTRY: Dict[str, TaskDefinition] = {
         estimated_cost_per_doc=0.030,
         description="Witness intelligence: impeachment points, financial interest, deposition prep",
         requires_citation=True,
-        max_output_tokens=6000,
+        max_output_tokens=12000,
         is_per_run=False,   # per-person
     ),
     "war_room_strategy": TaskDefinition(
@@ -223,7 +223,7 @@ TASK_REGISTRY: Dict[str, TaskDefinition] = {
         estimated_cost_per_doc=0.060,
         description="War room: opposing case theory, dangerous arguments, settlement valuation",
         requires_citation=True,
-        max_output_tokens=8000,
+        max_output_tokens=16000,
         is_per_run=True,
     ),
     "senior_partner_review": TaskDefinition(

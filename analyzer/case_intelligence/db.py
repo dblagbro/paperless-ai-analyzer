@@ -319,6 +319,11 @@ def init_ci_db():
             "web_research_config TEXT DEFAULT '{}'",
             # v3.6.6: analysis_tier alias for max_tier (same value, read from max_tier)
             "analysis_tier INTEGER DEFAULT 3",
+            # v3.7.1: budget overage policy
+            # 0 = hard block at 100% of budget (default)
+            # 20 = allow up to 120% of budget before blocking
+            # -1 = unlimited overage (budget is a goal only, never blocked)
+            "allow_overage_pct INTEGER DEFAULT 0",
         ):
             try:
                 conn.execute(f"ALTER TABLE ci_runs ADD COLUMN {col}")
@@ -394,17 +399,20 @@ def create_ci_run(project_slug: str, user_id: int, role: str = 'neutral',
                   goal_text: str = '', budget_per_run_usd: float = 10.0,
                   jurisdiction_json: str = '{}', objectives: str = '[]',
                   max_tier: int = 3, notification_email: str = '',
-                  notify_on_complete: int = 1, notify_on_budget: int = 1) -> str:
+                  notify_on_complete: int = 1, notify_on_budget: int = 1,
+                  allow_overage_pct: int = 0) -> str:
     run_id = str(uuid.uuid4())
     with _get_conn() as conn:
         conn.execute("""
             INSERT INTO ci_runs (id, project_slug, user_id, role, goal_text,
                 budget_per_run_usd, jurisdiction_json, objectives, max_tier,
-                notification_email, notify_on_complete, notify_on_budget)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                notification_email, notify_on_complete, notify_on_budget,
+                allow_overage_pct)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (run_id, project_slug, user_id, role, goal_text,
               budget_per_run_usd, jurisdiction_json, objectives, max_tier,
-              notification_email, notify_on_complete, notify_on_budget))
+              notification_email, notify_on_complete, notify_on_budget,
+              allow_overage_pct))
     return run_id
 
 
@@ -443,6 +451,8 @@ def update_ci_run(run_id: str, **kwargs):
         'tokens_in', 'tokens_out', 'active_managers', 'active_workers',
         # Web research config
         'web_research_config',
+        # Budget overage policy
+        'allow_overage_pct',
     }
     updates = {k: v for k, v in kwargs.items() if k in allowed}
     if not updates:
@@ -852,11 +862,12 @@ def upsert_manager_report(run_id: str, manager_id: str,
             conn.execute("""
                 UPDATE ci_manager_reports
                 SET status = ?, report_json = ?, worker_count = ?,
-                    docs_assigned = ?, cost_usd = ?,
+                    docs_assigned = COALESCE(NULLIF(?, 0), docs_assigned, ?),
+                    cost_usd = ?,
                     started_at = COALESCE(started_at, ?), completed_at = ?
                 WHERE run_id = ? AND manager_id = ?
-            """, (status, report_json, worker_count, docs_assigned, cost_usd,
-                  started_at, completed_at, run_id, manager_id))
+            """, (status, report_json, worker_count, docs_assigned, docs_assigned,
+                  cost_usd, started_at, completed_at, run_id, manager_id))
         else:
             conn.execute("""
                 INSERT INTO ci_manager_reports

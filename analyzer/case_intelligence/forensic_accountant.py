@@ -256,7 +256,7 @@ class ForensicAccountant:
                 text = text.split('```')[1].split('```')[0].strip()
             return json.loads(text)
         except json.JSONDecodeError as e:
-            logger.warning(f"ForensicAccountant JSON error: {e}")
+            logger.warning(f"ForensicAccountant JSON error: {e} — text_len={len(text)}, preview={text[:300]!r}")
             return None
         except Exception as e:
             logger.error(f"ForensicAccountant LLM error: {e}")
