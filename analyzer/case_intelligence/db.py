@@ -301,6 +301,64 @@ def init_ci_db():
             CREATE INDEX IF NOT EXISTS idx_ci_warroom_run ON ci_war_room(run_id);
         """)
 
+        # v3.7.2 Tier 5 White Glove tables
+        conn.executescript("""
+            -- Deep financial forensics (Tier 5)
+            CREATE TABLE IF NOT EXISTS ci_deep_forensics (
+                id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id                  TEXT NOT NULL REFERENCES ci_runs(id) ON DELETE CASCADE,
+                beneficial_ownership    TEXT NOT NULL DEFAULT '[]',
+                round_trip_transactions TEXT NOT NULL DEFAULT '[]',
+                shell_entity_flags      TEXT NOT NULL DEFAULT '[]',
+                advanced_structuring    TEXT NOT NULL DEFAULT '[]',
+                layering_schemes        TEXT NOT NULL DEFAULT '[]',
+                suspicious_clusters     TEXT NOT NULL DEFAULT '[]',
+                benford_analysis        TEXT NOT NULL DEFAULT '{}',
+                benford_interpretation  TEXT,
+                summary                 TEXT,
+                risk_score              REAL DEFAULT 0,
+                highest_priority_investigation TEXT,
+                created_at              TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_ci_deep_forensics_run ON ci_deep_forensics(run_id);
+
+            -- Trial strategy memo (Tier 5)
+            CREATE TABLE IF NOT EXISTS ci_trial_strategy (
+                id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id                  TEXT NOT NULL REFERENCES ci_runs(id) ON DELETE CASCADE,
+                opening_theme           TEXT,
+                our_narrative           TEXT,
+                their_narrative         TEXT,
+                witness_order           TEXT NOT NULL DEFAULT '[]',
+                key_exhibits            TEXT NOT NULL DEFAULT '[]',
+                motions_in_limine       TEXT NOT NULL DEFAULT '[]',
+                closing_themes          TEXT NOT NULL DEFAULT '[]',
+                jury_profile            TEXT NOT NULL DEFAULT '{}',
+                trial_risks             TEXT NOT NULL DEFAULT '[]',
+                strategy_memo           TEXT,
+                case_type               TEXT DEFAULT 'unknown',
+                created_at              TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_ci_trial_strategy_run ON ci_trial_strategy(run_id);
+
+            -- Multi-model comparison (Tier 5)
+            CREATE TABLE IF NOT EXISTS ci_multi_model_comparison (
+                id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id                  TEXT NOT NULL REFERENCES ci_runs(id) ON DELETE CASCADE,
+                anthropic_analysis      TEXT NOT NULL DEFAULT '{}',
+                openai_analysis         TEXT NOT NULL DEFAULT '{}',
+                agreed_theories         TEXT NOT NULL DEFAULT '[]',
+                model_a_only            TEXT NOT NULL DEFAULT '[]',
+                model_b_only            TEXT NOT NULL DEFAULT '[]',
+                disagreements           TEXT NOT NULL DEFAULT '[]',
+                merged_summary          TEXT,
+                confidence_in_analysis  REAL DEFAULT 0,
+                models_agreement_rate   REAL DEFAULT 0,
+                created_at              TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_ci_multimodel_run ON ci_multi_model_comparison(run_id);
+        """)
+
         # Idempotent migrations — new columns for hierarchical orchestrator + web research
         for col in (
             "director_count INTEGER DEFAULT 1",
@@ -343,6 +401,12 @@ def init_ci_db():
                 conn.execute(f"ALTER TABLE ci_theory_ledger ADD COLUMN {col}")
             except Exception:
                 pass
+
+        # v3.7.2: opposing counsel checklist in war room
+        try:
+            conn.execute("ALTER TABLE ci_war_room ADD COLUMN opposing_counsel_checklist TEXT NOT NULL DEFAULT '[]'")
+        except Exception:
+            pass
 
         # v3.6.6: entity merge support
         try:
@@ -1071,7 +1135,8 @@ def upsert_war_room(run_id: str,
                      settlement_analysis: str = '{}',
                      likelihood_pct: float = 50.0,
                      war_room_memo: str = None,
-                     senior_partner_notes: str = None) -> int:
+                     senior_partner_notes: str = None,
+                     opposing_counsel_checklist: str = '[]') -> int:
     """Insert or replace the war room report for a run. Returns row id."""
     with _get_conn() as conn:
         existing = conn.execute(
@@ -1082,21 +1147,25 @@ def upsert_war_room(run_id: str,
                 UPDATE ci_war_room
                 SET opposing_case_summary=?, top_dangerous_arguments=?,
                     client_vulnerabilities=?, smoking_guns=?, settlement_analysis=?,
-                    likelihood_pct=?, war_room_memo=?, senior_partner_notes=?
+                    likelihood_pct=?, war_room_memo=?, senior_partner_notes=?,
+                    opposing_counsel_checklist=?
                 WHERE run_id=?
             """, (opposing_case_summary, top_dangerous_arguments,
                   client_vulnerabilities, smoking_guns, settlement_analysis,
-                  likelihood_pct, war_room_memo, senior_partner_notes, run_id))
+                  likelihood_pct, war_room_memo, senior_partner_notes,
+                  opposing_counsel_checklist, run_id))
             return existing['id']
         cur = conn.execute("""
             INSERT INTO ci_war_room
                 (run_id, opposing_case_summary, top_dangerous_arguments,
                  client_vulnerabilities, smoking_guns, settlement_analysis,
-                 likelihood_pct, war_room_memo, senior_partner_notes)
-            VALUES (?,?,?,?,?,?,?,?,?)
+                 likelihood_pct, war_room_memo, senior_partner_notes,
+                 opposing_counsel_checklist)
+            VALUES (?,?,?,?,?,?,?,?,?,?)
         """, (run_id, opposing_case_summary, top_dangerous_arguments,
               client_vulnerabilities, smoking_guns, settlement_analysis,
-              likelihood_pct, war_room_memo, senior_partner_notes))
+              likelihood_pct, war_room_memo, senior_partner_notes,
+              opposing_counsel_checklist))
         return cur.lastrowid
 
 
@@ -1146,6 +1215,174 @@ def mark_entity_merged(entity_id: int, canonical_id: int):
             "UPDATE ci_entities SET merged_into=? WHERE id=?",
             (canonical_id, entity_id)
         )
+
+
+# ---------------------------------------------------------------------------
+# ci_deep_forensics CRUD  (Tier 5)
+# ---------------------------------------------------------------------------
+
+def upsert_deep_forensics(run_id: str,
+                           beneficial_ownership: str = '[]',
+                           round_trip_transactions: str = '[]',
+                           shell_entity_flags: str = '[]',
+                           advanced_structuring: str = '[]',
+                           layering_schemes: str = '[]',
+                           suspicious_clusters: str = '[]',
+                           benford_analysis: str = '{}',
+                           benford_interpretation: str = None,
+                           summary: str = None,
+                           risk_score: float = 0.0,
+                           highest_priority_investigation: str = None) -> int:
+    """Insert or replace deep forensics report for a run. Returns row id."""
+    with _get_conn() as conn:
+        existing = conn.execute(
+            "SELECT id FROM ci_deep_forensics WHERE run_id=?", (run_id,)
+        ).fetchone()
+        if existing:
+            conn.execute("""
+                UPDATE ci_deep_forensics
+                SET beneficial_ownership=?, round_trip_transactions=?,
+                    shell_entity_flags=?, advanced_structuring=?,
+                    layering_schemes=?, suspicious_clusters=?,
+                    benford_analysis=?, benford_interpretation=?,
+                    summary=?, risk_score=?, highest_priority_investigation=?
+                WHERE run_id=?
+            """, (beneficial_ownership, round_trip_transactions,
+                  shell_entity_flags, advanced_structuring,
+                  layering_schemes, suspicious_clusters,
+                  benford_analysis, benford_interpretation,
+                  summary, risk_score, highest_priority_investigation, run_id))
+            return existing['id']
+        cur = conn.execute("""
+            INSERT INTO ci_deep_forensics
+                (run_id, beneficial_ownership, round_trip_transactions,
+                 shell_entity_flags, advanced_structuring, layering_schemes,
+                 suspicious_clusters, benford_analysis, benford_interpretation,
+                 summary, risk_score, highest_priority_investigation)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+        """, (run_id, beneficial_ownership, round_trip_transactions,
+              shell_entity_flags, advanced_structuring, layering_schemes,
+              suspicious_clusters, benford_analysis, benford_interpretation,
+              summary, risk_score, highest_priority_investigation))
+        return cur.lastrowid
+
+
+def get_deep_forensics(run_id: str) -> Optional[Dict[str, Any]]:
+    with _get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM ci_deep_forensics WHERE run_id=?", (run_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+
+# ---------------------------------------------------------------------------
+# ci_trial_strategy CRUD  (Tier 5)
+# ---------------------------------------------------------------------------
+
+def upsert_trial_strategy(run_id: str,
+                           opening_theme: str = None,
+                           our_narrative: str = None,
+                           their_narrative: str = None,
+                           witness_order: str = '[]',
+                           key_exhibits: str = '[]',
+                           motions_in_limine: str = '[]',
+                           closing_themes: str = '[]',
+                           jury_profile: str = '{}',
+                           trial_risks: str = '[]',
+                           strategy_memo: str = None,
+                           case_type: str = 'unknown') -> int:
+    """Insert or replace trial strategy for a run. Returns row id."""
+    with _get_conn() as conn:
+        existing = conn.execute(
+            "SELECT id FROM ci_trial_strategy WHERE run_id=?", (run_id,)
+        ).fetchone()
+        if existing:
+            conn.execute("""
+                UPDATE ci_trial_strategy
+                SET opening_theme=?, our_narrative=?, their_narrative=?,
+                    witness_order=?, key_exhibits=?, motions_in_limine=?,
+                    closing_themes=?, jury_profile=?, trial_risks=?,
+                    strategy_memo=?, case_type=?
+                WHERE run_id=?
+            """, (opening_theme, our_narrative, their_narrative,
+                  witness_order, key_exhibits, motions_in_limine,
+                  closing_themes, jury_profile, trial_risks,
+                  strategy_memo, case_type, run_id))
+            return existing['id']
+        cur = conn.execute("""
+            INSERT INTO ci_trial_strategy
+                (run_id, opening_theme, our_narrative, their_narrative,
+                 witness_order, key_exhibits, motions_in_limine,
+                 closing_themes, jury_profile, trial_risks,
+                 strategy_memo, case_type)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+        """, (run_id, opening_theme, our_narrative, their_narrative,
+              witness_order, key_exhibits, motions_in_limine,
+              closing_themes, jury_profile, trial_risks,
+              strategy_memo, case_type))
+        return cur.lastrowid
+
+
+def get_trial_strategy(run_id: str) -> Optional[Dict[str, Any]]:
+    with _get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM ci_trial_strategy WHERE run_id=?", (run_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+
+# ---------------------------------------------------------------------------
+# ci_multi_model_comparison CRUD  (Tier 5)
+# ---------------------------------------------------------------------------
+
+def upsert_multi_model_comparison(run_id: str,
+                                   anthropic_analysis: str = '{}',
+                                   openai_analysis: str = '{}',
+                                   agreed_theories: str = '[]',
+                                   model_a_only: str = '[]',
+                                   model_b_only: str = '[]',
+                                   disagreements: str = '[]',
+                                   merged_summary: str = None,
+                                   confidence_in_analysis: float = 0.0,
+                                   models_agreement_rate: float = 0.0) -> int:
+    """Insert or replace multi-model comparison for a run. Returns row id."""
+    with _get_conn() as conn:
+        existing = conn.execute(
+            "SELECT id FROM ci_multi_model_comparison WHERE run_id=?", (run_id,)
+        ).fetchone()
+        if existing:
+            conn.execute("""
+                UPDATE ci_multi_model_comparison
+                SET anthropic_analysis=?, openai_analysis=?,
+                    agreed_theories=?, model_a_only=?, model_b_only=?,
+                    disagreements=?, merged_summary=?,
+                    confidence_in_analysis=?, models_agreement_rate=?
+                WHERE run_id=?
+            """, (anthropic_analysis, openai_analysis,
+                  agreed_theories, model_a_only, model_b_only,
+                  disagreements, merged_summary,
+                  confidence_in_analysis, models_agreement_rate, run_id))
+            return existing['id']
+        cur = conn.execute("""
+            INSERT INTO ci_multi_model_comparison
+                (run_id, anthropic_analysis, openai_analysis,
+                 agreed_theories, model_a_only, model_b_only,
+                 disagreements, merged_summary,
+                 confidence_in_analysis, models_agreement_rate)
+            VALUES (?,?,?,?,?,?,?,?,?,?)
+        """, (run_id, anthropic_analysis, openai_analysis,
+              agreed_theories, model_a_only, model_b_only,
+              disagreements, merged_summary,
+              confidence_in_analysis, models_agreement_rate))
+        return cur.lastrowid
+
+
+def get_multi_model_comparison(run_id: str) -> Optional[Dict[str, Any]]:
+    with _get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM ci_multi_model_comparison WHERE run_id=?", (run_id,)
+        ).fetchone()
+        return dict(row) if row else None
 
 
 def update_entity_aliases(entity_id: int, aliases: str, provenance: str = None):

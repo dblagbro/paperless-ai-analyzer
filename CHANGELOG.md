@@ -4,6 +4,33 @@ All notable changes to Paperless AI Analyzer are documented here.
 
 ---
 
+## v3.7.2 — 2026-03-10
+
+### Added
+- **Tier 5 White Glove — Deep Financial Forensics** (`deep_financial_forensics.py`) — Goes beyond Tier 3 forensic accounting with: Benford's Law first-digit analysis (deterministic chi-squared test; detects fabricated/manipulated amounts), beneficial ownership tracing (who ultimately controls each entity through shell chains), round-trip transaction detection (A→B→C→A money circles), shell entity identification (offshore jurisdictions, no business purpose, pass-through patterns), advanced layering analysis (multi-hop obscuring of fund origin), suspicious cluster detection (same-date coordinated transactions), and financial crime risk score (0–100). New **Deep Financial Forensics** accordion tab (White Glove badge).
+- **Tier 5 White Glove — Trial Strategy** (`TrialStrategist` class in `war_room.py`) — Comprehensive trial preparation memo: opening statement theme (one sentence), our vs. their narrative arc, witness order with strategic rationale and cross risk, top 10 key exhibits with introduction strategy, motions in limine with legal basis and likelihood of success, closing argument themes, jury selection profile (favorable/unfavorable juror types + voir dire questions), and top 3 trial risks with contingency plans. New **Trial Strategy** accordion tab (White Glove badge).
+- **Tier 5 White Glove — Multi-Model Synthesis** (`multi_model_synthesis.py`) — Runs theory generation simultaneously on both Anthropic claude-opus-4-6 and OpenAI gpt-4o in parallel (ThreadPoolExecutor), then runs a synthesis pass to: identify agreed findings (both models independently found — higher confidence), surface model-unique findings (may be novel insights or hallucinations — flagged), flag direct disagreements (high-uncertainty areas), and produce a merged summary with model agreement rate. New **Multi-Model Analysis** accordion tab with agreement rate bar and disagreement flags.
+- **Phase 3B** in orchestrator — Tier 5 White Glove phases run in parallel after Phase 3A (senior partner review): deep forensics + trial strategy + multi-model synthesis all fire concurrently via ThreadPoolExecutor.
+- **3 new DB tables**: `ci_deep_forensics`, `ci_trial_strategy`, `ci_multi_model_comparison`
+- **3 new API endpoints**: `/api/ci/runs/<id>/deep-forensics`, `/api/ci/runs/<id>/trial-strategy`, `/api/ci/runs/<id>/multi-model`
+- **Tier 5 UI sections**: all three new accordions are hidden until a Tier 5 run populates them; no UI change for Tier 1–4 runs
+
+---
+
+## v3.7.1 — 2026-03-10
+
+### Added
+- **Budget overage policy** — Two new checkboxes in CI Setup: "Allow up to 20% overage" (hard stop at 120% of budget) and "Allow unlimited overage" (budget is a goal only, run never blocked). Checkboxes are mutually exclusive. Stored as `allow_overage_pct` on the run (0 = hard 100% block, 20 = 120% ceiling, -1 = unlimited).
+- **Smarter budget notifications** — Changed from every-10% to targeted checkpoints: 50%, 70%, 80%, 90%. Notifications at 80% and 90% get `URGENT:` subject-line prefix. Email body includes current cost, projected total, and budget overage policy.
+- **Senior Partner Notes plain-text fallback** — War Room tab now renders senior partner review notes stored as plain markdown text (pre-structured-JSON format) with a pre-wrap fallback display path, in addition to the structured field rendering.
+- **All external links in AI Chat open in new tab** — `target="_blank" rel="noopener noreferrer"` applied to all `https://` links in both chat message and compare-message rendered markdown.
+- **Key Findings → Key Findings and Rulings** — All instances of "Key Findings" renamed to "Key Findings and Rulings" throughout findings display, report generator, and PDF output.
+
+### Fixed
+- Specialist accordion render functions unwrap the `{present, data}` API response wrapper before accessing fields — was previously passing the wrapper object directly, causing all Tier 3/4 accordions to remain hidden.
+
+---
+
 ## v3.7.0 — 2026-03-09
 
 ### Added
