@@ -12332,95 +12332,124 @@
     </div><!-- end #main-content -->
 </div><!-- end #app-layout -->
 
-<!-- ═══════════════════════════════════════════════════════════════════
-     API KEY GUIDE MODAL
-     ═══════════════════════════════════════════════════════════════════ -->
+<!-- API KEY GUIDE MODAL -->
 <div id="akgm-overlay" onclick="closeApiKeyGuide()"
      style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.45); z-index:9000;"></div>
 <div id="akgm-modal"
      style="display:none; position:fixed; top:50%; left:50%;
             transform:translate(-50%,-50%);
-            width:min(520px,92vw); max-height:85vh; overflow-y:auto;
+            width:min(560px,94vw); height:min(600px,90vh);
             background:#fff; border-radius:10px;
             box-shadow:0 12px 48px rgba(0,0,0,0.25);
-            z-index:9001; padding:22px 24px;">
-    <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:10px;">
-        <div>
-            <h3 id="akgm-title" style="margin:0 0 3px; font-size:16px; color:#1a1a2e;"></h3>
-            <span id="akgm-tier" style="font-size:11px; color:#888; font-style:italic;"></span>
+            z-index:9001; display:none; flex-direction:column; overflow:hidden;">
+    <!-- Header -->
+    <div style="padding:16px 20px 12px; border-bottom:1px solid #eee; flex-shrink:0;">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+            <div>
+                <h3 id="akgm-title" style="margin:0 0 2px; font-size:15px; color:#1a1a2e;"></h3>
+                <span id="akgm-tier" style="font-size:11px; color:#888; font-style:italic;"></span>
+            </div>
+            <button onclick="closeApiKeyGuide()"
+                    style="background:none; border:none; font-size:20px; cursor:pointer; color:#999; padding:0 2px; line-height:1;">✕</button>
         </div>
-        <button onclick="closeApiKeyGuide()"
-                style="background:none; border:none; font-size:20px; cursor:pointer; color:#999; padding:0 2px; line-height:1;">✕</button>
+        <a id="akgm-reglink" href="#" target="_blank" rel="noopener"
+           style="display:inline-flex; align-items:center; gap:5px; margin-top:8px;
+                  padding:5px 12px; background:#2c3e50; color:white;
+                  border-radius:5px; text-decoration:none; font-size:12px; font-weight:600;">
+            🔗 Open Registration Page ↗
+        </a>
     </div>
-    <p id="akgm-desc" style="font-size:13px; color:#555; margin:0 0 14px; line-height:1.55;"></p>
-    <a id="akgm-reglink" href="#" target="_blank" rel="noopener"
-       style="display:inline-flex; align-items:center; gap:6px;
-              padding:8px 16px; background:#2c3e50; color:white;
-              border-radius:6px; text-decoration:none; font-size:13px;
-              font-weight:600; margin-bottom:16px;">
-        🔗 Open Registration Page ↗
-    </a>
-    <hr style="border:none; border-top:1px solid #eee; margin:0 0 14px;">
-    <div id="akgm-ai-section">
-        <button id="akgm-ai-btn" onclick="akgmAskAI()"
-                style="padding:7px 16px; background:#3498db; color:white;
-                       border:none; border-radius:6px; font-size:13px;
-                       cursor:pointer; font-weight:600;">
-            🤖 Get AI Step-by-Step Guide
-        </button>
-        <div id="akgm-ai-response"
-             style="display:none; margin-top:12px; padding:12px;
-                    background:#f8f9fa; border:1px solid #e9ecef;
-                    border-radius:6px; font-size:13px; line-height:1.6;
-                    white-space:pre-wrap;"></div>
+    <!-- Chat messages -->
+    <div id="akgm-chat" style="flex:1; overflow-y:auto; padding:14px 16px; display:flex; flex-direction:column; gap:10px; min-height:0;"></div>
+    <!-- Typing indicator -->
+    <div id="akgm-typing" style="display:none; padding:0 16px 4px; font-size:12px; color:#888;">AI is typing…</div>
+    <!-- Input area -->
+    <div style="padding:10px 14px 12px; border-top:1px solid #eee; flex-shrink:0; display:flex; gap:8px; align-items:flex-end;" id="akgm-input-area">
+        <textarea id="akgm-input" placeholder="Type your reply…" rows="2"
+                  style="flex:1; padding:8px 10px; border:1px solid #ddd; border-radius:6px;
+                         font-size:13px; resize:none; font-family:inherit; line-height:1.4;"
+                  onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();akgmSend();}"></textarea>
+        <button onclick="akgmSend()" id="akgm-send-btn"
+                style="padding:8px 14px; background:#2c3e50; color:white;
+                       border:none; border-radius:6px; font-size:13px; cursor:pointer;
+                       font-weight:600; white-space:nowrap;">Send ↵</button>
+    </div>
+    <!-- Success bar (hidden until credentials received) -->
+    <div id="akgm-success-bar" style="display:none; padding:10px 16px; background:#d4edda; border-top:1px solid #c3e6cb; font-size:13px; color:#155724; font-weight:600; flex-shrink:0;">
+        ✅ Credentials saved and enabled! Close this window to continue.
     </div>
 </div>
 
 <script>
-// ─── API Key Guide modal ────────────────────────────────────────────────────
+// ─── API Key Guide modal — conversational agent ─────────────────────────────
+
 const API_KEY_INFO = {
-    brave:          {name:'Brave Search API',            tier:'$5 / 1,000 queries',   url:'https://brave.com/search/api/',        desc:'Independent web search index — great for news, entity mentions, and court references without Google bias.'},
-    gcse:           {name:'Google Custom Search API',    tier:'100 free / day',        url:'https://programmablesearchengine.google.com/controlpanel/create', desc:'Google search results via API. Requires two credentials: an API Key and a Custom Search Engine ID (CX).'},
-    exa:            {name:'Exa AI Search',               tier:'~$7 / 1,000 queries',   url:'https://dashboard.exa.ai/',            desc:'Neural semantic search engine. Excellent for finding similar cases, related articles, and conceptual matches.'},
-    perplexity:     {name:'Perplexity Sonar API',        tier:'~$5 / 1,000 queries',   url:'https://www.perplexity.ai/settings/api', desc:'AI-powered search with cited sources. Returns synthesized answers with source links.'},
-    tavily:         {name:'Tavily Search API',            tier:'1,000 searches/mo free',url:'https://app.tavily.com/home',          desc:'Research-optimized search API — designed for AI agents. Returns clean, structured results.'},
-    serper:         {name:'Serper.dev',                  tier:'2,500 free queries',    url:'https://serper.dev/',                  desc:'Google SERP API. Fast, reliable access to Google search results programmatically.'},
-    docket:         {name:'Docket Alarm',                tier:'$99 / month',           url:'https://www.docketalarm.com/accounts/register/', desc:'675M+ federal and state court dockets. Best for searching by party name, attorney, or case type.'},
-    unicourt:       {name:'UniCourt API',                tier:'$49–299 / month',       url:'https://unicourt.com/api',             desc:'Normalized federal and state court case data. Uses OAuth2 client credentials (client ID + secret).'},
-    fec:            {name:'FEC API (OpenFEC)',            tier:'Free — email signup',   url:'https://api.data.gov/signup/',         desc:'Federal Election Commission campaign finance data. Free API key from api.data.gov — just provide your email.'},
-    opensanctions:  {name:'OpenSanctions API',           tier:'~€0.10 per call',       url:'https://www.opensanctions.org/api/',   desc:'Sanctions lists, PEP databases, and watchlists from 100+ sources. Pay-per-use — no subscription required.'},
-    opencorp:       {name:'OpenCorporates API',          tier:'Paid subscription',     url:'https://opencorporates.com/api_accounts/new', desc:'200M+ global business entity registrations. Useful for finding related companies and shell corporations.'},
-    clear:          {name:'CLEAR (Thomson Reuters)',     tier:'Enterprise contract',   url:'https://legal.thomsonreuters.com/en/products/clear-investigation-software', desc:'Comprehensive investigative database — people, assets, court records, news. Requires a Thomson Reuters enterprise contract.'},
-    newsapi:        {name:'NewsAPI',                     tier:'$449/mo (commercial)',  url:'https://newsapi.org/register',         desc:'150,000+ news sources. Note: the free developer plan is non-commercial only and limited to 100 requests/day.'},
-    lexis:          {name:'LexisNexis API',              tier:'Enterprise license',    url:'https://developer.lexisnexis.com/',    desc:'Comprehensive US and international legal research. Requires an existing LexisNexis subscription + API access approval.'},
-    vlex:           {name:'vLex API',                    tier:'Subscription required', url:'https://vlex.com/api',                 desc:'100+ countries of case law and legal content. Contact vLex for API access as part of a subscription plan.'},
-    westlaw:        {name:'Westlaw Edge API',            tier:'Enterprise license',    url:'https://legal.thomsonreuters.com/en/products/westlaw', desc:'Premier US legal research database. API access requires a Thomson Reuters Westlaw contract and developer enrollment.'},
-    nysenate:       {name:'NY Senate Open Legislation',  tier:'Free — email signup',   url:'https://legislation.nysenate.gov/register', desc:'Access to all NYS statutes (CPLR, DRL, EPTL, etc.). Free API token — just register with your email address.'},
-    courtlistener:  {name:'CourtListener API',           tier:'Free account',          url:'https://www.courtlistener.com/sign-in/', desc:'RECAP archive: 6M+ court opinions and PACER documents. Free account gives higher rate limits. Unauthenticated access also works but is throttled.'},
+    brave:          {name:'Brave Search API',            tier:'$5 / 1,000 queries',    url:'https://brave.com/search/api/',        desc:'Independent web search index — great for news, entity mentions, and court references without Google bias.'},
+    gcse:           {name:'Google Custom Search API',    tier:'100 free / day',         url:'https://programmablesearchengine.google.com/controlpanel/create', desc:'Google search results via API. Requires two credentials: an API Key and a Custom Search Engine ID (CX).'},
+    exa:            {name:'Exa AI Search',               tier:'~$7 / 1,000 queries',    url:'https://dashboard.exa.ai/',            desc:'Neural semantic search engine. Excellent for finding similar cases, related articles, and conceptual matches.'},
+    perplexity:     {name:'Perplexity Sonar API',        tier:'~$5 / 1,000 queries',    url:'https://www.perplexity.ai/settings/api', desc:'AI-powered search with cited sources. Returns synthesized answers with source links.'},
+    tavily:         {name:'Tavily Search API',           tier:'1,000 searches/mo free', url:'https://app.tavily.com/home',          desc:'Research-optimized search API — designed for AI agents. Returns clean, structured results.'},
+    serper:         {name:'Serper.dev',                  tier:'2,500 free queries',     url:'https://serper.dev/',                  desc:'Google SERP API. Fast, reliable access to Google search results programmatically.'},
+    docket:         {name:'Docket Alarm',                tier:'$99 / month',            url:'https://www.docketalarm.com/accounts/register/', desc:'675M+ federal and state court dockets. Best for searching by party name, attorney, or case type.'},
+    unicourt:       {name:'UniCourt API',                tier:'$49–299 / month',        url:'https://unicourt.com/api',             desc:'Normalized federal and state court case data. Uses OAuth2 client credentials (client ID + secret).'},
+    fec:            {name:'FEC API (OpenFEC)',            tier:'Free — email signup',    url:'https://api.data.gov/signup/',         desc:'Federal Election Commission campaign finance data. Free API key from api.data.gov — just provide your email.'},
+    opensanctions:  {name:'OpenSanctions API',           tier:'~€0.10 per call',        url:'https://www.opensanctions.org/api/',   desc:'Sanctions lists, PEP databases, and watchlists from 100+ sources. Pay-per-use — no subscription required.'},
+    opencorp:       {name:'OpenCorporates API',          tier:'Paid subscription',      url:'https://opencorporates.com/api_accounts/new', desc:'200M+ global business entity registrations. Useful for finding related companies and shell corporations.'},
+    clear:          {name:'CLEAR (Thomson Reuters)',     tier:'Enterprise contract',    url:'https://legal.thomsonreuters.com/en/products/clear-investigation-software', desc:'Comprehensive investigative database — people, assets, court records, news. Requires a Thomson Reuters enterprise contract.'},
+    newsapi:        {name:'NewsAPI',                     tier:'$449/mo (commercial)',   url:'https://newsapi.org/register',         desc:'150,000+ news sources. Note: the free developer plan is non-commercial only and limited to 100 requests/day.'},
+    lexis:          {name:'LexisNexis API',              tier:'Enterprise license',     url:'https://developer.lexisnexis.com/',    desc:'Comprehensive US and international legal research. Requires an existing LexisNexis subscription + API access approval.'},
+    vlex:           {name:'vLex API',                    tier:'Subscription required',  url:'https://vlex.com/api',                 desc:'100+ countries of case law and legal content. Contact vLex for API access as part of a subscription plan.'},
+    westlaw:        {name:'Westlaw Edge API',            tier:'Enterprise license',     url:'https://legal.thomsonreuters.com/en/products/westlaw', desc:'Premier US legal research database. API access requires a Thomson Reuters Westlaw contract and developer enrollment.'},
+    nysenate:       {name:'NY Senate Open Legislation',  tier:'Free — email signup',    url:'https://legislation.nysenate.gov/register', desc:'Access to all NYS statutes (CPLR, DRL, EPTL, etc.). Free API token — just register with your email address.'},
+    courtlistener:  {name:'CourtListener API',           tier:'Free account',           url:'https://www.courtlistener.com/sign-in/', desc:'RECAP archive: 6M+ court opinions and PACER documents. Free account gives higher rate limits. Unauthenticated access also works but is throttled.'},
     cohere:         {name:'Cohere Embed API',            tier:'Free trial / pay-per-use', url:'https://dashboard.cohere.com/register', desc:'Used to embed legal authorities into ChromaDB for semantic search. Free trial includes 1,000 calls/month; paid is $0.10 per 1M tokens.'},
 };
 
+// Maps service key → which form fields to auto-fill when credentials arrive
+const AKGM_FIELD_MAP = {
+    brave:          [{input:'ci-wr-brave-key',         cred:'key'},                                           {cb:'ci-wr-brave-cb'}],
+    gcse:           [{input:'ci-wr-gcse-key',          cred:'key'}, {input:'ci-wr-gcse-cx', cred:'cx'},       {cb:'ci-wr-gcse-cb'}],
+    exa:            [{input:'ci-wr-exa-key',           cred:'key'},                                           {cb:'ci-wr-exa-cb'}],
+    perplexity:     [{input:'ci-wr-perplexity-key',    cred:'key'},                                           {cb:'ci-wr-perplexity-cb'}],
+    tavily:         [{input:'ci-wr-tavily-key',        cred:'key'},                                           {cb:'ci-wr-tavily-cb'}],
+    serper:         [{input:'ci-wr-serper-key',        cred:'key'},                                           {cb:'ci-wr-serper-cb'}],
+    fec:            [{input:'ci-wr-fec-key',           cred:'key'},                                           {cb:'ci-wr-fec-cb'}],
+    opensanctions:  [{input:'ci-wr-opensanctions-key', cred:'key'},                                           {cb:'ci-wr-opensanctions-cb'}],
+    opencorp:       [{input:'ci-wr-opencorporates-key',cred:'key'},                                           {cb:'ci-wr-opencorporates-cb'}],
+    docket:         [{input:'ci-wr-docket-user',       cred:'user'},{input:'ci-wr-docket-pass', cred:'pass'}, {cb:'ci-wr-docket-cb'}],
+    unicourt:       [{input:'ci-wr-unicourt-id',       cred:'client_id'},{input:'ci-wr-unicourt-secret', cred:'client_secret'}, {cb:'ci-wr-unicourt-cb'}],
+    newsapi:        [{input:'ci-wr-newsapi-key',       cred:'key'},                                           {cb:'ci-wr-newsapi-cb'}],
+    courtlistener:  [{input:'ci-wr-courtlistener-key', cred:'key'},                                           {cb:'ci-wr-courtlistener-cb'}],
+};
+
 let _akgmCurrentService = null;
+let _akgmMessages = [];   // [{role:'user'|'assistant', content:'...'}]
+let _akgmDone = false;
 
 function openApiKeyGuide(svc) {
     const info = API_KEY_INFO[svc];
     if (!info) return;
     _akgmCurrentService = svc;
+    _akgmMessages = [];
+    _akgmDone = false;
+
     document.getElementById('akgm-title').textContent = info.name;
     document.getElementById('akgm-tier').textContent = info.tier;
-    document.getElementById('akgm-desc').textContent = info.desc;
     const link = document.getElementById('akgm-reglink');
     link.href = info.url;
-    link.textContent = '🔗 Open Registration Page ↗';
-    // Reset AI section
-    const resp = document.getElementById('akgm-ai-response');
-    resp.style.display = 'none';
-    resp.textContent = '';
-    document.getElementById('akgm-ai-btn').disabled = false;
-    document.getElementById('akgm-ai-btn').textContent = '🤖 Get AI Step-by-Step Guide';
-    // Show
+    document.getElementById('akgm-chat').innerHTML = '';
+    document.getElementById('akgm-success-bar').style.display = 'none';
+    document.getElementById('akgm-input-area').style.display = 'flex';
+    document.getElementById('akgm-input').value = '';
+    document.getElementById('akgm-send-btn').disabled = false;
+
+    // Show modal as flex
     document.getElementById('akgm-overlay').style.display = 'block';
-    document.getElementById('akgm-modal').style.display = 'block';
+    const modal = document.getElementById('akgm-modal');
+    modal.style.display = 'flex';
+
+    // Kick off the conversation with an empty user turn so AI greets first
+    akgmCallAI('');
 }
 
 function closeApiKeyGuide() {
@@ -12429,35 +12458,107 @@ function closeApiKeyGuide() {
     _akgmCurrentService = null;
 }
 
-async function akgmAskAI() {
-    if (!_akgmCurrentService) return;
-    const info = API_KEY_INFO[_akgmCurrentService];
-    const btn = document.getElementById('akgm-ai-btn');
-    const resp = document.getElementById('akgm-ai-response');
-    btn.disabled = true;
-    btn.textContent = '⏳ Asking AI…';
-    resp.style.display = 'block';
-    resp.textContent = 'Loading…';
+function _akgmAppendBubble(role, text) {
+    const chat = document.getElementById('akgm-chat');
+    const isUser = role === 'user';
+    const div = document.createElement('div');
+    div.style.cssText = `display:flex; justify-content:${isUser ? 'flex-end' : 'flex-start'};`;
+    const bubble = document.createElement('div');
+    bubble.style.cssText = `
+        max-width:85%; padding:9px 13px; border-radius:${isUser ? '14px 14px 4px 14px' : '14px 14px 14px 4px'};
+        background:${isUser ? '#2c3e50' : '#f0f4ff'}; color:${isUser ? '#fff' : '#2c3e50'};
+        font-size:13px; line-height:1.55; white-space:pre-wrap; word-break:break-word;
+    `;
+    bubble.textContent = text;
+    div.appendChild(bubble);
+    chat.appendChild(div);
+    chat.scrollTop = chat.scrollHeight;
+}
+
+async function akgmSend() {
+    if (_akgmDone) return;
+    const input = document.getElementById('akgm-input');
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = '';
+    _akgmAppendBubble('user', text);
+    _akgmMessages.push({role: 'user', content: text});
+    await akgmCallAI(null);
+}
+
+async function akgmCallAI(initialPrompt) {
+    document.getElementById('akgm-send-btn').disabled = true;
+    document.getElementById('akgm-typing').style.display = 'block';
+
+    const msgs = initialPrompt === '' ? [] : _akgmMessages;
+
     try {
         const r = await apiFetch(apiUrl('/api/ci/key-guide'), {
-            method:'POST',
-            headers:{'Content-Type':'application/json'},
-            body: JSON.stringify({service: _akgmCurrentService, service_name: info.name})
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                service: _akgmCurrentService,
+                service_name: (API_KEY_INFO[_akgmCurrentService] || {}).name || _akgmCurrentService,
+                messages: msgs,
+            }),
         });
-        const data = await r.json();
-        if (data.error) {
-            resp.textContent = 'Error: ' + data.error;
+        const d = await r.json();
+        document.getElementById('akgm-typing').style.display = 'none';
+
+        if (d.error) {
+            _akgmAppendBubble('assistant', '⚠️ ' + d.error);
         } else {
-            resp.textContent = data.response || '(no response)';
+            const reply = d.response || '';
+            _akgmAppendBubble('assistant', reply);
+            _akgmMessages.push({role: 'assistant', content: reply});
+
+            if (d.credentials && Object.keys(d.credentials).length > 0) {
+                akgmApplyCredentials(d.credentials);
+            }
         }
-        btn.textContent = '↺ Regenerate';
-        btn.disabled = false;
     } catch(e) {
-        resp.textContent = 'Network error: ' + e.message;
-        btn.textContent = '↺ Retry';
-        btn.disabled = false;
+        document.getElementById('akgm-typing').style.display = 'none';
+        _akgmAppendBubble('assistant', '⚠️ Network error — please try again.');
+    }
+
+    if (!_akgmDone) {
+        document.getElementById('akgm-send-btn').disabled = false;
+        document.getElementById('akgm-input').focus();
     }
 }
+
+function akgmApplyCredentials(creds) {
+    const svc = _akgmCurrentService;
+    const fields = AKGM_FIELD_MAP[svc];
+    if (!fields) return;
+
+    let filled = 0;
+    for (const f of fields) {
+        if (f.input && f.cred && creds[f.cred]) {
+            const el = document.getElementById(f.input);
+            if (el) { el.value = creds[f.cred]; filled++; }
+        }
+        if (f.cb) {
+            const cb = document.getElementById(f.cb);
+            if (cb) cb.checked = true;
+        }
+    }
+
+    if (filled > 0) {
+        _akgmDone = true;
+        document.getElementById('akgm-input-area').style.display = 'none';
+        document.getElementById('akgm-success-bar').style.display = 'block';
+        // Enable the WR section if not already
+        const wrEnabled = document.getElementById('ci-wr-enabled');
+        if (wrEnabled) wrEnabled.checked = true;
+        // Auto-close after 3 seconds
+        setTimeout(() => closeApiKeyGuide(), 3500);
+        if (typeof showToast === 'function') {
+            showToast('API key saved and enabled for ' + (API_KEY_INFO[svc]||{}).name, 'success');
+        }
+    }
+}
+
 // close on Escape
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeApiKeyGuide(); });
 </script>

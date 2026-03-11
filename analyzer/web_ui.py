@@ -8169,24 +8169,71 @@ def ci_authority_status():
 @app.route('/api/ci/key-guide', methods=['POST'])
 @login_required
 def ci_key_guide():
-    """Return AI-generated step-by-step instructions for obtaining an API key for a given service."""
+    """Conversational AI agent to help users obtain and activate API keys for CI web research services."""
+    import json as _json
+
+    CREDENTIALS_MAP = {
+        'brave':         {'fields': {'key': 'API key'}, 'creds_desc': 'one API key'},
+        'gcse':          {'fields': {'key': 'API Key', 'cx': 'Custom Search Engine ID (CX)'}, 'creds_desc': 'two credentials: an API Key (from console.cloud.google.com → Credentials) and a Custom Search Engine ID / CX (from programmablesearchengine.google.com → Your engine → Setup → Basics)'},
+        'exa':           {'fields': {'key': 'API key'}, 'creds_desc': 'one API key'},
+        'perplexity':    {'fields': {'key': 'API key'}, 'creds_desc': 'one API key'},
+        'tavily':        {'fields': {'key': 'API key'}, 'creds_desc': 'one API key'},
+        'serper':        {'fields': {'key': 'API key'}, 'creds_desc': 'one API key'},
+        'fec':           {'fields': {'key': 'API key'}, 'creds_desc': 'one API key (email signup at api.data.gov)'},
+        'opensanctions': {'fields': {'key': 'API key'}, 'creds_desc': 'one API key'},
+        'opencorp':      {'fields': {'key': 'API key'}, 'creds_desc': 'one API key'},
+        'docket':        {'fields': {'user': 'username', 'pass': 'password'}, 'creds_desc': 'username and password'},
+        'unicourt':      {'fields': {'client_id': 'Client ID', 'client_secret': 'Client Secret'}, 'creds_desc': 'OAuth2 Client ID and Client Secret'},
+        'newsapi':       {'fields': {'key': 'API key'}, 'creds_desc': 'one API key'},
+        'courtlistener': {'fields': {'key': 'API token'}, 'creds_desc': 'an API token (or leave blank for unauthenticated access)'},
+    }
+
+    SERVICE_URLS = {
+        'brave':         'https://brave.com/search/api/',
+        'gcse':          'https://programmablesearchengine.google.com/controlpanel/create',
+        'exa':           'https://dashboard.exa.ai/',
+        'perplexity':    'https://www.perplexity.ai/settings/api',
+        'tavily':        'https://app.tavily.com/home',
+        'serper':        'https://serper.dev/',
+        'fec':           'https://api.data.gov/signup/',
+        'opensanctions': 'https://www.opensanctions.org/api/',
+        'opencorp':      'https://opencorporates.com/api_accounts/new',
+        'docket':        'https://www.docketalarm.com/accounts/register/',
+        'unicourt':      'https://unicourt.com/api',
+        'newsapi':       'https://newsapi.org/register',
+        'courtlistener': 'https://www.courtlistener.com/sign-in/',
+    }
+
     try:
         data = request.json or {}
         service = (data.get('service') or '').strip()
         service_name = (data.get('service_name') or service).strip()
+        messages_in = data.get('messages') or []
         if not service:
             return jsonify({'error': 'service required'}), 400
 
-        prompt = (
-            f"Give me concise step-by-step instructions to register for and obtain an API key for "
-            f"**{service_name}**. Include:\n"
-            f"1. The exact registration/signup URL\n"
-            f"2. Any account verification steps\n"
-            f"3. Where to find the API key once logged in\n"
-            f"4. Which plan or tier to choose for legal research/investigative use\n"
-            f"5. Any rate limits or quotas to be aware of\n\n"
-            f"Be concise — numbered steps, no fluff. If this is an enterprise product requiring "
-            f"a sales call or contract, say so clearly and explain the typical process."
+        svc_info = CREDENTIALS_MAP.get(service)
+        creds_desc = svc_info['creds_desc'] if svc_info else 'the required credentials'
+        fields = svc_info['fields'] if svc_info else {'key': 'API key'}
+        url = SERVICE_URLS.get(service, '')
+
+        # Build json_fields_example for CREDENTIALS_READY signal
+        json_fields_example = _json.dumps({k: f'<{v}>' for k, v in fields.items()})
+
+        system_prompt = (
+            f"You are an AI assistant embedded in a legal document analysis platform. "
+            f"Your sole job right now is to help the user obtain and activate their {service_name} API key.\n\n"
+            f"RULES:\n"
+            f"- Be conversational and direct. Maximum 3 sentences per reply.\n"
+            f"- Ask ONE question or give ONE instruction at a time — never dump a full list.\n"
+            f"- Guide them step by step: first ask if they have an account, then walk through account creation or key generation as needed.\n"
+            f"- Open the registration page link if they want it: {url}\n"
+            f"- This service requires: {creds_desc}\n"
+            f"- When the user gives you real credential value(s), repeat them back to confirm, then output EXACTLY this on its own line (no other text after it):\n"
+            f"  CREDENTIALS_READY:{json_fields_example}\n"
+            f"- CRITICAL: Only output CREDENTIALS_READY when you have REAL values from the user — never with placeholder text like \"YOUR_KEY_HERE\" or \"abc123\".\n"
+            f"- After outputting CREDENTIALS_READY, say \"Done! I've filled in your credentials and enabled this source.\"\n"
+            f"- Do not tell the user to \"paste it into the form\" — you will do that automatically."
         )
 
         chat_cfg = get_project_ai_config(
@@ -8212,28 +8259,63 @@ def ci_key_guide():
         if not api_key:
             return jsonify({'error': 'No AI API key configured.'}), 503
 
+        # Build message list for LLM
+        llm_messages = list(messages_in)  # [{role, content}, ...]
+
         if provider == 'openai':
             import openai as _oai
             client = _oai.OpenAI(api_key=api_key)
             resp = client.chat.completions.create(
                 model=model,
-                max_tokens=500,
-                messages=[{'role': 'user', 'content': prompt}],
+                max_tokens=600,
+                messages=[{'role': 'system', 'content': system_prompt}] + llm_messages,
             )
-            reply = resp.choices[0].message.content
+            raw_reply = resp.choices[0].message.content
         elif provider == 'anthropic':
             import anthropic as _ant
             client = _ant.Anthropic(api_key=api_key)
             resp = client.messages.create(
                 model=model,
-                max_tokens=500,
-                messages=[{'role': 'user', 'content': prompt}],
+                max_tokens=600,
+                system=system_prompt,
+                messages=llm_messages if llm_messages else [{'role': 'user', 'content': 'Hello'}],
             )
-            reply = resp.content[0].text
+            raw_reply = resp.content[0].text
         else:
             return jsonify({'error': f'Unsupported provider: {provider}'}), 400
 
-        return jsonify({'response': reply})
+        # Parse CREDENTIALS_READY signal from response
+        credentials = None
+        display_lines = []
+        after_ready = []
+        found_ready = False
+        for line in raw_reply.splitlines():
+            stripped = line.strip()
+            if stripped.startswith('CREDENTIALS_READY:'):
+                found_ready = True
+                json_str = stripped[len('CREDENTIALS_READY:'):]
+                try:
+                    credentials = _json.loads(json_str)
+                    # Filter out placeholder values
+                    placeholders = {'<the actual key>', '<the actual cx>', '<username>', '<password>',
+                                    '<client_id>', '<client_secret>', '<api token>'}
+                    if any(v.lower().startswith('<') and v.lower().endswith('>') for v in credentials.values()):
+                        credentials = None
+                except Exception:
+                    credentials = None
+            elif found_ready:
+                after_ready.append(line)
+            else:
+                display_lines.append(line)
+
+        # Build display text: lines before CREDENTIALS_READY + any lines after it
+        display_text = '\n'.join(display_lines).strip()
+        if after_ready:
+            suffix = '\n'.join(after_ready).strip()
+            if suffix:
+                display_text = (display_text + '\n' + suffix).strip()
+
+        return jsonify({'response': display_text, 'credentials': credentials})
     except Exception as e:
         logger.error(f"CI key guide error: {e}")
         return jsonify({'error': str(e)}), 500
