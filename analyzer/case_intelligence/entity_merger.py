@@ -133,20 +133,20 @@ class EntityMerger:
 
     def _do_merge(self, canonical: Dict, duplicate: Dict):
         """Flag duplicate as merged into canonical; union aliases + provenance."""
-        # Union aliases
-        canon_aliases = set(json.loads(canonical.get('aliases') or '[]'))
-        dup_aliases = set(json.loads(duplicate.get('aliases') or '[]'))
+        # Union aliases — guard against 'null' stored as JSON (json.loads('null') → None)
+        canon_aliases = set(json.loads(canonical.get('aliases') or '[]') or [])
+        dup_aliases = set(json.loads(duplicate.get('aliases') or '[]') or [])
         # Add duplicate's name as alias on canonical
         new_aliases = canon_aliases | dup_aliases | {duplicate['name']}
         new_aliases.discard(canonical['name'])  # don't alias self
 
-        # Union provenance
+        # Union provenance — guard against 'null' JSON value same as aliases
         try:
-            canon_prov = json.loads(canonical.get('provenance') or '[]')
+            canon_prov = json.loads(canonical.get('provenance') or '[]') or []
         except Exception:
             canon_prov = []
         try:
-            dup_prov = json.loads(duplicate.get('provenance') or '[]')
+            dup_prov = json.loads(duplicate.get('provenance') or '[]') or []
         except Exception:
             dup_prov = []
         # Deduplicate provenance by doc_id

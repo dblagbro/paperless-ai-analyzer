@@ -2852,7 +2852,7 @@ def api_ai_config_copy_project():
 
 def _send_ci_budget_notification(run_id: str, pct_complete: float,
                                   cost_so_far: float, projected_total: float,
-                                  budget: float, status: str):
+                                  budget: float, status: str, is_urgent: bool = False):
     """Send a budget checkpoint email for a CI run."""
     try:
         from analyzer.case_intelligence.db import get_ci_run
@@ -2872,25 +2872,44 @@ def _send_ci_budget_notification(run_id: str, pct_complete: float,
             return
 
         goal_text = run['goal_text'] if 'goal_text' in run.keys() else 'Unknown Case'
+        allow_overage_pct = run.get('allow_overage_pct') or 0
         status_label = {'under_budget': 'Under Budget', 'on_track': 'On Track',
-                        'over_budget': 'OVER BUDGET'}.get(status, status)
+                        'over_budget': 'OVER BUDGET', 'blocked': 'BUDGET BLOCKED'
+                        }.get(status, status)
         pct_int = int(round(pct_complete))
 
         from_addr = smtp_cfg.get('from') or smtp_cfg.get('user') or 'noreply@localhost'
-        subject = f"CI Budget Update — {goal_text[:40]} — {pct_int}% complete — {status_label}"
+
+        if is_urgent or status == 'blocked':
+            subject = (f"URGENT: CI Budget {pct_int}% — {goal_text[:40]} — {status_label}")
+        else:
+            subject = f"CI Budget Update — {goal_text[:40]} — {pct_int}% complete — {status_label}"
+
+        overage_line = ''
+        if allow_overage_pct == -1:
+            overage_line = 'Overage Policy: Unlimited (budget is a goal only — run will not be blocked)\n'
+        elif allow_overage_pct > 0:
+            hard_limit = budget * (1 + allow_overage_pct / 100)
+            overage_line = f'Overage Policy: Up to {allow_overage_pct}% allowed (hard limit: ${hard_limit:.2f})\n'
+
         body = (
-            f"Case Intelligence Budget Update\n"
+            f"{'⚠️  URGENT — ' if is_urgent or status == 'blocked' else ''}Case Intelligence Budget {'ALERT' if is_urgent or status == 'blocked' else 'Update'}\n"
             f"{'=' * 50}\n\n"
             f"Case:        {goal_text}\n"
             f"Run ID:      {run_id}\n"
             f"Progress:    {pct_int}% complete\n"
-            f"Status:      {status_label}\n\n"
+            f"Status:      {status_label}\n"
+            f"{overage_line}\n"
             f"Cost So Far: ${cost_so_far:.4f}\n"
             f"Projected:   ${projected_total:.4f}\n"
             f"Budget:      ${budget:.4f}\n"
         )
-        if status == 'over_budget':
-            body += "\n⚠️  WARNING: Projected cost exceeds budget. Worker count has been reduced.\n"
+        if status == 'blocked':
+            body += "\n🛑 The run has been STOPPED. Budget ceiling reached.\n"
+        elif status == 'over_budget':
+            body += "\n⚠️  WARNING: Projected cost exceeds budget.\n"
+        if is_urgent and status != 'blocked':
+            body += "\n⚠️  Approaching budget limit — review and consider adjusting budget or stopping the run.\n"
 
         msg = EmailMessage()
         msg['Subject'] = subject
@@ -2898,7 +2917,7 @@ def _send_ci_budget_notification(run_id: str, pct_complete: float,
         msg['To'] = email
         msg.set_content(body)
         _smtp_send(smtp_cfg, msg)
-        logger.info(f"CI budget notification sent to {email} ({pct_int}%, {status})")
+        logger.info(f"CI budget notification sent to {email} ({pct_int}%, {status}, urgent={is_urgent})")
     except Exception as e:
         logger.warning(f"Failed to send CI budget notification: {e}")
 
@@ -7468,6 +7487,8 @@ def ci_create_run():
         notification_email = data.get('notification_email', '') or ''
         notify_on_complete = 1 if data.get('notify_on_complete', True) else 0
         notify_on_budget   = 1 if data.get('notify_on_budget',   True) else 0
+        # allow_overage_pct: 0=hard block at 100%, 20=allow 20% overage, -1=unlimited
+        allow_overage_pct  = int(data.get('allow_overage_pct', 0))
 
         run_id = create_ci_run(
             project_slug=project_slug,
@@ -7481,6 +7502,7 @@ def ci_create_run():
             notification_email=notification_email,
             notify_on_complete=notify_on_complete,
             notify_on_budget=notify_on_budget,
+            allow_overage_pct=allow_overage_pct,
         )
         # Store web research config if provided
         if 'web_research_config' in data:
@@ -7684,8 +7706,9 @@ def ci_run_findings(run_id):
         return err
     try:
         from analyzer.case_intelligence.db import (
-            get_ci_run, get_ci_entities, get_ci_timeline, get_ci_contradictions,
-            get_ci_theories, get_ci_authorities, get_ci_disputed_facts,
+            get_ci_run, get_ci_entities_active as get_ci_entities, get_ci_timeline,
+            get_ci_contradictions, get_ci_theories, get_ci_authorities,
+            get_ci_disputed_facts,
         )
         import json as _json
         run = get_ci_run(run_id)

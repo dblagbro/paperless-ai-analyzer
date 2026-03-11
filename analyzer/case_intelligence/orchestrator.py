@@ -1026,6 +1026,9 @@ class CIOrchestrator:
                             cancel_event: threading.Event,
                             case_context: dict = None) -> tuple:
         """Theory generation and adversarial testing."""
+        # Ensure run is a dict (sqlite3.Row doesn't support .get())
+        if not isinstance(run, dict):
+            run = dict(run)
         findings: List[Dict] = []
         cost = 0.0
 
@@ -1048,21 +1051,21 @@ class CIOrchestrator:
 
         entities_summary = '\n'.join(
             f"- [{e['entity_type']}] {e['name']}: {e['role_in_case'] or ''}"
-            + (f" [Doc #{_first_doc_id(e.get('provenance'))}]"
-               if _first_doc_id(e.get('provenance')) else '')
+            + (f" [Doc #{_first_doc_id(e['provenance'])}]"
+               if _first_doc_id(e['provenance']) else '')
             for e in entities[:20]
         )
         timeline_summary = '\n'.join(
             f"- {ev['event_date'] or 'unknown'} [{ev['significance']}]: {ev['description']}"
-            + (f" [Doc #{_first_doc_id(ev.get('provenance'))}]"
-               if _first_doc_id(ev.get('provenance')) else '')
+            + (f" [Doc #{_first_doc_id(ev['provenance'])}]"
+               if _first_doc_id(ev['provenance']) else '')
             for ev in events[:30]
         )
         contradictions_summary = '\n'.join(
             f"- [{c['severity']}] {c['description']}" for c in contradictions[:10]
         )
         authorities_summary = '\n'.join(
-            f"- {a['citation']}: {a.get('relevance_note', '')}"
+            f"- {a['citation']}: {a['relevance_note'] or ''}"
             for a in authorities_list[:10]
         )
 
@@ -1510,9 +1513,18 @@ class CIOrchestrator:
                 result = []
                 for f in findings:
                     if isinstance(f, dict) and f.get('content'):
+                        # Parse doc_id from source field (e.g. "doc_id=1019")
+                        src = f.get('source', '')
+                        doc_id = None
+                        if 'doc_id=' in src:
+                            try:
+                                doc_id = int(src.split('doc_id=')[1].split(',')[0].strip())
+                            except (ValueError, IndexError):
+                                pass
                         result.append({'description': f['content'],
-                                       'source': f.get('source', ''),
-                                       'doc_id': None})
+                                       'source': src,
+                                       'doc_id': doc_id,
+                                       'paperless_doc_id': doc_id})
                 return result
         except Exception:
             pass
@@ -1741,11 +1753,11 @@ Write a concise JSON summary of the 5 most actionable findings:
         # timeline events
         for row in get_ci_timeline(run_id):
             try:
-                content = (f"{row.get('event_date') or 'unknown date'}: "
+                content = (f"{row['event_date'] or 'unknown date'}: "
                            f"{row['description']}. "
-                           f"Significance: {row.get('significance') or 'medium'}.")
+                           f"Significance: {row['significance'] or 'medium'}.")
                 doc_id = f"ci:{run_id}:timeline:{row['id']}"
-                vs.embed_document(doc_id, f"CI Timeline: {row.get('event_date') or '?'}",
+                vs.embed_document(doc_id, f"CI Timeline: {row['event_date'] or '?'}",
                                   content, {**ci_meta, 'ci_domain': 'timeline'})
                 embedded += 1
             except Exception:
@@ -1779,10 +1791,10 @@ Write a concise JSON summary of the 5 most actionable findings:
         # authorities
         for row in get_ci_authorities(run_id):
             try:
-                content = (f"{row['citation']} ({row.get('jurisdiction') or 'unknown'}, "
+                content = (f"{row['citation']} ({row['jurisdiction'] or 'unknown'}, "
                            f"{row['authority_type']}): "
-                           f"{row.get('relevance_note') or ''}. "
-                           f"Reliability: {row.get('reliability') or 'official'}.")
+                           f"{row['relevance_note'] or ''}. "
+                           f"Reliability: {row['reliability'] or 'official'}.")
                 doc_id = f"ci:{run_id}:authorities:{row['id']}"
                 vs.embed_document(doc_id, f"CI Authority: {row['citation'][:60]}",
                                   content, {**ci_meta, 'ci_domain': 'authorities'})
@@ -1811,19 +1823,35 @@ Write a concise JSON summary of the 5 most actionable findings:
     # Budget checkpoint
     # -----------------------------------------------------------------------
 
+    # Checkpoints at which budget notifications are sent.
+    # 80% and 90% are flagged urgent.
+    _BUDGET_CHECKPOINTS = (50, 70, 80, 90)
+    _URGENT_CHECKPOINTS = (80, 90)
+
     def _check_budget_checkpoint(self, run_id: str, current_pct: float):
-        """Fire a budget checkpoint every 10% increment."""
+        """Fire budget checkpoints at 50/70/80/90%. Enforce budget ceiling per overage policy."""
         try:
             run = get_ci_run(run_id)
             if not run:
                 return
             last_checkpoint = run.get('last_budget_checkpoint_pct') or 0
-            next_checkpoint = int(current_pct // 10) * 10
-            if next_checkpoint <= last_checkpoint or next_checkpoint == 0:
+
+            # Find the highest checkpoint we've crossed that we haven't notified yet
+            next_checkpoint = None
+            for cp in self._BUDGET_CHECKPOINTS:
+                if current_pct >= cp > last_checkpoint:
+                    next_checkpoint = cp
+            if next_checkpoint is None:
                 return
 
             cost_so_far = run.get('cost_so_far_usd') or 0
             budget = run.get('budget_per_run_usd') or 1.0
+            # allow_overage_pct: 0 = hard block at 100%, 20 = block at 120%, -1 = never block
+            allow_overage_pct = run.get('allow_overage_pct') or 0
+            hard_limit = budget if allow_overage_pct == 0 else (
+                None if allow_overage_pct < 0 else budget * (1 + allow_overage_pct / 100)
+            )
+
             pct_fraction = next_checkpoint / 100
             projected = cost_so_far / pct_fraction if pct_fraction > 0 else cost_so_far
             ratio = projected / budget if budget > 0 else 1.0
@@ -1835,16 +1863,48 @@ Write a concise JSON summary of the 5 most actionable findings:
             else:
                 status = 'over_budget'
 
-            logger.info(f"CI run {run_id}: budget checkpoint {next_checkpoint}% — "
+            is_urgent = next_checkpoint in self._URGENT_CHECKPOINTS
+            logger.info(f"CI run {run_id}: budget checkpoint {next_checkpoint}%"
+                        f"{' [URGENT]' if is_urgent else ''} — "
                         f"cost ${cost_so_far:.4f}, projected ${projected:.4f}, "
                         f"budget ${budget:.4f} — {status}")
 
             update_ci_run(run_id, last_budget_checkpoint_pct=float(next_checkpoint))
 
+            # Hard enforcement: block when actual cost exceeds the hard limit (if any)
+            if hard_limit is not None and cost_so_far > hard_limit:
+                overage_label = (
+                    f"${budget:.2f} limit"
+                    if allow_overage_pct == 0
+                    else f"${hard_limit:.2f} limit ({allow_overage_pct}% overage allowed)"
+                )
+                note = (f"Budget exceeded: spent ${cost_so_far:.4f} of "
+                        f"{overage_label} at {next_checkpoint}% progress")
+                logger.warning(f"CI run {run_id}: {note} — halting run")
+                update_ci_run(run_id, status='budget_blocked',
+                              budget_blocked=1, budget_blocked_note=note)
+                try:
+                    from analyzer.case_intelligence.job_manager import get_job_manager
+                    event = get_job_manager().get_cancel_event(run_id)
+                    if event:
+                        event.set()
+                except Exception as ev_err:
+                    logger.warning(f"Could not signal cancel event: {ev_err}")
+                if self.budget_notification_cb:
+                    try:
+                        self.budget_notification_cb(
+                            run_id, next_checkpoint, cost_so_far, projected, budget,
+                            'blocked', is_urgent=True
+                        )
+                    except Exception:
+                        pass
+                return
+
             if self.budget_notification_cb:
                 try:
                     self.budget_notification_cb(
-                        run_id, next_checkpoint, cost_so_far, projected, budget, status
+                        run_id, next_checkpoint, cost_so_far, projected, budget,
+                        status, is_urgent=is_urgent
                     )
                 except Exception as e:
                     logger.warning(f"Budget notification callback error: {e}")
@@ -1947,7 +2007,9 @@ Write a concise JSON summary of the 5 most actionable findings:
         """Load jurisdiction profile from the run config."""
         try:
             jd_data = json.loads(run.get('jurisdiction_json') or '{}')
-            if jd_data:
+            # Only construct if required fields are present (user may store a partial
+            # dict like {"state": "New York"} when no formal profile is selected)
+            if jd_data and jd_data.get('jurisdiction_id'):
                 return JurisdictionProfile.from_dict(jd_data)
         except Exception as e:
             logger.warning(f"Jurisdiction load error: {e}")
