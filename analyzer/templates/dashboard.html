@@ -9304,12 +9304,13 @@
         // docs_total from a previously selected run, then to total_analyzed
         let docs = 10;
         try {
-            const sr = await apiFetch(apiUrl('/api/stats'));
+            const sr = await apiFetch(apiUrl('/api/status'));
             const sd = await sr.json();
-            if (sd.paperless_total > 0) {
-                docs = sd.paperless_total;
-            } else if (sd.stats && sd.stats.total_analyzed > 0) {
+            // total_analyzed = Chroma count = docs CI actually runs against
+            if (sd.stats && sd.stats.total_analyzed > 0) {
                 docs = sd.stats.total_analyzed;
+            } else if (sd.paperless_total > 0) {
+                docs = sd.paperless_total;
             }
         } catch(e) {}
         // If we have a selected run with a known doc count, prefer that (it may differ from project total)
