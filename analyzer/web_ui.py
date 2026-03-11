@@ -520,6 +520,7 @@ def api_status():
 
         # Awaiting OCR: uploaded to Paperless (task_id recorded) but doc_id not yet resolved
         # Awaiting AI: doc is in Paperless with content, but not yet embedded in ChromaDB
+        paperless_total = chroma_count
         try:
             _pc = _get_project_client(project_slug)
             paperless_total = _pc.get_project_document_count(project_slug)
@@ -544,6 +545,7 @@ def api_status():
             'court_doc_count': court_count,
             'awaiting_ocr': awaiting_ocr,
             'awaiting_ai': awaiting_ai,
+            'paperless_total': paperless_total,
         })
 
 
