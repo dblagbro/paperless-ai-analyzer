@@ -12438,7 +12438,7 @@ async function akgmAskAI() {
     resp.style.display = 'block';
     resp.textContent = 'Loading…';
     try {
-        const r = await fetch('/api/ci/key-guide', {
+        const r = await apiFetch(apiUrl('/api/ci/key-guide'), {
             method:'POST',
             headers:{'Content-Type':'application/json'},
             body: JSON.stringify({service: _akgmCurrentService, service_name: info.name})
