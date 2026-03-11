@@ -4849,9 +4849,15 @@ def api_list_project_documents(slug):
         docs = []
         for i, doc_id in enumerate(raw.get('ids', [])):
             m = raw['metadatas'][i]
+            # Skip non-document embeddings (e.g. CI timeline/entity entries stored in same collection)
+            try:
+                _did = int(m.get('document_id', 0))
+            except (ValueError, TypeError):
+                continue
+            if not _did:
+                continue
             anomalies_str = m.get('anomalies', '')
             anomalies_list = [a.strip() for a in anomalies_str.split(',') if a.strip()] if anomalies_str else []
-            _did = int(m.get('document_id', 0))
             _link = f"{_base_url}/documents/{_did}/details" if _base_url and _did else None
             docs.append({
                 'doc_id':        _did,
@@ -7596,7 +7602,7 @@ def ci_start_run(run_id):
             return jsonify({'error': 'Run not found'}), 404
         if not _ci_can_write(run):
             return jsonify({'error': 'Not authorized'}), 403
-        if run['status'] not in ('draft', 'failed', 'cancelled'):
+        if run['status'] not in ('draft', 'failed', 'cancelled', 'interrupted'):
             return jsonify({'error': f"Cannot start run in status '{run['status']}'"}), 400
 
         # Reset run for fresh start
@@ -7650,6 +7656,76 @@ def ci_cancel_run(run_id):
         sent = get_job_manager().cancel_run(run_id)
         return jsonify({'cancelled': sent, 'run_id': run_id})
     except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/ci/runs/<run_id>/rerun', methods=['POST'])
+@login_required
+def ci_rerun(run_id):
+    """Create and immediately start a new CI run using the same parameters as run_id."""
+    ok, err = _ci_gate()
+    if not ok:
+        return err
+    try:
+        import json as _json
+        from analyzer.case_intelligence.db import get_ci_run, create_ci_run, update_ci_run as _ucr
+        from analyzer.case_intelligence.job_manager import get_job_manager
+
+        orig = get_ci_run(run_id)
+        if not orig:
+            return jsonify({'error': 'Run not found'}), 404
+        if not _ci_can_write(orig):
+            return jsonify({'error': 'Not authorized'}), 403
+
+        new_id = create_ci_run(
+            project_slug=orig['project_slug'],
+            user_id=current_user.id,
+            role=orig.get('role', 'neutral'),
+            goal_text=orig.get('goal_text', ''),
+            budget_per_run_usd=float(orig.get('budget_per_run_usd') or 10.0),
+            jurisdiction_json=orig.get('jurisdiction_json', '{}'),
+            objectives=orig.get('objectives', '[]'),
+            max_tier=int(orig.get('max_tier') or orig.get('analysis_tier') or 3),
+            notification_email=orig.get('notification_email', ''),
+            notify_on_complete=int(orig.get('notify_on_complete', 1)),
+            notify_on_budget=int(orig.get('notify_on_budget', 1)),
+            allow_overage_pct=int(orig.get('allow_overage_pct', 0)),
+        )
+        if orig.get('web_research_config'):
+            _ucr(new_id, web_research_config=orig['web_research_config'])
+
+        import os as _os
+        from analyzer.case_intelligence.db import init_ci_db
+        from analyzer.case_intelligence.orchestrator import CIOrchestrator
+        init_ci_db()
+
+        # Reset cost/progress fields for a clean restart; skip clarifying questions
+        _ucr(new_id,
+             proceed_with_assumptions=1,
+             assumptions_made=orig.get('assumptions_made', ''),
+             status='queued',
+             progress_pct=0,
+             cost_so_far_usd=0,
+             budget_blocked=0,
+             budget_blocked_note=None,
+             error_message=None,
+             started_at=datetime.utcnow().isoformat())
+
+        orch = CIOrchestrator(
+            llm_clients=_build_ci_llm_clients(),
+            paperless_client=getattr(app, 'paperless_client', None),
+            usage_tracker=getattr(app, 'usage_tracker', None),
+            cohere_api_key=_os.environ.get('COHERE_API_KEY'),
+            budget_notification_cb=_send_ci_budget_notification,
+            completion_notification_cb=_send_ci_complete_notification,
+        )
+        started = get_job_manager().start_run(new_id, orch.execute_run, new_id)
+        if not started:
+            return jsonify({'error': 'Could not start rerun (already active?)'}), 409
+
+        return jsonify({'run_id': new_id, 'status': 'queued'})
+    except Exception as e:
+        logger.error(f"CI rerun failed: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
 
@@ -7773,6 +7849,7 @@ def ci_run_findings(run_id):
             'cost_usd':        run.get('cost_so_far_usd'),
             'budget_usd':      run.get('budget_per_run_usd'),
             'status':          run.get('status'),
+            'progress_pct':    run.get('progress_pct'),
         }
 
         # ── Build doc_map from theory evidence fields ─────────────────────────
@@ -8174,7 +8251,7 @@ def ci_key_guide():
 
     CREDENTIALS_MAP = {
         'brave':         {'fields': {'key': 'API key'}, 'creds_desc': 'one API key'},
-        'gcse':          {'fields': {'key': 'API Key', 'cx': 'Custom Search Engine ID (CX)'}, 'creds_desc': 'two credentials: an API Key (from console.cloud.google.com → Credentials) and a Custom Search Engine ID / CX (from programmablesearchengine.google.com → Your engine → Setup → Basics)'},
+        'gcse':          {'fields': {'key': 'API Key', 'cx': 'Custom Search Engine ID (CX)'}, 'creds_desc': 'two credentials: an API Key (from https://console.cloud.google.com/apis/credentials) and a Custom Search Engine ID / CX (from https://programmablesearchengine.google.com/controlpanel/all → your engine → Overview page)'},
         'exa':           {'fields': {'key': 'API key'}, 'creds_desc': 'one API key'},
         'perplexity':    {'fields': {'key': 'API key'}, 'creds_desc': 'one API key'},
         'tavily':        {'fields': {'key': 'API key'}, 'creds_desc': 'one API key'},
@@ -8186,6 +8263,29 @@ def ci_key_guide():
         'unicourt':      {'fields': {'client_id': 'Client ID', 'client_secret': 'Client Secret'}, 'creds_desc': 'OAuth2 Client ID and Client Secret'},
         'newsapi':       {'fields': {'key': 'API key'}, 'creds_desc': 'one API key'},
         'courtlistener': {'fields': {'key': 'API token'}, 'creds_desc': 'an API token (or leave blank for unauthenticated access)'},
+    }
+
+    # Service-specific setup notes injected into system prompt
+    SETUP_NOTES = {
+        'gcse': (
+            "GOOGLE CUSTOM SEARCH — CRITICAL SETUP NOTES:\n"
+            "1. The user needs TWO things: an API Key AND a Search Engine ID (CX).\n"
+            "2. API Key: go to https://console.cloud.google.com/apis/credentials → Create Credentials → API Key. "
+            "The Programmable Search JSON API must be enabled at https://console.cloud.google.com/apis/library/customsearch.googleapis.com\n"
+            "3. Search Engine ID (CX): go to https://programmablesearchengine.google.com/controlpanel/all → "
+            "create or open an engine → the CX/Search engine ID is shown on the Overview page.\n"
+            "4. TO SEARCH THE ENTIRE WEB: In the engine control panel, open your engine → Edit → "
+            "'Basics' or 'Setup' tab. Look for a toggle or radio button labelled 'Search the entire web' "
+            "or 'Search the entire web but emphasize included sites'. This is a section-level toggle SEPARATE "
+            "from the 'Sites to search' list — do NOT try to add * or any wildcard as a site pattern, that will fail. "
+            "IMPORTANT: As of 2025 Google has been deprecating the whole-web PSE feature. "
+            "If the toggle is absent or greyed out, the PSE engine is SITE-RESTRICTED ONLY. "
+            "In that case, honest advice is: use Brave Search API (https://brave.com/search/api/) or "
+            "Serper.dev (https://serper.dev/) instead — both search the full web without domain restrictions, "
+            "are much simpler to set up, and have free tiers.\n"
+            "5. Walk the user through BOTH credentials one at a time. Ask for the API Key first, then the CX.\n"
+            "6. Always use full clickable URLs when directing the user somewhere."
+        ),
     }
 
     SERVICE_URLS = {
@@ -8220,6 +8320,7 @@ def ci_key_guide():
         # Build json_fields_example for CREDENTIALS_READY signal
         json_fields_example = _json.dumps({k: f'<{v}>' for k, v in fields.items()})
 
+        extra_notes = SETUP_NOTES.get(service, '')
         system_prompt = (
             f"You are an AI assistant embedded in a legal document analysis platform. "
             f"Your sole job right now is to help the user obtain and activate their {service_name} API key.\n\n"
@@ -8227,11 +8328,13 @@ def ci_key_guide():
             f"- Be conversational and direct. Maximum 3 sentences per reply.\n"
             f"- Ask ONE question or give ONE instruction at a time — never dump a full list.\n"
             f"- Guide them step by step: first ask if they have an account, then walk through account creation or key generation as needed.\n"
-            f"- Open the registration page link if they want it: {url}\n"
+            f"- Always provide full URLs as plain text so the user can click them.\n"
+            f"- Registration page: {url}\n"
             f"- This service requires: {creds_desc}\n"
-            f"- When the user gives you real credential value(s), repeat them back to confirm, then output EXACTLY this on its own line (no other text after it):\n"
+            + (f"\n{extra_notes}\n" if extra_notes else '')
+            + f"- When the user gives you real credential value(s), repeat them back to confirm, then output EXACTLY this on its own line (no other text after it):\n"
             f"  CREDENTIALS_READY:{json_fields_example}\n"
-            f"- CRITICAL: Only output CREDENTIALS_READY when you have REAL values from the user — never with placeholder text like \"YOUR_KEY_HERE\" or \"abc123\".\n"
+            f"- CRITICAL: Only output CREDENTIALS_READY when you have ALL required real values from the user — never with placeholder text.\n"
             f"- After outputting CREDENTIALS_READY, say \"Done! I've filled in your credentials and enabled this source.\"\n"
             f"- Do not tell the user to \"paste it into the form\" — you will do that automatically."
         )
