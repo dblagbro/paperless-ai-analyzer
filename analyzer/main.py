@@ -7,6 +7,7 @@ Orchestrates document analysis pipeline.
 import os
 import sys
 import time
+import signal
 import logging
 import argparse
 from pathlib import Path
@@ -1530,6 +1531,44 @@ def load_config() -> Dict[str, Any]:
     }
 
 
+def _install_sigterm_handler():
+    """
+    Install a SIGTERM handler that waits for active CI runs before exiting.
+
+    Without this, daemon threads (CI orchestrator jobs) are killed the instant
+    the main thread receives SIGTERM — causing in-progress CI runs to be marked
+    as failed on next startup. With this handler, the process stays alive up to
+    the container's stop_grace_period (600s) so running CI jobs can finish.
+    """
+    def _handler(signum, frame):
+        logger.info("SIGTERM received — checking for active CI runs before shutdown...")
+        try:
+            from analyzer.case_intelligence.job_manager import get_job_manager
+            jm = get_job_manager()
+            active = jm.list_active_runs()
+            if active:
+                logger.info(f"Waiting for {len(active)} active CI run(s) to complete: {active}")
+                # Wait up to 540s (9 min) — container stop_grace_period is 600s
+                deadline = time.time() + 540
+                while time.time() < deadline:
+                    still_active = jm.list_active_runs()
+                    if not still_active:
+                        logger.info("All CI runs completed — shutting down cleanly.")
+                        break
+                    logger.info(f"Still waiting on CI runs: {still_active}")
+                    time.sleep(10)
+                else:
+                    logger.warning("Shutdown timeout — CI run(s) still active, exiting anyway.")
+            else:
+                logger.info("No active CI runs — shutting down immediately.")
+        except Exception as e:
+            logger.error(f"Error in SIGTERM handler: {e}")
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, _handler)
+    logger.info("SIGTERM handler installed (will wait up to 540s for active CI runs)")
+
+
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(description='Paperless AI Analyzer')
@@ -1542,6 +1581,8 @@ def main():
     if not config['paperless_api_token']:
         logger.error("PAPERLESS_API_TOKEN not set")
         sys.exit(1)
+
+    _install_sigterm_handler()
 
     analyzer = DocumentAnalyzer(config)
 
