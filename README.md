@@ -10,6 +10,25 @@ Advanced AI-powered anomaly detection and risk analysis microservice for [Paperl
 
 ---
 
+## What's New in v3.7.3
+
+### Resilient CI Runs, UI Fixes, and Clickable Links
+
+**CI run resilience against container restarts:**
+- Runs interrupted by a container restart (deployment, crash, OOM) now show `⚡ Interrupted` status instead of `failed`, with a **🔄 Re-run Same Settings** banner that creates and immediately starts a new run with identical parameters.
+- `stop_grace_period: 600s` in docker-compose gives active runs up to 10 minutes to finish before Docker force-kills. A SIGTERM handler waits for in-flight CI threads before exiting.
+- New `POST /api/ci/runs/<run_id>/rerun` endpoint for programmatic re-runs.
+
+**UI fixes:**
+- **AI Key Guide modal** — Input/Send box was invisible when the AI asked a question. Root cause: `flex:1` chat area consumed the fixed 600px height. Fixed with `max-height` on the modal and a capped chat area so the input is always immediately visible below the conversation.
+- **Clickable URLs in AI chat** — URLs mentioned by the AI are now rendered as proper `<a target="_blank">` links instead of plain text.
+- **Google CSE setup guidance** — Corrected: the "Search the entire web" toggle is a section-level control (deprecated in newer Google PSE UIs), not a site pattern — the `*` wildcard is invalid. Guidance now recommends Brave Search API or Serper.dev when the toggle is absent.
+
+**Bug fixes:**
+- **Search & Analysis showing 0 documents** — Fixed a crash in the document listing API caused by CI run embeddings (with string `document_id` values) stored in the same Chroma collection as Paperless documents. The `int()` cast now skips non-numeric entries.
+
+---
+
 ## What's New in v3.6.5
 
 ### Case Intelligence — Web Research, Authority Corpus UI, Entity Grouping, Year Chronology

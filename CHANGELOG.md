@@ -4,6 +4,22 @@ All notable changes to Paperless AI Analyzer are documented here.
 
 ---
 
+## v3.7.3 — 2026-03-11
+
+### Added
+- **CI Re-run button for interrupted runs** — When a CI run is killed mid-flight by a container restart, it now shows `⚡ Interrupted` status with a **🔄 Re-run Same Settings** banner and button that creates a new run with identical parameters, skips clarifying questions, and starts immediately.
+- **Graceful shutdown for active CI runs** — `stop_grace_period: 600s` in docker-compose gives containers up to 10 minutes to finish before Docker force-kills. A SIGTERM handler in `main.py` waits up to 540 seconds for any in-flight CI job threads before exiting cleanly, preventing mid-run data corruption.
+- **POST `/api/ci/runs/<run_id>/rerun`** — New endpoint: copies all parameters from a completed/interrupted/failed run, creates a new run record, immediately starts the orchestrator, and returns the new `run_id`.
+
+### Fixed
+- **AI Key Guide modal — input/send box invisible** — The modal used a fixed `height:600px` with the chat area taking `flex:1`, leaving the input pinned far below the AI's first message. Fixed by switching to `max-height` on the modal and capping the chat area to `max-height:min(320px,45vh)` so the modal shrinks to content size and the input is always immediately below the conversation.
+- **Clickable URLs in AI chat bubbles** — AI messages were rendered with `textContent`, so URLs appeared as plain, unclickable text. Fixed: all AI bubbles now use a `_akgmLinkify()` helper that HTML-escapes content then converts `https://` URLs to proper `<a target="_blank">` links.
+- **Google CSE guidance — `*` wildcard rejected** — The AI-guided API key setup was advising users to add `*` as a site-to-include pattern for whole-web search; Google rejects this as an invalid public-suffix pattern. Updated `SETUP_NOTES['gcse']` with accurate guidance: the whole-web toggle is a section-level control (deprecated in newer PSE UIs), not a site pattern. Guidance now recommends Brave Search API or Serper.dev as reliable alternatives when the toggle is absent.
+- **Search & Analysis showing 0 documents** — The `/api/projects/<id>/documents` endpoint crashed with `invalid literal for int() with base 10: 'ci:...'` when CI run embeddings (with non-numeric `document_id` metadata) were stored in the same Chroma collection as Paperless documents. Fixed with a `try/except` around the `int()` cast; CI embeddings are silently skipped and all real documents are returned correctly.
+- **`recover_orphaned_runs` marks runs `interrupted` (not `failed`)** — On startup, any run left in `running`/`queued` state from a previous crash is now marked `interrupted` with a progress-aware message and directed to use the Re-run button, instead of the generic `failed` status.
+
+---
+
 ## v3.7.2 — 2026-03-10
 
 ### Added

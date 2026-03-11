@@ -445,31 +445,39 @@ def init_ci_db():
 
 
 def recover_orphaned_runs():
-    """Mark any 'running'/'queued' runs as failed on startup.
+    """Mark any 'running'/'queued' runs as interrupted on startup.
 
     When the service restarts, orchestrator threads are killed.  Any run
     that was still in-flight at shutdown will be stuck in 'running' forever
-    unless we reset it here.
+    unless we reset it here.  We use 'interrupted' (not 'failed') so the UI
+    can offer a Re-run button rather than treating it as an error.
     """
     with _get_conn() as conn:
         rows = conn.execute(
-            "SELECT id, started_at FROM ci_runs WHERE status IN ('running', 'queued')"
+            "SELECT id, started_at, progress_pct, docs_processed, docs_total FROM ci_runs "
+            "WHERE status IN ('running', 'queued')"
         ).fetchall()
         if not rows:
             return
         now_str = datetime.now(timezone.utc).isoformat()
         for row in rows:
+            pct = row['progress_pct'] or 0
+            note = (
+                f"Run interrupted by service restart at {pct:.0f}% progress "
+                f"({row['docs_processed'] or 0}/{row['docs_total'] or 0} docs). "
+                "Use Re-run to restart with the same parameters."
+            )
             conn.execute(
                 """UPDATE ci_runs
-                   SET status='failed',
-                       current_stage='Failed',
-                       error_message='Run interrupted by service restart.',
+                   SET status='interrupted',
+                       current_stage='Interrupted',
+                       error_message=?,
                        completed_at=?
                    WHERE id=?""",
-                (now_str, row['id'])
+                (note, now_str, row['id'])
             )
         logger.warning(
-            f"recover_orphaned_runs: marked {len(rows)} orphaned run(s) as failed: "
+            f"recover_orphaned_runs: marked {len(rows)} orphaned run(s) as interrupted: "
             + ', '.join(r['id'] for r in rows)
         )
 
