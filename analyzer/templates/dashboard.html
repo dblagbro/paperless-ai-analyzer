@@ -5152,9 +5152,12 @@
                         body: JSON.stringify({name, slug, description, color})
                     });
                 }
-                const data = await res.json();
-                if (!res.ok) throw new Error(data.error || 'Request failed');
+                if (!res.ok) {
+                    const data = await res.json();
+                    throw new Error(data.error || 'Request failed');
+                }
                 closeProjModal();
+                const data = await res.json();
                 await loadProjectsList();
                 loadProjectSelector();
                 // If new project was created, start background card-level provision polling

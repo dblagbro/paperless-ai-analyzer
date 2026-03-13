@@ -3871,12 +3871,15 @@ def api_create_project():
             metadata=data.get('metadata')
         )
 
-        # Create Paperless tag
+        # Create Paperless tag (best-effort — don't fail project creation if this errors)
         if app.paperless_client:
-            app.paperless_client.get_or_create_tag(
-                f"project:{slug}",
-                color=project.get('color', '#3498db')
-            )
+            try:
+                app.paperless_client.get_or_create_tag(
+                    f"project:{slug}",
+                    color=project.get('color', '#3498db')
+                )
+            except Exception as tag_err:
+                logger.warning(f"Could not create Paperless tag for project {slug}: {tag_err}")
 
         # Auto-provision a dedicated Paperless instance in the background
         import threading
