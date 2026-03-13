@@ -4,6 +4,13 @@ All notable changes to Paperless AI Analyzer are documented here.
 
 ---
 
+## v3.7.4 — 2026-03-13
+
+### Fixed
+- **New project modal stays open after save** — Two bugs combined: (1) `get_or_create_tag` on Paperless could throw an exception after the project was already committed to the DB, causing a 500 response that left the modal open showing an error (project existed but wasn't visible until refresh); (2) `closeProjModal()` was called after `res.json()` parsing, so any JSON/network error after a successful 2xx also blocked modal close. Fixed: tag creation is now best-effort (wrapped in try/except, logs a warning on failure); modal now closes immediately on any `res.ok` response before list reload.
+
+---
+
 ## v3.7.3 — 2026-03-11
 
 ### Added
