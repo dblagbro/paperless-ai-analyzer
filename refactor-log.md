@@ -2,6 +2,24 @@
 
 ---
 
+## Entry 002 — 2026-04-22 (v3.8.1 bug-fix pass)
+
+### Scope
+Post-refactor Playwright regression testing and bug fixes. No structural changes.
+
+### Changes
+- `analyzer/routes/documents.py` — reconcile performance + crash fix; trigger content-type hardening
+- `analyzer/routes/system.py` — bug-report dual JSON/form accept
+- `analyzer/routes/ci.py` — new `/interrupt` endpoint; `auto_start` + `start_url` in create response
+- `analyzer/templates/dashboard.html` — admin Users shortcut tab button
+- `analyzer/static/js/init.js` — `goToUsersAdmin()` helper for Users tab
+- `contributing.md` — API conventions documented
+
+### Test coverage
+Full 99-test Playwright regression suite at `/tmp/full_regression.py`: **99/99 pass**.
+
+---
+
 ## Entry 001 — 2026-04-22
 
 ### Scope
