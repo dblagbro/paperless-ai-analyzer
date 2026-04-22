@@ -5,7 +5,7 @@ Flask-Login integration for Paperless AI Analyzer.
 from flask_login import LoginManager, UserMixin
 
 login_manager = LoginManager()
-login_manager.login_view = 'login_page'
+login_manager.login_view = 'auth.login_page'
 login_manager.login_message = 'Please log in to access the analyzer.'
 login_manager.login_message_category = 'info'
 
