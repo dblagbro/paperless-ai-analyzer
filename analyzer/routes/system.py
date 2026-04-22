@@ -287,10 +287,19 @@ def api_about():
 @bp.route('/api/bug-report', methods=['POST'])
 @login_required
 def api_bug_report():
-    description = (request.form.get('description') or '').strip()
-    severity = (request.form.get('severity') or 'Medium').strip()
-    contact_email = (request.form.get('contact_email') or '').strip()
-    include_logs = request.form.get('include_logs', 'true').lower() != 'false'
+    if request.is_json:
+        _d = request.get_json() or {}
+        description   = (_d.get('description') or '').strip()
+        severity      = (_d.get('severity') or 'Medium').strip()
+        contact_email = (_d.get('contact_email') or '').strip()
+        include_logs  = _d.get('include_logs', True)
+        if isinstance(include_logs, str):
+            include_logs = include_logs.lower() != 'false'
+    else:
+        description   = (request.form.get('description') or '').strip()
+        severity      = (request.form.get('severity') or 'Medium').strip()
+        contact_email = (request.form.get('contact_email') or '').strip()
+        include_logs  = request.form.get('include_logs', 'true').lower() != 'false'
     browser_info = request.headers.get('User-Agent', 'Unknown')
 
     if not description:

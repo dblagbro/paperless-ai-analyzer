@@ -119,6 +119,22 @@ After any structural change:
 
 ---
 
+## API Conventions
+
+### List endpoint response shapes
+Most `GET /api/<resource>` list endpoints return a bare JSON array. **Exception:** `GET /api/users`
+returns `{"users": [...]}` (a wrapped object). This shape is intentional — the endpoint may be
+extended with pagination metadata in future. Do not change either format without updating the
+corresponding JS consumers (`users.js` expects the wrapped form throughout).
+
+### User CRUD routes require integer IDs
+`PATCH /api/users/<int:uid>` and `DELETE /api/users/<int:uid>` require the integer `id` field,
+not the username string. Fetch `GET /api/users` first to resolve `username → id` if needed.
+There is no `/by-username/` alias — adding one would introduce surface area with no current
+consumer benefit.
+
+---
+
 ## Docker Rules (Hard Limits)
 
 - **NEVER** run `docker compose down` or any command that stops the full stack
