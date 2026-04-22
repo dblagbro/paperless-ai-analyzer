@@ -4,6 +4,45 @@ All notable changes to Paperless AI Analyzer are documented here.
 
 ---
 
+## v3.8.1 — 2026-04-22
+
+### Fixed
+- **`POST /api/reconcile` crash and hang** — Fetching all Chroma embeddings to find orphans
+  caused a >30 s hang (807 docs × 7 s/page) followed by a `ValueError` crash when CI
+  analysis embeddings (composite IDs like `ci:uuid:type:N`) were present. Fixed: now fetches
+  only Chroma IDs (`include=[]`, nearly instant), skips composite IDs silently, and uses
+  `page_size=1000` to collapse the Paperless pagination from 9 round-trips to 1.
+- **`POST /api/trigger` returns 500 for non-existent documents** — Two issues: (1) calling
+  without `Content-Type: application/json` caused an `AttributeError` (`NoneType.get('doc_id')`)
+  that surfaced as a 500; (2) a missing document raised a `RetryError` surfaced as an opaque
+  500. Fixed: `get_json(force=True, silent=True)` accepts any Content-Type; network/404
+  exceptions now return a clean 404 JSON response.
+- **`POST /api/bug-report` rejected JSON callers** — Sole POST endpoint that used
+  `request.form` exclusively; any API consumer sending `application/json` got a silent 400
+  `"Please describe the problem"`. Fixed: dual-accept — JSON path handled via `request.is_json`
+  branch; FormData path (UI, with optional HAR file upload) unchanged.
+
+### Added
+- **`POST /api/ci/runs/<run_id>/interrupt`** — New endpoint to soft-stop a running or queued
+  CI run and set its status to `interrupted`. Unlike `/cancel` (terminal, no restart),
+  `interrupted` runs can be restarted via `/start` or `/rerun`. Respects the same authorization
+  and CI-gate checks as all other run endpoints.
+- **`auto_start` param and `start_url` hint in `POST /api/ci/runs`** — Passing
+  `auto_start: true` creates the run and immediately launches the orchestrator in one call
+  (returns `status: "queued"` and HTTP 201). All responses now include `start_url` pointing
+  to the `/start` endpoint for clients that prefer two-step flow.
+- **Top-level 👥 Users tab** — Admin users now see a **👥 Users** button in the main tab bar
+  as a shortcut to the Config → Users sub-tab. Implemented via `goToUsersAdmin()` in `init.js`
+  which activates the config panel and users sub-tab directly, highlighting only the Users
+  button (not the Configuration button).
+
+### Documentation
+- **API conventions** added to `contributing.md`: `GET /api/users` returns a wrapped
+  `{"users": [...]}` object (not a bare array) intentionally; `PATCH`/`DELETE /api/users/<int:uid>`
+  require the integer `id`, not the username string.
+
+---
+
 ## v3.7.4 — 2026-03-13
 
 ### Fixed
