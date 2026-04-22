@@ -124,7 +124,7 @@ def api_settings_poll_interval():
 @login_required
 def api_trigger():
     """Manually trigger analysis of a document."""
-    data = request.json
+    data = request.get_json(force=True, silent=True) or {}
     doc_id = data.get('doc_id')
 
     if not doc_id:
@@ -143,8 +143,11 @@ def api_trigger():
             }
         })
     except Exception as e:
+        err_str = str(e)
+        if 'HTTPError' in type(e).__name__ or 'RetryError' in type(e).__name__ or '404' in err_str:
+            return jsonify({'error': f'Document {doc_id} not found in Paperless'}), 404
         logger.error(f"Failed to trigger analysis for doc {doc_id}: {e}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': err_str}), 500
 
 
 @bp.route('/api/logs')
@@ -245,7 +248,7 @@ def api_reconcile():
         paperless_ids = set()
         page = 1
         while True:
-            resp = current_app.paperless_client.get_documents(ordering='id', page_size=100, page=page)
+            resp = current_app.paperless_client.get_documents(ordering='id', page_size=1000, page=page)
             for doc in resp.get('results', []):
                 paperless_ids.add(doc['id'])
             if not resp.get('next'):
@@ -267,10 +270,14 @@ def api_reconcile():
         vs = VectorStore(project_slug=project_slug)
         chroma_ids = set()
         if vs.enabled:
-            raw = vs.collection.get(include=['metadatas'])
-            for meta in (raw.get('metadatas') or []):
-                if meta and meta.get('document_id'):
-                    chroma_ids.add(int(meta['document_id']))
+            # Fetch only IDs (no metadatas) — avoids loading large CI embeddings.
+            # Regular doc IDs are plain int strings; CI IDs are 'ci:uuid:type:N' — skip those.
+            raw = vs.collection.get(include=[])
+            for doc_id_str in (raw.get('ids') or []):
+                try:
+                    chroma_ids.add(int(doc_id_str))
+                except (ValueError, TypeError):
+                    pass  # CI/authority embeddings use composite IDs — skip
 
         # 4. Find orphans (in our indexes but deleted from Paperless)
         db_orphans    = db_ids    - paperless_ids

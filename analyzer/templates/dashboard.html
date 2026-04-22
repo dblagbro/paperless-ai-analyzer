@@ -147,6 +147,7 @@
                 {% if CI_ENABLED %}<button class="tab-button" onclick="switchTab('case-intelligence')" id="ci-tab-btn">⚖️ Case Intelligence</button>{% endif %}
                 <button class="tab-button" onclick="switchTab('search')">🔍 Search & Analysis</button>
                 <button class="tab-button" onclick="switchTab('config')">⚙️ Configuration</button>
+                {% if is_admin %}<button class="tab-button" onclick="goToUsersAdmin();" id="users-tab-btn">👥 Users</button>{% endif %}
                 <button class="tab-button" onclick="switchTab('tools')">🛠️ Debug & Tools</button>
             </div>
 

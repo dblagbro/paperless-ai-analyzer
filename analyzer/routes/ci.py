@@ -605,7 +605,30 @@ def ci_create_run():
             wrc = data['web_research_config']
             if isinstance(wrc, dict):
                 _ucr(run_id, web_research_config=_json.dumps(wrc))
-        return jsonify({'run_id': run_id}), 201
+
+        start_url = f"{request.script_root}/api/ci/runs/{run_id}/start"
+        auto_start = bool(data.get('auto_start', False))
+
+        if auto_start:
+            from analyzer.case_intelligence.db import update_ci_run
+            from analyzer.case_intelligence.job_manager import get_job_manager
+            from analyzer.case_intelligence.orchestrator import CIOrchestrator
+            import os as _os
+            update_ci_run(run_id, status='queued', progress_pct=0,
+                          cost_so_far_usd=0, started_at=datetime.utcnow().isoformat())
+            llm_clients = _build_ci_llm_clients()
+            orchestrator = CIOrchestrator(
+                llm_clients=llm_clients,
+                paperless_client=getattr(current_app, 'paperless_client', None),
+                usage_tracker=getattr(current_app, 'usage_tracker', None),
+                cohere_api_key=_os.environ.get('COHERE_API_KEY'),
+                budget_notification_cb=_send_ci_budget_notification,
+                completion_notification_cb=_send_ci_complete_notification,
+            )
+            get_job_manager().start_run(run_id, orchestrator.execute_run, run_id)
+            return jsonify({'run_id': run_id, 'status': 'queued', 'start_url': start_url}), 201
+
+        return jsonify({'run_id': run_id, 'status': 'draft', 'start_url': start_url}), 201
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -744,6 +767,34 @@ def ci_cancel_run(run_id):
         sent = get_job_manager().cancel_run(run_id)
         return jsonify({'cancelled': sent, 'run_id': run_id})
     except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@bp.route('/api/ci/runs/<run_id>/interrupt', methods=['POST'])
+@login_required
+@advanced_required
+def ci_interrupt_run(run_id):
+    """Interrupt a running CI run (can be restarted). Use /cancel for a hard stop."""
+    ok, err = _ci_gate()
+    if not ok:
+        return err
+    try:
+        from analyzer.case_intelligence.db import get_ci_run, update_ci_run
+        from analyzer.case_intelligence.job_manager import get_job_manager
+
+        run = get_ci_run(run_id)
+        if not run:
+            return jsonify({'error': 'Run not found'}), 404
+        if not _ci_can_write(run):
+            return jsonify({'error': 'Not authorized'}), 403
+        if run['status'] not in ('running', 'queued'):
+            return jsonify({'error': f"Cannot interrupt run in status '{run['status']}'"}), 400
+
+        get_job_manager().cancel_run(run_id)  # stops the background thread
+        update_ci_run(run_id, status='interrupted')
+        return jsonify({'success': True, 'run_id': run_id, 'status': 'interrupted'})
+    except Exception as e:
+        logger.error(f"CI interrupt_run failed: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
 

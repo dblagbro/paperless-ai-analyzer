@@ -59,6 +59,17 @@
             }
         }
 
+        // Shortcut: go directly to the Users admin sub-tab (admin-only top-level tab)
+        function goToUsersAdmin() {
+            document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-button').forEach(b => b.classList.remove('active'));
+            const configPane = document.getElementById('tab-config');
+            if (configPane) { configPane.classList.add('active'); configPane.scrollTop = 0; }
+            const usersBtn = document.getElementById('users-tab-btn');
+            if (usersBtn) usersBtn.classList.add('active');
+            switchConfigTab('users');
+        }
+
 
 // ── Initial Load Calls ──────────────────────────────────────────────────
         // Initial load
