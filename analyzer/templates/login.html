@@ -113,7 +113,7 @@
         <div class="error-msg">{{ error }}</div>
         {% endif %}
 
-        <form method="POST" action="{{ url_for('login_page') }}">
+        <form method="POST" action="{{ url_for('auth.login_page') }}">
             <div class="form-group">
                 <label for="username">Username</label>
                 <input type="text" id="username" name="username"
