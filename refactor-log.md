@@ -20,6 +20,37 @@ Full 99-test Playwright regression suite at `/tmp/full_regression.py`: **99/99 p
 
 ---
 
+## Entry 003 — 2026-04-22 (v3.8.1 expanded regression pass)
+
+### Scope
+Expanded regression test suite covering all 15 new features added since the original 296-step plan.
+No code changes in this entry — documentation and test artifact only.
+
+### Changes
+- `/tmp/full_regression_v2.py` — 712-test Playwright suite (36 phases) replacing the 99-test v1 suite:
+  Chat CRUD/branching/sharing/export/compare, Upload file/URL/cloud/directory-scan, Court
+  credentials/search/import lifecycle, Case Intelligence run CRUD/lifecycle/findings/reports/
+  sharing/authority corpus, stale RAG re-embedding, multi-user RBAC cross-role flows,
+  cross-feature end-to-end workflows, and error-handling edge cases (malformed JSON, unicode,
+  SQL injection patterns, large payloads, zero-byte upload)
+- `README.md` — "What's New" updated from v3.7.3 → v3.8.1
+- `CHANGELOG.md` — Testing section added to v3.8.1 entry
+
+### Test results
+**712 total | 674 passed | 20 failed | 18 skipped** (94.7% pass rate)
+
+Open issues queued for v3.8.2 (selected):
+- `POST` with malformed JSON body → 500 (`'str' object has no attribute 'get'`) — 3 endpoints
+- `POST /api/upload/from-url` with reachable URL → 500
+- `POST /api/ci/runs` with `auto_start=true` → 500
+- `GET /api/court/docket/pacer/<case_id>` → 500 (unknown court system)
+- `POST /api/vector/delete-document` → wrong status code
+- Zero-byte file upload → 500
+- Chat session share API sends `uid` but endpoint expects `username`
+- `POST /api/projects` intermittent timeout under load (affects 3 derived test failures)
+
+---
+
 ## Entry 001 — 2026-04-22
 
 ### Scope

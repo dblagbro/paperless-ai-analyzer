@@ -41,6 +41,14 @@ All notable changes to Paperless AI Analyzer are documented here.
   `{"users": [...]}` object (not a bare array) intentionally; `PATCH`/`DELETE /api/users/<int:uid>`
   require the integer `id`, not the username string.
 
+### Testing
+- Expanded Playwright regression suite from 99 tests (15 phases) to **712 tests across 36 phases**
+  (`/tmp/full_regression_v2.py`). New coverage includes: Chat branching/sharing/export/compare,
+  Upload directory scan and cloud links, Court credentials/import lifecycle, Case Intelligence
+  run CRUD/lifecycle/findings/reports/sharing/authority, stale RAG re-embedding, multi-user
+  cross-role interaction flows, cross-feature end-to-end workflows, and error-handling edge cases.
+- **Result: 674 passed / 20 failed / 18 skipped** — 20 open issues queued for v3.8.2.
+
 ---
 
 ## v3.7.4 — 2026-03-13
