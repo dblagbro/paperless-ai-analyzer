@@ -197,18 +197,21 @@ def api_vector_documents():
 def api_vector_reembed_stale():
     """Trigger a stale-embedding check: re-analyze docs whose OCR content changed after embedding."""
     try:
-        if not hasattr(current_app, 'document_analyzer') or not current_app.document_analyzer:
+        da = getattr(current_app, 'document_analyzer', None)
+        if not da:
             return jsonify({'error': 'Analyzer not running'}), 503
 
-        def _run():
+        # Capture the analyzer on the request thread so the background thread
+        # doesn't need Flask's app context to access it.
+        def _run(document_analyzer):
             try:
-                count = current_app.document_analyzer.check_stale_embeddings()
+                count = document_analyzer.check_stale_embeddings()
                 logger.info(f"Manual stale embedding check complete: {count} re-analyzed")
             except Exception as e:
                 logger.error(f"Manual stale embedding check failed: {e}")
 
         from threading import Thread
-        Thread(target=_run, daemon=True).start()
+        Thread(target=_run, args=(da,), daemon=True).start()
         return jsonify({'success': True, 'message': 'Stale embedding check started in background — check logs for progress'})
 
     except Exception as e:

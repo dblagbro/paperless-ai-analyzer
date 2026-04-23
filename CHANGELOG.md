@@ -4,6 +4,38 @@ All notable changes to Paperless AI Analyzer are documented here.
 
 ---
 
+## v3.9.4 — 2026-04-23
+
+### Fixed
+- **`/api/system-health` false negatives** — `paperless_api` and `chromadb`
+  components always reported `error` with detail
+  "Working outside of application context", making the dashboard health widget
+  permanently red. Root cause: the probes were submitted to a
+  `ThreadPoolExecutor` whose worker threads don't have Flask's app context,
+  so `current_app.paperless_client.health_check()` raised. Fix: capture the
+  client, analyzer, and state-manager on the request thread before
+  submitting, pass them as arguments to the probe functions.
+  Now reports real status: `paperless_api: ok (Nms)`,
+  `chromadb: ok (N documents)`.
+- **`/api/vector/reembed-stale` background-task crash** — same class of
+  bug as above. The `_run()` closure ran in a background thread but
+  dereferenced `current_app.document_analyzer`. Fix: capture the analyzer
+  on the request thread and pass it into the background target.
+- **`check_stale_embeddings` startup ValueError on CI composite chroma IDs**
+  — `analyzer/poller.py:check_stale_embeddings` did `int(chroma_id)` over
+  all chroma IDs, which raised `ValueError: invalid literal for int() with
+  base 10: 'ci:...:timeline:N'` when CI findings were embedded in the same
+  collection. Fix: try/except around the int() cast, skip non-numeric IDs.
+  Same class of bug as v3.8.1's fix to `/api/projects/<id>/documents`.
+
+### Why
+All three of these caused log noise on every startup/health-check without
+affecting core functionality, but they obscured real errors — medium-test
+runs had been flagging `paperless_api: error` as a "known cosmetic issue"
+for days, and this made new failures harder to spot.
+
+---
+
 ## v3.9.0 — 2026-04-23
 
 ### Added

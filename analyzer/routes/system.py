@@ -86,12 +86,20 @@ def _get_docker_client():
         return None
 
 
-def _check_paperless_api():
-    """Check Paperless API health with timing."""
+def _check_paperless_api(paperless_client=None):
+    """Check Paperless API health with timing.
+
+    Takes the client as an argument so the caller (api_system_health) can
+    capture `current_app.paperless_client` on the request thread and hand it
+    to ThreadPoolExecutor workers — which otherwise fail with "Working outside
+    of application context" when they try to dereference current_app.
+    """
     import time
     start = time.monotonic()
     try:
-        healthy = current_app.paperless_client.health_check()
+        if paperless_client is None:
+            paperless_client = current_app.paperless_client
+        healthy = paperless_client.health_check()
         latency_ms = int((time.monotonic() - start) * 1000)
         if healthy:
             return {'status': 'ok', 'latency_ms': latency_ms, 'detail': f'Responded in {latency_ms}ms'}
@@ -101,12 +109,13 @@ def _check_paperless_api():
         return {'status': 'error', 'latency_ms': latency_ms, 'detail': str(e)[:120]}
 
 
-def _check_chromadb():
-    """Check ChromaDB by counting documents in the default vector store."""
+def _check_chromadb(document_analyzer=None):
+    """Check ChromaDB by counting documents in the default vector store.
+    See note on _check_paperless_api for why dependencies are passed in."""
     import time
     start = time.monotonic()
     try:
-        da = getattr(current_app, 'document_analyzer', None)
+        da = document_analyzer if document_analyzer is not None else getattr(current_app, 'document_analyzer', None)
         if not da or not getattr(da, 'vector_store', None) or not da.vector_store.enabled:
             return {'status': 'warning', 'latency_ms': 0, 'detail': 'Vector store not enabled'}
         count = da.vector_store.collection.count()
@@ -139,10 +148,13 @@ def _check_llm():
     return {'status': 'ok', 'latency_ms': 0, 'detail': detail}
 
 
-def _check_analyzer_loop():
-    """Check whether the analyzer loop has run recently."""
+def _check_analyzer_loop(state_manager=None):
+    """Check whether the analyzer loop has run recently.
+    See note on _check_paperless_api for why dependencies are passed in."""
     try:
-        stats = current_app.state_manager.get_stats()
+        if state_manager is None:
+            state_manager = current_app.state_manager
+        stats = state_manager.get_stats()
         last_run = stats.get('last_run')
         if not last_run:
             return {'status': 'warning', 'latency_ms': 0, 'detail': 'No runs recorded yet'}
@@ -393,11 +405,17 @@ def api_system_health():
     dc = _get_docker_client()
     docker_available = dc is not None
 
+    # Capture app-context dependencies on the request thread; the ThreadPoolExecutor
+    # workers run outside the Flask request context so `current_app` proxies fail there.
+    paperless_client = getattr(current_app, 'paperless_client', None)
+    document_analyzer = getattr(current_app, 'document_analyzer', None)
+    state_manager = getattr(current_app, 'state_manager', None)
+
     checks = {
-        'paperless_api': _check_paperless_api,
-        'chromadb': _check_chromadb,
-        'llm': _check_llm,
-        'analyzer_loop': _check_analyzer_loop,
+        'paperless_api': (lambda: _check_paperless_api(paperless_client)),
+        'chromadb':      (lambda: _check_chromadb(document_analyzer)),
+        'llm':           _check_llm,
+        'analyzer_loop': (lambda: _check_analyzer_loop(state_manager)),
         'postgres': (lambda: _check_docker_container('paperless-postgres', dc))
                     if docker_available else
                     (lambda: {'status': 'warning', 'latency_ms': 0, 'detail': 'Docker unavailable'}),
