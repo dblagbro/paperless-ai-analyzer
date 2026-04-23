@@ -10,22 +10,28 @@ Advanced AI-powered anomaly detection and risk analysis microservice for [Paperl
 
 ---
 
-## What's New in v3.7.3
+## What's New in v3.8.1
 
-### Resilient CI Runs, UI Fixes, and Clickable Links
+### Blueprint Architecture, CI Enhancements & Regression Fixes
 
-**CI run resilience against container restarts:**
-- Runs interrupted by a container restart (deployment, crash, OOM) now show `⚡ Interrupted` status instead of `failed`, with a **🔄 Re-run Same Settings** banner that creates and immediately starts a new run with identical parameters.
-- `stop_grace_period: 600s` in docker-compose gives active runs up to 10 minutes to finish before Docker force-kills. A SIGTERM handler waits for in-flight CI threads before exiting.
-- New `POST /api/ci/runs/<run_id>/rerun` endpoint for programmatic re-runs.
+**v3.8.0 — Full architectural decomposition:**
+- `web_ui.py` (9,812 lines) fully decomposed into 14 Blueprint route modules under `analyzer/routes/` — each domain (auth, documents, projects, chat, ci, users, search, upload, court, system, profiles, vector, llm, docs) is now an independent Flask Blueprint with its own file
+- All JavaScript extracted from `dashboard.html` into 9 static `.js` files (`overview.js`, `config.js`, `chat.js`, `upload.js`, `ci.js`, `users.js`, `ai_form_filler.js`, `utils.js`, `init.js`)
+- CSS extracted into `static/css/dashboard.css`
+- `case_intelligence/db.py` (1,482 lines) split into 7 focused submodules under `case_intelligence/db/`
+- Zero external behavior changes — all API endpoints, session handling, and UI interactions identical
 
-**UI fixes:**
-- **AI Key Guide modal** — Input/Send box was invisible when the AI asked a question. Root cause: `flex:1` chat area consumed the fixed 600px height. Fixed with `max-height` on the modal and a capped chat area so the input is always immediately visible below the conversation.
-- **Clickable URLs in AI chat** — URLs mentioned by the AI are now rendered as proper `<a target="_blank">` links instead of plain text.
-- **Google CSE setup guidance** — Corrected: the "Search the entire web" toggle is a section-level control (deprecated in newer Google PSE UIs), not a site pattern — the `*` wildcard is invalid. Guidance now recommends Brave Search API or Serper.dev when the toggle is absent.
+**v3.8.1 — CI enhancements & regression fixes:**
+- **`POST /api/ci/runs/<run_id>/interrupt`** — new endpoint to soft-stop a running or queued CI run and set status to `interrupted`. Unlike `/cancel` (terminal), interrupted runs can be restarted via `/start` or `/rerun`
+- **`auto_start` + `start_url`** — passing `auto_start: true` to `POST /api/ci/runs` creates and immediately queues the run in one call; all create responses now include a `start_url` hint
+- **Admin Users shortcut tab** — a `👥 Users` button now appears in the main tab bar for admin users, jumping directly to Config → Users
+- **`POST /api/reconcile` performance** — fixed >30s hang and `ValueError` crash caused by fetching all Chroma embeddings; now uses `include=[]` (near-instant) and skips CI composite IDs
+- **`POST /api/trigger` hardening** — non-JSON bodies no longer crash with `AttributeError`; missing documents return clean 404 instead of opaque 500
+- **`POST /api/bug-report` JSON support** — now accepts both `application/json` and `multipart/form-data` (UI with optional HAR file)
 
-**Bug fixes:**
-- **Search & Analysis showing 0 documents** — Fixed a crash in the document listing API caused by CI run embeddings (with string `document_id` values) stored in the same Chroma collection as Paperless documents. The `int()` cast now skips non-numeric entries.
+**Regression test coverage:**
+- Full 712-test Playwright regression suite (`/tmp/full_regression_v2.py`) covering 36 phases: Auth, Dashboard, Documents, Search, LLM Config, Profiles, Vector Store, Projects, Provisioning, System Health, Users/RBAC, Docs/Forms, Chat (CRUD/Messaging/Branching/Sharing/Export), Upload (File/URL/Cloud/Directory Scan), Court (Credentials/Import), Case Intelligence (Config/Runs/Lifecycle/Findings/Reports/Sharing/Authority), Multi-user cross-role flows, and error-handling edge cases
+- **674/712 passed (94.7%)** — 18 skipped (destructive ops), 20 known open issues tracked for v3.8.2
 
 ---
 
