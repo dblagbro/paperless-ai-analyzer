@@ -8,7 +8,7 @@ from datetime import datetime
 from flask import Blueprint, request, jsonify, session, make_response
 from flask_login import login_required, current_user
 
-from analyzer.app import admin_required, advanced_required, _ci_gate, _ci_can_read, _ci_can_write
+from analyzer.app import admin_required, advanced_required, _ci_gate, _ci_can_read, _ci_can_write, safe_json_body
 from analyzer.db import get_user_by_id, get_user_by_username
 from analyzer.services.ai_config_service import load_ai_config, get_project_ai_config
 from analyzer.services.smtp_service import (
@@ -53,7 +53,7 @@ def ci_create_report(run_id):
         if run['status'] != 'completed':
             return jsonify({'error': 'Run must be completed before generating reports'}), 400
 
-        data = request.json or {}
+        data = safe_json_body()
         instructions = data.get('instructions', 'Generate a comprehensive case summary.')
         template = data.get('template', 'custom')
 

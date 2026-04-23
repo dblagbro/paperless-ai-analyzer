@@ -2,7 +2,7 @@ import logging
 from flask import Blueprint, request, jsonify, session
 from flask_login import login_required, current_user
 
-from analyzer.app import advanced_required, _get_project_client
+from analyzer.app import advanced_required, _get_project_client, safe_json_body
 
 logger = logging.getLogger(__name__)
 
@@ -410,7 +410,7 @@ def court_save_credentials():
     ok, err = _court_gate()
     if not ok:
         return err
-    data = request.get_json(force=True) or {}
+    data = safe_json_body()
     court_system = data.get('court_system', '')
     username = data.get('username', '').strip()
     password = data.get('password', '')
@@ -459,7 +459,7 @@ def court_test_credentials():
     ok, err = _court_gate()
     if not ok:
         return err
-    data = request.get_json(force=True) or {}
+    data = safe_json_body()
     court_system = data.get('court_system', '')
     username = data.get('username', '').strip()
     password = data.get('password', '')
@@ -527,7 +527,7 @@ def court_search():
     ok, err = _court_gate()
     if not ok:
         return err
-    data = request.get_json(force=True) or {}
+    data = safe_json_body()
     court_system = data.get('court_system', 'federal')
     case_number = data.get('case_number', '').strip()
     party_name  = data.get('party_name', '').strip()
@@ -570,6 +570,16 @@ def court_get_docket(court_system, case_id):
 
     try:
         connector = _build_court_connector(court_system, project_slug)
+    except RuntimeError as e:
+        # v3.9.4: unknown court_system → 400 with clear error (was 500)
+        msg = str(e)
+        if 'Unknown court system' in msg:
+            return jsonify({
+                'error': msg,
+                'supported': ['federal', 'nyscef'],
+            }), 400
+        return jsonify({'error': msg}), 500
+    try:
         docket = connector.get_docket(case_id)
         return jsonify({
             'case_id': case_id,
@@ -614,7 +624,7 @@ def court_import_start():
     ok, err = _court_gate()
     if not ok:
         return err
-    data = request.get_json(force=True) or {}
+    data = safe_json_body()
     court_system  = data.get('court_system', 'federal')
     case_id       = data.get('case_id', '').strip()
     case_number   = data.get('case_number', case_id).strip()
@@ -745,7 +755,7 @@ def court_parse_credentials():
     if not ok:
         return err
 
-    data = request.get_json(force=True) or {}
+    data = safe_json_body()
     raw_text     = (data.get('raw_text') or '').strip()
     conversation = data.get('conversation') or []
 

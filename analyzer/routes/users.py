@@ -2,7 +2,7 @@ import logging
 from flask import Blueprint, request, jsonify
 from flask_login import login_required, current_user
 
-from analyzer.app import admin_required
+from analyzer.app import admin_required, safe_json_body
 from analyzer.db import (
     get_user_by_id, get_user_by_username,
     list_users, create_user as db_create_user, update_user as db_update_user,
@@ -166,7 +166,7 @@ def api_me_get():
 @login_required
 def api_me_update():
     """Update current user's own editable profile fields."""
-    data = request.json or {}
+    data = safe_json_body()
     allowed = {k: v for k, v in data.items()
                if k in ('display_name', 'email', 'phone', 'address', 'job_title')}
     if not allowed:
@@ -191,7 +191,7 @@ def api_change_password():
     from analyzer.db import get_user_by_id, DB_PATH
     from werkzeug.security import check_password_hash, generate_password_hash
     import sqlite3
-    data = request.json or {}
+    data = safe_json_body()
     current_pw = data.get('current_password', '').strip()
     new_pw = data.get('new_password', '').strip()
     if not current_pw or not new_pw:
@@ -256,7 +256,7 @@ def api_users_list():
 def api_users_create():
     """Create a new user (admin only), then send a welcome email if SMTP is configured."""
     try:
-        data = request.json or {}
+        data = safe_json_body()
         username = data.get('username', '').strip()
         password = data.get('password', '').strip()
         role = data.get('role', 'basic')
@@ -287,7 +287,10 @@ def api_users_create():
 def api_users_update(uid):
     """Update role / display_name / email / password / is_active (admin only)."""
     try:
-        data = request.json or {}
+        # v3.9.4: return 404 for unknown uid (was silently 200 before)
+        if not get_user_by_id(uid):
+            return jsonify({'error': 'User not found'}), 404
+        data = safe_json_body()
         allowed = {k: v for k, v in data.items() if k in (
             'role', 'display_name', 'email', 'password', 'is_active',
             'phone', 'address', 'github', 'linkedin', 'facebook',

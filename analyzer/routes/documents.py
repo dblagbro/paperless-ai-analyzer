@@ -5,7 +5,7 @@ from pathlib import Path
 from flask import Blueprint, request, jsonify, session, current_app
 from flask_login import login_required, current_user
 
-from analyzer.app import admin_required, ui_state, log_buffer
+from analyzer.app import admin_required, ui_state, log_buffer, safe_json_body
 from analyzer.db import get_analyzed_doc_ids
 
 logger = logging.getLogger(__name__)
@@ -40,20 +40,25 @@ def api_process_unanalyzed():
         if not missing_docs:
             return jsonify({'success': True, 'queued': 0, 'message': 'All documents already analyzed'})
 
-        def _run(docs):
+        # Capture app-context deps on the request thread so the background
+        # worker doesn't try to access current_app outside of a Flask request.
+        paperless_client = current_app.paperless_client
+        document_analyzer = current_app.document_analyzer
+
+        def _run(docs, pc, da):
             logger.info(f"Process-unanalyzed: starting {len(docs)} documents")
             ok = 0
             for d in docs:
                 try:
-                    full_doc = current_app.paperless_client.get_document(d['id'])
-                    current_app.document_analyzer.analyze_document(full_doc)
+                    full_doc = pc.get_document(d['id'])
+                    da.analyze_document(full_doc)
                     ok += 1
                 except Exception as e:
                     logger.warning(f"Process-unanalyzed: failed doc {d['id']}: {e}")
             logger.info(f"Process-unanalyzed: complete — {ok}/{len(docs)} succeeded")
 
         from threading import Thread
-        Thread(target=_run, args=(missing_docs,), daemon=True).start()
+        Thread(target=_run, args=(missing_docs, paperless_client, document_analyzer), daemon=True).start()
 
         return jsonify({
             'success': True,
@@ -71,7 +76,7 @@ def api_process_unanalyzed():
 def api_settings_poll_interval():
     """Update the poll interval setting."""
     try:
-        data = request.json
+        data = safe_json_body()
         interval = data.get('interval')
 
         if not interval or not isinstance(interval, (int, float)):
@@ -124,7 +129,7 @@ def api_settings_poll_interval():
 @login_required
 def api_trigger():
     """Manually trigger analysis of a document."""
-    data = request.get_json(force=True, silent=True) or {}
+    data = safe_json_body()
     doc_id = data.get('doc_id')
 
     if not doc_id:
@@ -215,13 +220,35 @@ def api_reprocess():
 @bp.route('/api/reprocess/<int:doc_id>', methods=['POST'])
 @login_required
 def api_reprocess_document(doc_id):
-    """Reprocess a specific document by removing it from state."""
+    """Reprocess a specific document by removing it from state.
+
+    v3.9.4: returns 404 when the document isn't in Paperless. Previously the
+    .state dict access crashed with 'AnalyzerState' object has no attribute 'get'.
+    """
     try:
-        # Remove document from seen_ids so it will be reprocessed
-        if hasattr(current_app.state_manager.state, 'last_seen_ids'):
-            if doc_id in current_app.state_manager.state.get('last_seen_ids', []):
-                current_app.state_manager.state['last_seen_ids'].remove(doc_id)
-                current_app.state_manager.save_state()
+        # Verify doc exists in Paperless. Any lookup failure (404, RetryError
+        # wrapping 401/404, timeout, etc.) → return 404 so the caller gets a
+        # deterministic response even when Paperless is flaky.
+        try:
+            paperless_doc = current_app.paperless_client.get_document(doc_id)
+            if not paperless_doc:
+                return jsonify({'error': f'Document {doc_id} not found'}), 404
+        except Exception as e:
+            logger.warning(f"Paperless lookup for doc {doc_id} failed: {str(e)[:120]}")
+            return jsonify({'error': f'Document {doc_id} not found'}), 404
+
+        # Document exists — remove it from state so the next poll cycle reprocesses it
+        sm = current_app.state_manager
+        # state_manager exposes last_seen_ids via a method; the underlying store
+        # is an AnalyzerState object, not a dict.
+        try:
+            seen = getattr(sm.state, 'last_seen_ids', None) or []
+            if doc_id in seen:
+                seen.remove(doc_id)
+                if hasattr(sm, 'save_state'):
+                    sm.save_state()
+        except Exception as e:
+            logger.warning(f"Could not update state_manager for reprocess: {e}")
 
         return jsonify({
             'success': True,

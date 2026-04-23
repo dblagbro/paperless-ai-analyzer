@@ -2,7 +2,7 @@ import logging
 from flask import Blueprint, request, jsonify, session
 from flask_login import login_required, current_user
 
-from analyzer.app import admin_required
+from analyzer.app import admin_required, safe_json_body
 from analyzer.services.ai_config_service import (
     load_ai_config, save_ai_config, get_project_ai_config,
     _AI_DEFAULTS, _AI_PROVIDER_MODELS,
@@ -40,7 +40,7 @@ def api_ai_config_get():
 def api_ai_config_save():
     """Save AI configuration (accepts v1 or v2 format)."""
     try:
-        data = request.json
+        data = safe_json_body()
         config = data.get('config')
         if not config:
             return jsonify({'error': 'Configuration is required'}), 400
@@ -59,7 +59,7 @@ def api_ai_config_save():
 def api_ai_config_test():
     """Test an AI provider/model configuration."""
     try:
-        data = request.json
+        data = safe_json_body()
         provider = data.get('provider')
         api_key = data.get('api_key', '').strip()
         model = data.get('model', '')
@@ -147,7 +147,7 @@ def api_ai_config_global_get():
 def api_ai_config_global_save():
     """Update global API keys (admin only)."""
     try:
-        data = request.json or {}
+        data = safe_json_body()
         new_global = data.get('global', {})
         if not isinstance(new_global, dict):
             return jsonify({'error': 'global must be a dict'}), 400
@@ -186,7 +186,7 @@ def api_ai_config_project_save(slug):
     if not _can_access_project_config(slug):
         return jsonify({'error': 'Access denied'}), 403
     try:
-        data = request.json or {}
+        data = safe_json_body()
         new_proj_cfg = data.get('config', {})
         cfg = load_ai_config()
         existing = cfg.get('projects', {}).get(slug, {})
@@ -208,7 +208,7 @@ def api_ai_config_copy_use_case(slug):
     if not _can_access_project_config(slug):
         return jsonify({'error': 'Access denied'}), 403
     try:
-        data = request.json or {}
+        data = safe_json_body()
         source_use_case = data.get('use_case')
         if source_use_case not in ('document_analysis', 'chat', 'case_intelligence'):
             return jsonify({'error': 'Invalid use_case'}), 400
@@ -229,7 +229,7 @@ def api_ai_config_copy_use_case(slug):
 def api_ai_config_copy_project():
     """Copy one project's full AI config to another project (admin only)."""
     try:
-        data = request.json or {}
+        data = safe_json_body()
         src = data.get('source_slug', '').strip()
         dst = data.get('dest_slug', '').strip()
         if not src or not dst:
@@ -271,7 +271,7 @@ def api_llm_status():
 @login_required
 def api_llm_test():
     """Test an LLM API key."""
-    data = request.json
+    data = safe_json_body()
     provider = data.get('provider', 'anthropic')
     api_key = data.get('api_key', '').strip()
 
@@ -343,7 +343,7 @@ def api_llm_test():
 def api_llm_save():
     """Save LLM configuration and restart container."""
     from pathlib import Path
-    data = request.json
+    data = safe_json_body()
     provider = data.get('provider', 'anthropic')
     api_key = data.get('api_key', '').strip()
 

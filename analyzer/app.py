@@ -149,6 +149,33 @@ def add_no_cache(response):
 
 
 # ---------------------------------------------------------------------------
+# JSON body helper
+# ---------------------------------------------------------------------------
+def safe_json_body() -> dict:
+    """Parse the request body as a JSON **object** (dict).
+
+    Flask's `request.get_json()` happily returns any valid JSON — including a
+    string or number — and callers usually assume the result is a dict and
+    call `.get()` on it, raising `'str' object has no attribute 'get'` when
+    the caller sent something weird like `"plain string"` or `42`.
+
+    This helper:
+      - returns `{}` for no body / empty body / parse failures (tolerant)
+      - returns the dict directly when the body parses to a JSON object
+      - returns `{}` when the body parses to a non-object (string, array, number, null)
+
+    Callers that explicitly need to error on missing fields should still
+    validate `data.get('foo')` afterwards — but they will no longer crash
+    on malformed non-object input.
+    """
+    from flask import request as _request
+    parsed = _request.get_json(force=True, silent=True)
+    if not isinstance(parsed, dict):
+        return {}
+    return parsed
+
+
+# ---------------------------------------------------------------------------
 # Auth decorators
 # ---------------------------------------------------------------------------
 def admin_required(f):

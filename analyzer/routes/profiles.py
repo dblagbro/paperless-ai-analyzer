@@ -156,7 +156,7 @@ def api_rename_active_profile(filename):
 
     try:
         import yaml
-        data = request.json
+        data = safe_json_body()
         new_name = data.get('display_name', '').strip()
 
         if not new_name:
@@ -322,7 +322,7 @@ def api_detect_duplicates():
 def api_remove_duplicates():
     """Remove specified duplicate profiles."""
     try:
-        data = request.json
+        data = safe_json_body()
         filenames = data.get('filenames', [])
 
         if not filenames:

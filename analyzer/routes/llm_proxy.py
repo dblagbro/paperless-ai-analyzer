@@ -14,6 +14,7 @@ from functools import wraps
 from flask import Blueprint, request, jsonify, session
 from flask_login import login_required, current_user
 
+from analyzer.app import safe_json_body
 from analyzer.db import (
     llm_proxy_list_all,
     llm_proxy_get,
@@ -67,7 +68,7 @@ def list_endpoints():
 @login_required
 @_admin_required
 def create_endpoint():
-    data = request.get_json(force=True, silent=True) or {}
+    data = safe_json_body()
     label = (data.get('label') or '').strip()
     url = (data.get('url') or '').strip()
     api_key = (data.get('api_key') or '').strip()
@@ -109,7 +110,7 @@ def update_endpoint(eid):
     if not existing:
         return jsonify({'error': 'Endpoint not found'}), 404
 
-    data = request.get_json(force=True, silent=True) or {}
+    data = safe_json_body()
     # Whitelist + coerce
     payload = {}
     for field in ('label', 'url', 'api_key'):
