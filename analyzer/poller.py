@@ -508,7 +508,13 @@ class PollerMixin:
                 meta = all_data['metadatas'][i]
                 stored_modified = meta.get('paperless_modified', '')
                 doc_text = all_data['documents'][i] if all_data.get('documents') else ''
-                doc_id = int(chroma_id)
+                # CI findings (v3.1+) are embedded with composite IDs like
+                # `ci:<run>:<type>:<n>` that live alongside paperless doc IDs.
+                # Skip them — they aren't Paperless documents.
+                try:
+                    doc_id = int(chroma_id)
+                except (ValueError, TypeError):
+                    continue
 
                 if not stored_modified:
                     # Embedded before v2.0.4 — only check if content looks empty/stub
