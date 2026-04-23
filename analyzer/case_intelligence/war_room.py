@@ -286,50 +286,19 @@ class WarRoom:
 
     def _call_llm(self, client, model: str, prompt: str,
                   provider: str, operation: str, task_def) -> Optional[Dict]:
-        try:
-            if provider == 'anthropic':
-                response = client.client.messages.create(
-                    model=model,
-                    max_tokens=task_def.max_output_tokens,
-                    messages=[{'role': 'user', 'content': prompt}],
-                )
-                text = response.content[0].text
-                usage = response.usage
-                if self.usage_tracker:
-                    self.usage_tracker.log_usage(
-                        provider=provider, model=model, operation=operation,
-                        input_tokens=usage.input_tokens, output_tokens=usage.output_tokens,
-                    )
-            elif provider == 'openai':
-                response = client.client.chat.completions.create(
-                    model=model,
-                    max_tokens=task_def.max_output_tokens,
-                    response_format={'type': 'json_object'},
-                    messages=[{'role': 'user', 'content': prompt}],
-                )
-                text = response.choices[0].message.content
-                usage = response.usage
-                if self.usage_tracker:
-                    self.usage_tracker.log_usage(
-                        provider=provider, model=model, operation=operation,
-                        input_tokens=usage.prompt_tokens, output_tokens=usage.completion_tokens,
-                    )
-            else:
-                return None
-
-            if '```json' in text:
-                text = text.split('```json')[1].split('```')[0].strip()
-            elif '```' in text:
-                text = text.split('```')[1].split('```')[0].strip()
-            return json.loads(text)
-        except json.JSONDecodeError as e:
-            logger.warning(f"WarRoom JSON error: {e} — text_len={len(text)}, preview={text[:300]!r}")
-            return None
-        except Exception as e:
-            logger.error(f"WarRoom LLM error: {e}")
-            return None
-
-    @staticmethod
+        """Raw LLM call routed through proxy pool (with direct-provider fallback).
+        Returns parsed JSON dict or None on any failure."""
+        from analyzer.llm.proxy_call import call_llm_json
+        return call_llm_json(
+            prompt,
+            task='warroom',
+            max_tokens=self.task_def.max_output_tokens,
+            provider=provider,
+            api_key=getattr(client, 'api_key', None),
+            model=model,
+            operation='ci:war_room',
+            usage_tracker=self.usage_tracker,
+        )
     def _empty_result() -> Dict:
         return {
             'opposing_case_summary': 'War room analysis could not be completed.',
@@ -635,49 +604,18 @@ class SettlementValuator:
 
     def _call_llm(self, client, model: str, prompt: str,
                   provider: str, operation: str) -> Optional[Dict]:
-        text = ''
-        try:
-            if provider == 'anthropic':
-                response = client.client.messages.create(
-                    model=model,
-                    max_tokens=self.task_def.max_output_tokens,
-                    messages=[{'role': 'user', 'content': prompt}],
-                )
-                text = response.content[0].text
-                usage = response.usage
-                if self.usage_tracker:
-                    self.usage_tracker.log_usage(
-                        provider=provider, model=model, operation=operation,
-                        input_tokens=usage.input_tokens, output_tokens=usage.output_tokens,
-                    )
-            elif provider == 'openai':
-                response = client.client.chat.completions.create(
-                    model=model,
-                    max_tokens=self.task_def.max_output_tokens,
-                    response_format={'type': 'json_object'},
-                    messages=[{'role': 'user', 'content': prompt}],
-                )
-                text = response.choices[0].message.content
-                usage = response.usage
-                if self.usage_tracker:
-                    self.usage_tracker.log_usage(
-                        provider=provider, model=model, operation=operation,
-                        input_tokens=usage.prompt_tokens, output_tokens=usage.completion_tokens,
-                    )
-            else:
-                return None
-
-            if '```json' in text:
-                text = text.split('```json')[1].split('```')[0].strip()
-            elif '```' in text:
-                text = text.split('```')[1].split('```')[0].strip()
-            return json.loads(text)
-        except json.JSONDecodeError as e:
-            logger.warning(f"SettlementValuator JSON error: {e} — preview={text[:300]!r}")
-            return None
-        except Exception as e:
-            logger.error(f"SettlementValuator LLM error: {e}")
-            return None
+        """SettlementValuator LLM call routed through proxy pool."""
+        from analyzer.llm.proxy_call import call_llm_json
+        return call_llm_json(
+            prompt,
+            task='settlement',
+            max_tokens=self.task_def.max_output_tokens,
+            provider=provider,
+            api_key=getattr(client, 'api_key', None),
+            model=model,
+            operation=operation,
+            usage_tracker=self.usage_tracker,
+        )
 
     @staticmethod
     def _empty_result() -> Dict:
@@ -802,49 +740,18 @@ class TrialStrategist:
 
     def _call_llm(self, client, model: str, prompt: str,
                   provider: str, operation: str) -> Optional[Dict]:
-        text = ''
-        try:
-            if provider == 'anthropic':
-                response = client.client.messages.create(
-                    model=model,
-                    max_tokens=self.task_def.max_output_tokens,
-                    messages=[{'role': 'user', 'content': prompt}],
-                )
-                text = response.content[0].text
-                usage = response.usage
-                if self.usage_tracker:
-                    self.usage_tracker.log_usage(
-                        provider=provider, model=model, operation=operation,
-                        input_tokens=usage.input_tokens, output_tokens=usage.output_tokens,
-                    )
-            elif provider == 'openai':
-                response = client.client.chat.completions.create(
-                    model=model,
-                    max_tokens=self.task_def.max_output_tokens,
-                    response_format={'type': 'json_object'},
-                    messages=[{'role': 'user', 'content': prompt}],
-                )
-                text = response.choices[0].message.content
-                usage = response.usage
-                if self.usage_tracker:
-                    self.usage_tracker.log_usage(
-                        provider=provider, model=model, operation=operation,
-                        input_tokens=usage.prompt_tokens, output_tokens=usage.completion_tokens,
-                    )
-            else:
-                return None
-
-            if '```json' in text:
-                text = text.split('```json')[1].split('```')[0].strip()
-            elif '```' in text:
-                text = text.split('```')[1].split('```')[0].strip()
-            return json.loads(text)
-        except json.JSONDecodeError as e:
-            logger.warning(f"TrialStrategist JSON error: {e} — preview={text[:300]!r}")
-            return None
-        except Exception as e:
-            logger.error(f"TrialStrategist LLM error: {e}")
-            return None
+        """TrialStrategist LLM call routed through proxy pool."""
+        from analyzer.llm.proxy_call import call_llm_json
+        return call_llm_json(
+            prompt,
+            task='warroom',
+            max_tokens=self.task_def.max_output_tokens,
+            provider=provider,
+            api_key=getattr(client, 'api_key', None),
+            model=model,
+            operation=operation,
+            usage_tracker=self.usage_tracker,
+        )
 
     @staticmethod
     def _empty_result() -> Dict:

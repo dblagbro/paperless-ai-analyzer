@@ -2,6 +2,70 @@
 
 ---
 
+## Entry 004 — 2026-04-23 (v3.9.0 — LLM Proxy pool + LMRH)
+
+### Scope
+Introduce a multi-provider fallback layer between paperless-ai-analyzer and the
+LLM providers. Replaces all 29 direct Anthropic/OpenAI SDK call sites with a
+single unified chokepoint that routes through llm-proxy/llm-proxy2 endpoints
+with circuit breakers and LMRH headers.
+
+### New files
+- `analyzer/llm/proxy_manager.py` (~130 lines) — circuit breaker + v1/v2 client builder
+- `analyzer/llm/lmrh.py` (~90 lines) — LMRH header builder with 17 task presets
+- `analyzer/llm/proxy_call.py` (~280 lines) — `call_llm()` + `call_llm_json()` helpers
+- `analyzer/routes/llm_proxy.py` — admin CRUD + test endpoint blueprint
+- `analyzer/static/js/llm_proxy.js` — admin sub-tab UI logic
+
+### Modified
+- `analyzer/db.py` — new `llm_proxy_endpoints` table + seed + 5 CRUD helpers
+- `analyzer/web_ui.py` — register llm_proxy blueprint
+- `analyzer/llm/llm_client.py` — `_call_llm` body reduced from 180 lines to 17
+- `analyzer/routes/{chat,docs,forms,ci}.py` — provider branches → single `call_llm` call
+- 13 `analyzer/case_intelligence/*.py` — `_call_llm` bodies delegated to `call_llm_json`
+- `analyzer/templates/dashboard.html` — new Config sub-tab button + panel + JS include
+- `analyzer/static/js/config.js` — lazy-load hook for new sub-tab
+- `docker-compose.yml` — `LLM_PROXY_KEY` + `LLM_PROXY_URL` + `LLM_PROXY2_URL` env vars
+  on all three paperless services
+
+### Pattern source
+Ported 1:1 from `/home/dblagbro/docker/devingpt/services/proxy_manager.py` and
+`blueprints/admin_config.py`. Devingpt has been running this pattern for months.
+
+### LMRH task map
+| Task type | `model-pref` | Extra |
+|-----------|-------------|-------|
+| `chat` | `claude-sonnet-4-6` | `modality=vision` if images |
+| `qa` | — | — |
+| `analysis` | `claude-sonnet-4-6` | `fallback-chain=anthropic,openai` |
+| `extraction` | `gpt-4o` | |
+| `classification` | `gpt-4o-mini` | |
+| `reasoning`, `theory`, `warroom`, `report`, `settlement` | `claude-opus-4-7` | `quality=high` |
+| `entity`, `timeline`, `financial`, `contradiction` | `claude-sonnet-4-6` | |
+| `forensic`, `discovery`, `witness` | `claude-sonnet-4-6` | `quality=high` |
+
+### Testing
+- **Phase 1 verified on dev**: DB table created + seeded; 2 endpoints present (v1 enabled, v2 disabled)
+- **Phase 4 verified on dev**: `call_llm()` returns `pong` via llm-proxy-manager (gemini-2.5-flash)
+- **Phase 5b verified on dev**: chat, docs-ask, forms all return 200 through the proxy
+- **Phase 5c verified on dev**: all 14 CI submodules import cleanly
+- **Phase 6 verified on dev**: admin sub-tab renders 2 rows, Test button returns `✓ gemini-2.5-flash`
+- Full regression (`/tmp/full_regression_v2.py`) and medium check (`/tmp/instance_medium.py`) pending in Phase 8
+
+### Fallback hierarchy (defense in depth)
+1. Healthy llm-proxy endpoints in priority order (v1 enabled → v2 if enabled)
+2. Direct Anthropic/OpenAI SDK using keys from `ai_config.json` (existing behavior)
+3. Raise `LLMUnavailableError` → caller returns HTTP 503 with `source: 'llm-pool-exhausted'`
+
+### Risks + mitigations
+- Usage tracking: all proxy calls now reported as `provider='llm-proxy'` in
+  `LLMUsageTracker`. Cost math unchanged (proxy returns same token counts).
+- Case Intelligence parallel synthesis: `multi_model_synthesis` preserves its
+  ThreadPoolExecutor but each branch uses `fallback_chain=<provider>` to pin
+  the proxy to a single upstream per branch.
+
+---
+
 ## Entry 002 — 2026-04-22 (v3.8.1 bug-fix pass)
 
 ### Scope

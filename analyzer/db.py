@@ -83,6 +83,17 @@ def init_db():
                 first_analyzed_at TEXT NOT NULL DEFAULT (datetime('now')),
                 last_analyzed_at  TEXT NOT NULL DEFAULT (datetime('now'))
             );
+            CREATE TABLE IF NOT EXISTS llm_proxy_endpoints (
+                id         TEXT PRIMARY KEY,
+                label      TEXT NOT NULL,
+                url        TEXT NOT NULL,
+                api_key    TEXT NOT NULL,
+                version    INTEGER NOT NULL DEFAULT 1,
+                priority   INTEGER NOT NULL DEFAULT 10,
+                enabled    INTEGER NOT NULL DEFAULT 1,
+                created_at REAL NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_llm_proxy_priority ON llm_proxy_endpoints(enabled, priority ASC);
         """)
 
         # Migrations — ADD COLUMN is idempotent-safe (ignored if column exists)
@@ -122,7 +133,125 @@ def init_db():
             except Exception:
                 pass  # column already exists
 
+        _seed_llm_proxy_endpoints(conn)
+
     logger.info("Database initialized (tables created if not exist)")
+
+
+def _seed_llm_proxy_endpoints(conn):
+    """Seed the llm_proxy_endpoints table on first boot.
+
+    Seeds two entries if the table is empty AND the LLM_PROXY_KEY env var is set:
+      1. llm-proxy2 (v2, priority 10) — http://llm-proxy2:3000/v1
+      2. llm-proxy-manager (v1, priority 20) — http://llm-proxy-manager:3000/v1
+
+    Both reachable on the shared Docker network from paperless containers.
+    If only some env vars are present, only the matching endpoint is seeded.
+    """
+    import os, time, uuid as _uuid
+
+    existing = conn.execute("SELECT COUNT(*) FROM llm_proxy_endpoints").fetchone()[0]
+    if existing > 0:
+        return  # user has configured endpoints — do not overwrite
+
+    key = os.environ.get("LLM_PROXY_KEY", "").strip()
+    if not key:
+        logger.info("LLM proxy seeding skipped: LLM_PROXY_KEY env var not set")
+        return
+
+    # Override URLs via env vars if provided
+    proxy2_url = os.environ.get("LLM_PROXY2_URL", "http://llm-proxy2:3000/v1")
+    proxy1_url = os.environ.get("LLM_PROXY_URL",  "http://llm-proxy-manager:3000/v1")
+
+    # v1 is the canonical working endpoint across the infra today.
+    # v2 is seeded but disabled by default — admin enables via the UI once
+    # llm-proxy2 API keys are provisioned for this instance.
+    seeds = [
+        (str(_uuid.uuid4()), "llm-proxy-manager (v1)",      proxy1_url, key, 1, 10, 1, time.time()),
+        (str(_uuid.uuid4()), "llm-proxy2 (v2, disabled)",   proxy2_url, key, 2, 20, 0, time.time()),
+    ]
+    conn.executemany(
+        "INSERT INTO llm_proxy_endpoints "
+        "(id, label, url, api_key, version, priority, enabled, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        seeds,
+    )
+    logger.info(f"Seeded {len(seeds)} LLM proxy endpoints (llm-proxy2 primary + llm-proxy-manager fallback)")
+
+
+# ---------------------------------------------------------------------------
+# LLM Proxy Endpoint CRUD
+# ---------------------------------------------------------------------------
+
+def llm_proxy_list_endpoints() -> list[dict]:
+    """Return all enabled endpoints ordered by priority ASC. Disabled excluded."""
+    with _get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, label, url, api_key, version, priority, enabled "
+            "FROM llm_proxy_endpoints WHERE enabled = 1 ORDER BY priority ASC"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def llm_proxy_list_all() -> list[dict]:
+    """Return all endpoints (enabled + disabled) for admin UI."""
+    with _get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, label, url, api_key, version, priority, enabled, created_at "
+            "FROM llm_proxy_endpoints ORDER BY priority ASC, label ASC"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def llm_proxy_get(endpoint_id: str) -> dict | None:
+    with _get_conn() as conn:
+        row = conn.execute(
+            "SELECT id, label, url, api_key, version, priority, enabled, created_at "
+            "FROM llm_proxy_endpoints WHERE id = ?",
+            (endpoint_id,),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def llm_proxy_create(label: str, url: str, api_key: str,
+                      version: int = 1, priority: int = 10, enabled: bool = True) -> str:
+    import time
+    eid = str(uuid.uuid4())
+    with _get_conn() as conn:
+        conn.execute(
+            "INSERT INTO llm_proxy_endpoints "
+            "(id, label, url, api_key, version, priority, enabled, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (eid, label, url.rstrip("/"), api_key, int(version),
+             int(priority), 1 if enabled else 0, time.time()),
+        )
+    return eid
+
+
+def llm_proxy_update(endpoint_id: str, **fields) -> bool:
+    """Partial update. Accepts label, url, api_key, version, priority, enabled."""
+    allowed = {"label", "url", "api_key", "version", "priority", "enabled"}
+    payload = {k: v for k, v in fields.items() if k in allowed and v is not None}
+    if not payload:
+        return False
+    if "url" in payload:
+        payload["url"] = payload["url"].rstrip("/")
+    if "enabled" in payload:
+        payload["enabled"] = 1 if payload["enabled"] else 0
+    if "api_key" in payload and not payload["api_key"]:
+        # empty string → leave existing key untouched
+        del payload["api_key"]
+    set_clause = ", ".join(f"{k} = ?" for k in payload.keys())
+    values = list(payload.values()) + [endpoint_id]
+    with _get_conn() as conn:
+        cur = conn.execute(f"UPDATE llm_proxy_endpoints SET {set_clause} WHERE id = ?", values)
+        return cur.rowcount > 0
+
+
+def llm_proxy_delete(endpoint_id: str) -> bool:
+    with _get_conn() as conn:
+        cur = conn.execute("DELETE FROM llm_proxy_endpoints WHERE id = ?", (endpoint_id,))
+        return cur.rowcount > 0
 
 
 # ---------------------------------------------------------------------------

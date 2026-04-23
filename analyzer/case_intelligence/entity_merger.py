@@ -231,61 +231,33 @@ If there are no merge groups, return: []
         return merged
 
     def _call_llm(self, prompt: str) -> Optional[List[Dict]]:
-        """Call LLM for AI merge pass. Returns parsed list or None."""
-        client = self.llm_clients.get('openai')
-        if not client:
-            client = self.llm_clients.get('anthropic')
+        """Call LLM for AI merge pass. Returns parsed list or None.
+        Routed through proxy pool with direct-provider fallback."""
+        from analyzer.llm.proxy_call import call_llm_json
 
-        if not client:
+        # Determine direct-provider hint: prefer openai then anthropic
+        provider = 'openai' if 'openai' in self.llm_clients else (
+            'anthropic' if 'anthropic' in self.llm_clients else None
+        )
+        client = self.llm_clients.get(provider) if provider else None
+        default_model = 'gpt-4o-mini' if provider == 'openai' else 'claude-haiku-4-5-20251001'
+
+        parsed = call_llm_json(
+            prompt,
+            task='entity',
+            max_tokens=2000,
+            provider=provider,
+            api_key=getattr(client, 'api_key', None) if client else None,
+            model=default_model,
+            operation='ci:entity_merge',
+            usage_tracker=self.usage_tracker,
+        )
+        if parsed is None:
             return None
-
-        try:
-            provider = 'openai' if 'openai' in self.llm_clients else 'anthropic'
-            if provider == 'openai':
-                response = client.client.chat.completions.create(
-                    model='gpt-4o-mini',
-                    max_tokens=2000,
-                    response_format={'type': 'json_object'},
-                    messages=[{'role': 'user', 'content': prompt}],
-                )
-                text = response.choices[0].message.content
-                if self.usage_tracker:
-                    self.usage_tracker.log_usage(
-                        provider='openai', model='gpt-4o-mini',
-                        operation='ci:entity_merge',
-                        input_tokens=response.usage.prompt_tokens,
-                        output_tokens=response.usage.completion_tokens,
-                    )
-            else:
-                response = client.client.messages.create(
-                    model='claude-haiku-4-5-20251001',
-                    max_tokens=2000,
-                    messages=[{'role': 'user', 'content': prompt}],
-                )
-                text = response.content[0].text
-                if self.usage_tracker:
-                    self.usage_tracker.log_usage(
-                        provider='anthropic', model='claude-haiku-4-5-20251001',
-                        operation='ci:entity_merge',
-                        input_tokens=response.usage.input_tokens,
-                        output_tokens=response.usage.output_tokens,
-                    )
-
-            # Strip markdown fences
-            if '```json' in text:
-                text = text.split('```json')[1].split('```')[0].strip()
-            elif '```' in text:
-                text = text.split('```')[1].split('```')[0].strip()
-
-            parsed = json.loads(text)
-            if isinstance(parsed, list):
-                return parsed
-            # Some models return {groups: [...]}
-            for key in ('groups', 'merge_groups', 'entities'):
-                if key in parsed and isinstance(parsed[key], list):
-                    return parsed[key]
-            return []
-
-        except Exception as e:
-            logger.warning(f"EntityMerger AI pass failed: {e}")
-            return None
+        if isinstance(parsed, list):
+            return parsed
+        # Some models return {groups: [...]}
+        for key in ('groups', 'merge_groups', 'entities'):
+            if key in parsed and isinstance(parsed[key], list):
+                return parsed[key]
+        return []

@@ -732,7 +732,12 @@ IMPORTANT:
 
     def _call_llm(self, prompt: str, operation: str = 'analysis', document_id: int = None) -> str:
         """
-        Call the LLM API with multi-provider fallback.
+        Call the LLM API with proxy-first routing and direct-provider fallback.
+
+        Routes through analyzer.llm.proxy_call.call_llm() which:
+          1. Tries each healthy llm_proxy_endpoint in priority order.
+          2. Falls through to direct Anthropic/OpenAI SDK if pool is exhausted.
+          3. Raises LLMUnavailableError if both paths fail.
 
         Args:
             prompt: The prompt to send to the LLM
@@ -742,198 +747,24 @@ IMPORTANT:
         Returns:
             LLM response text
         """
-        # Load AI configuration for document analysis
-        from pathlib import Path
-        import json
-
-        config_path = Path('/app/data/ai_config.json')
-        ai_config = None
+        from analyzer.llm.proxy_call import call_llm, LLMUnavailableError
 
         try:
-            if config_path.exists():
-                with open(config_path, 'r') as f:
-                    ai_config = json.load(f)
-        except Exception as e:
-            logger.warning(f"Could not load AI config, using defaults: {e}")
-
-        # If config exists, use it for multi-provider fallback
-        if ai_config and 'document_analysis' in ai_config:
-            providers = ai_config['document_analysis'].get('providers', [])
-
-            last_error = None
-            attempted = []
-
-            for provider_config in providers:
-                if not provider_config.get('enabled', False):
-                    continue
-
-                provider_name = provider_config.get('name')
-                api_key = provider_config.get('api_key', '').strip()
-                models = provider_config.get('models', [])
-
-                if not api_key:
-                    continue
-
-                # Try this provider
-                try:
-                    if provider_name == 'openai':
-                        import openai
-                        client = openai.OpenAI(api_key=api_key)
-
-                        for model in models:
-                            try:
-                                logger.info(f"Trying document analysis: OpenAI {model}")
-                                attempted.append(f"OpenAI {model}")
-
-                                response = client.chat.completions.create(
-                                    model=model,
-                                    messages=[{"role": "user", "content": prompt}],
-                                    max_tokens=1024
-                                )
-                                result = response.choices[0].message.content
-
-                                # Log usage
-                                if self.usage_tracker and response.usage:
-                                    self.usage_tracker.log_usage(
-                                        provider='openai',
-                                        model=model,
-                                        operation=operation,
-                                        input_tokens=response.usage.prompt_tokens,
-                                        output_tokens=response.usage.completion_tokens,
-                                        document_id=document_id,
-                                        success=True
-                                    )
-
-                                logger.info(f"✓ Document analysis using: OpenAI {model}")
-                                return result
-                            except Exception as e:
-                                if '404' in str(e) or 'model_not_found' in str(e):
-                                    logger.warning(f"Model {model} not available, trying next...")
-                                    last_error = e
-                                    continue
-                                logger.warning(f"Error with OpenAI {model}: {e}")
-                                last_error = e
-                                continue
-
-                    elif provider_name == 'anthropic':
-                        import anthropic
-                        client = anthropic.Anthropic(api_key=api_key)
-
-                        for model in models:
-                            try:
-                                logger.info(f"Trying document analysis: Anthropic {model}")
-                                attempted.append(f"Anthropic {model}")
-
-                                response = client.messages.create(
-                                    model=model,
-                                    max_tokens=1024,
-                                    messages=[{"role": "user", "content": prompt}]
-                                )
-                                result = response.content[0].text
-
-                                # Log usage
-                                if self.usage_tracker and response.usage:
-                                    self.usage_tracker.log_usage(
-                                        provider='anthropic',
-                                        model=model,
-                                        operation=operation,
-                                        input_tokens=response.usage.input_tokens,
-                                        output_tokens=response.usage.output_tokens,
-                                        document_id=document_id,
-                                        success=True
-                                    )
-
-                                logger.info(f"✓ Document analysis using: Anthropic {model}")
-                                return result
-                            except Exception as e:
-                                if '404' in str(e) or 'not_found' in str(e):
-                                    logger.warning(f"Model {model} not available, trying next...")
-                                    last_error = e
-                                    continue
-                                logger.warning(f"Error with Anthropic {model}: {e}")
-                                last_error = e
-                                continue
-
-                except Exception as e:
-                    logger.error(f"Failed to initialize {provider_name}: {e}")
-                    last_error = e
-                    continue
-
-            # All configured providers failed
-            attempted_str = ", ".join(attempted) if attempted else "no models"
-            raise Exception(f"No available models. Tried: {attempted_str}. Last error: {last_error}")
-
-        # Fallback to original single-provider logic if no config
-        if self.provider == 'anthropic':
-            # Try the configured model first, then fallback models (Claude 4.5/4.6 and Claude 3.x)
-            models_to_try = [self.model]
-            if self.model not in ['claude-sonnet-4-5-20250929', 'claude-haiku-4-5-20251001', 'claude-3-haiku-20240307']:
-                models_to_try.extend(['claude-sonnet-4-5-20250929', 'claude-haiku-4-5-20251001', 'claude-3-haiku-20240307'])
-
-            last_error = None
-            for model in models_to_try:
-                try:
-                    response = self.client.messages.create(
-                        model=model,
-                        max_tokens=1024,
-                        messages=[{
-                            "role": "user",
-                            "content": prompt
-                        }]
-                    )
-                    # Update self.model to the working one for future calls
-                    if model != self.model:
-                        logger.info(f"Using fallback model: {model}")
-                        self.model = model
-
-                    # Log usage
-                    if self.usage_tracker and response.usage:
-                        self.usage_tracker.log_usage(
-                            provider='anthropic',
-                            model=model,
-                            operation=operation,
-                            input_tokens=response.usage.input_tokens,
-                            output_tokens=response.usage.output_tokens,
-                            document_id=document_id,
-                            success=True
-                        )
-
-                    return response.content[0].text
-                except Exception as e:
-                    last_error = e
-                    if '404' not in str(e) and 'not_found' not in str(e):
-                        raise
-                    logger.warning(f"Model {model} not available, trying next...")
-                    continue
-
-            # If all models failed, raise the last error
-            raise last_error or Exception("No models available")
-
-        elif self.provider == 'openai':
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[{
-                    "role": "user",
-                    "content": prompt
-                }],
-                max_tokens=1024
+            result = call_llm(
+                messages=[{"role": "user", "content": prompt}],
+                task="analysis",
+                max_tokens=1024,
+                operation=operation,
+                document_id=document_id,
+                usage_tracker=self.usage_tracker,
+                direct_provider=self.provider,
+                direct_api_key=self.api_key,
+                direct_model=self.model,
             )
-
-            # Log usage
-            if self.usage_tracker and response.usage:
-                self.usage_tracker.log_usage(
-                    provider='openai',
-                    model=self.model,
-                    operation=operation,
-                    input_tokens=response.usage.prompt_tokens,
-                    output_tokens=response.usage.completion_tokens,
-                    document_id=document_id,
-                    success=True
-                )
-
-            return response.choices[0].message.content
-
-        return ""
+            return result["content"]
+        except LLMUnavailableError as e:
+            logger.error(f"LLM unavailable for operation={operation}: {e} (attempted={e.attempted})")
+            raise Exception(str(e)) from e
 
     def _parse_response(self, response: str) -> Dict[str, Any]:
         """Parse LLM response."""

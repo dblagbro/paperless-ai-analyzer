@@ -1197,6 +1197,7 @@
                     <button class="config-sub-btn" onclick="switchConfigTab('vectorstore')" id="cfg-btn-vectorstore">🗄️ Vector Store</button>
                     {% if is_admin %}
                     <button class="config-sub-btn" onclick="switchConfigTab('smtp')" id="cfg-btn-smtp">📧 Notifications</button>
+                    <button class="config-sub-btn" onclick="switchConfigTab('llm-proxy')" id="cfg-btn-llm-proxy">🛰 LLM Proxy</button>
                     <button class="config-sub-btn" onclick="switchConfigTab('users')" id="cfg-btn-users">👥 Users</button>
                     {% endif %}
                 </div>
@@ -1509,6 +1510,80 @@
                     </div>
                 </div>
                 </div><!-- /cfg-smtp -->
+                {% endif %}
+
+                <!-- ── LLM Proxy endpoints (admin only) ── -->
+                {% if is_admin %}
+                <div id="cfg-llm-proxy" class="config-sub-content">
+                <h2 style="margin-bottom: 15px;">🛰 LLM Proxy Endpoints</h2>
+                <div class="card" style="margin-bottom: 20px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                        <span style="color:#555; font-size:14px;">
+                            Ordered pool of llm-proxy nodes. Calls are tried in priority order;
+                            on failure the next healthy endpoint is used. Direct Anthropic/OpenAI
+                            keys (in AI Settings) are the absolute last-resort fallback.
+                        </span>
+                        <button class="btn btn-primary" onclick="showAddLLMProxyForm()">+ Add Endpoint</button>
+                    </div>
+
+                    <table class="user-table" id="llm-proxy-table">
+                        <thead>
+                            <tr>
+                                <th>Label</th>
+                                <th>URL</th>
+                                <th>Version</th>
+                                <th style="width:80px;">Priority</th>
+                                <th style="width:90px;">Enabled</th>
+                                <th>Key</th>
+                                <th style="width:110px;">Breaker</th>
+                                <th style="width:220px;">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="llm-proxy-table-body"></tbody>
+                    </table>
+                </div>
+
+                <!-- Add endpoint form (hidden by default) -->
+                <div id="add-llm-proxy-form" class="card" style="display:none; margin-bottom:20px;">
+                    <h3 style="margin-top:0;">Add LLM Proxy Endpoint</h3>
+                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
+                        <div>
+                            <label style="font-size:12px; color:#666;">Label</label>
+                            <input type="text" id="llm-proxy-add-label" placeholder="e.g. llm-proxy-manager (v1)" style="width:100%; padding:6px;">
+                        </div>
+                        <div>
+                            <label style="font-size:12px; color:#666;">URL (ends in /v1)</label>
+                            <input type="text" id="llm-proxy-add-url" placeholder="http://llm-proxy-manager:3000/v1" style="width:100%; padding:6px;">
+                        </div>
+                        <div>
+                            <label style="font-size:12px; color:#666;">API Key</label>
+                            <input type="password" id="llm-proxy-add-key" placeholder="sk-..." style="width:100%; padding:6px;">
+                        </div>
+                        <div>
+                            <label style="font-size:12px; color:#666;">Version</label>
+                            <select id="llm-proxy-add-version" style="width:100%; padding:6px;">
+                                <option value="1">v1 (Node.js, Bearer auth)</option>
+                                <option value="2">v2 (FastAPI, x-api-key auth)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label style="font-size:12px; color:#666;">Priority (lower = tried first)</label>
+                            <input type="number" id="llm-proxy-add-priority" value="10" style="width:100%; padding:6px;">
+                        </div>
+                        <div>
+                            <label style="font-size:12px; color:#666;">Enabled</label>
+                            <select id="llm-proxy-add-enabled" style="width:100%; padding:6px;">
+                                <option value="true">Yes</option>
+                                <option value="false">No (disabled)</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div style="margin-top:15px; display:flex; gap:10px;">
+                        <button class="btn btn-primary" onclick="createLLMProxy()">Save</button>
+                        <button class="btn" onclick="hideAddLLMProxyForm()">Cancel</button>
+                    </div>
+                </div>
+                </div><!-- /cfg-llm-proxy -->
                 {% endif %}
 
                 <!-- ── Users sub-section (admin only) ── -->
@@ -2685,6 +2760,7 @@ window.APP_CONFIG = {
 <script src="{{ url_for('static', filename='js/chat.js') }}"></script>
 <script src="{{ url_for('static', filename='js/upload.js') }}"></script>
 <script src="{{ url_for('static', filename='js/users.js') }}"></script>
+{% if is_admin %}<script src="{{ url_for('static', filename='js/llm_proxy.js') }}"></script>{% endif %}
 <script src="{{ url_for('static', filename='js/init.js') }}"></script>
 
     {% if CI_ENABLED %}
