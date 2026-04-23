@@ -2,6 +2,100 @@
 
 ---
 
+## Entry 006 — 2026-04-23 (v3.9.2 — CI orchestrator split via mixin pattern)
+
+### Scope
+Completed the refactor deferred from Entry 005: splitting the 2,371-line
+single-class `case_intelligence/orchestrator.py` into a coordinator + 7 mixin
+files under `ci_phases/`. Zero behavior change — same `self` instance, same
+state, pure physical file split via Python multiple inheritance.
+
+### Approach chosen: mixin pattern (not module-function extraction)
+
+Considered two approaches:
+1. **Module-level function extraction** — phases become free functions that
+   take an `orchestrator` argument. Requires passing the orchestrator through
+   every phase call, plus all its state attributes. High churn, high risk.
+2. **Mixin class inheritance** — phases extracted as classes whose methods
+   use `self.*` exactly like before. `CIOrchestrator` inherits from all mixins;
+   methods resolve via MRO; no signature or state changes. Low churn, low risk.
+
+Chose #2 because the 30 methods share heavy state (`self.llm_clients`,
+`self.budget_manager`, `self.usage_tracker`, `self._token_lock`, 13 extractor
+instances). Approach #2 preserves exact runtime semantics.
+
+### Files changed
+
+| File | Lines before | Lines after | Delta |
+|------|--------------|-------------|-------|
+| `case_intelligence/orchestrator.py` | 2,371 | 334 | –2,037 |
+| `case_intelligence/ci_phases/directors_mixin.py` | (new) | 208 | +208 |
+| `case_intelligence/ci_phases/managers_mixin.py` | (new) | 1,004 | +1,004 |
+| `case_intelligence/ci_phases/specialist_mixin.py` | (new) | 257 | +257 |
+| `case_intelligence/ci_phases/tier4_mixin.py` | (new) | 104 | +104 |
+| `case_intelligence/ci_phases/tier5_mixin.py` | (new) | 263 | +263 |
+| `case_intelligence/ci_phases/writeback_mixin.py` | (new) | 259 | +259 |
+| `case_intelligence/ci_phases/utils_mixin.py` | (new) | 312 | +312 |
+| `case_intelligence/ci_phases/__init__.py` | (new) | 0 | +0 |
+| `architecture.md` | updated | — | — |
+| `refactor-log.md` | this entry | — | — |
+
+**Net code change:** +370 lines of import/header boilerplate across 7 new
+files, but each file is now focused on one concern. Reading a 200–1,000-line
+file to find one phase is significantly easier than a 2,371-line monolith.
+
+### Method distribution
+
+| Mixin | Methods | Lines | Concern |
+|-------|---------|-------|---------|
+| `DirectorPhasesMixin` | 3 | 159 | Director D1 plan, Q questions, D2 synthesis |
+| `ManagerPhasesMixin` | 8 | 950 | Parallel domain managers, workers, specialist managers |
+| `SpecialistPhasesMixin` | 2 | 209 | Tier 3+ forensic/discovery/witness coordination |
+| `Tier4PhaseMixin` | 1 | 57 | Senior Partner review |
+| `Tier5PhaseMixin` | 1 | 216 | White Glove (deep forensics + trial + multi-model) |
+| `WritebackPhasesMixin` | 3 | 210 | Paperless write-back, CI findings embedding |
+| `OrchestratorUtilsMixin` | 10 | 256 | Budget checkpoints, status, doc fetching, cancellation |
+
+Kept on `CIOrchestrator` itself: `__init__` (58 lines) + `execute_run` (132
+lines). These form the public surface that all callers (CIJobManager,
+route handlers) interact with.
+
+### Why this helps
+
+- **Navigability**: reading the 2,371-line file required constant Ctrl-F to
+  jump between phase methods. New files are focused on one concern.
+- **Review friction**: PR reviews for a bug in Tier 5 no longer scroll past
+  1,600 lines of unrelated Director/Manager/Writeback code.
+- **Parallel work**: two developers can safely edit `tier5_mixin.py` and
+  `managers_mixin.py` without merge conflicts.
+- **Testability**: mixins can be instantiated with minimal stubs for
+  unit-testing specific phases without loading the full orchestrator.
+
+### Verification
+
+- Import-sanity on dev container: all 28 inherited methods resolve via
+  `CIOrchestrator` instance
+- CI CRUD smoke-test on dev + jacob: runs list, status, jurisdictions,
+  create/read/delete all return 200
+- Medium-test `/tmp/instance_medium.py` passes on dev + jacob with identical
+  failure pattern (known cosmetic health-probe bug + hardcoded test version)
+- Zero new JS console errors on CI tab in either instance
+
+### Deployment path
+
+- Dev (8052): ✅ v3.9.2 via volume-mounted source + restart
+- Jacob (8053): ✅ v3.9.2 via volume-mounted source + restart
+- Prod (8051): bundled with next Docker Hub image push (pending user approval)
+
+### Next recommended refactor targets
+
+See `architecture.md`. Remaining candidates:
+1. `analyzer/main.py` (1,598 lines) → `poller.py` + `document_processor.py`
+2. `routes/ci.py` (1,793 lines) → split by CI phase groups
+3. `routes/chat.py` (1,068 lines) → group handlers by concern
+
+---
+
 ## Entry 005 — 2026-04-23 (v3.9.1 — maintainability refactor: split oversized route files)
 
 ### Scope
