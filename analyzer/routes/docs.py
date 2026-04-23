@@ -81,43 +81,26 @@ def api_docs_ask():
 
         _proj = session.get('current_project', 'default')
         ai_cfg = get_project_ai_config(_proj, 'chat')
-        provider = ai_cfg.get('provider', 'openai')
-        model = ai_cfg.get('model', 'gpt-4o')
-        api_key = ai_cfg.get('api_key', '')
 
-        answer = None
-        for _p, _m, _k in [
-            (provider, model, api_key),
-            (ai_cfg.get('fallback_provider', ''), ai_cfg.get('fallback_model', ''),
-             load_ai_config().get('global', {}).get(ai_cfg.get('fallback_provider', ''), {}).get('api_key', '')),
-        ]:
-            if not _p or not _k:
-                continue
-            try:
-                if _p == 'openai':
-                    import openai as _oai
-                    resp = _oai.OpenAI(api_key=_k).chat.completions.create(
-                        model=_m,
-                        messages=[{'role': 'system', 'content': system_prompt}] + messages,
-                        max_tokens=1024,
-                    )
-                    answer = resp.choices[0].message.content
-                elif _p == 'anthropic':
-                    import anthropic as _ant
-                    resp = _ant.Anthropic(api_key=_k).messages.create(
-                        model=_m, max_tokens=1024,
-                        system=system_prompt, messages=messages,
-                    )
-                    answer = resp.content[0].text
-                if answer:
-                    break
-            except Exception as e:
-                logger.warning(f"docs/ask {_p}: {e}")
-                continue
-
-        if not answer:
-            return jsonify({'error': 'No AI provider available — check Configuration → AI Settings.'}), 503
-        return jsonify({'answer': answer})
+        from analyzer.llm.proxy_call import call_llm, LLMUnavailableError
+        try:
+            result = call_llm(
+                messages=[{'role': 'system', 'content': system_prompt}] + messages,
+                task='qa',
+                max_tokens=1024,
+                project_slug=_proj,
+                operation='docs_ask',
+                direct_provider=ai_cfg.get('provider'),
+                direct_api_key=ai_cfg.get('api_key'),
+                direct_model=ai_cfg.get('model'),
+            )
+            return jsonify({'answer': result['content']})
+        except LLMUnavailableError as e:
+            logger.warning(f"docs/ask: {e} attempted={e.attempted}")
+            return jsonify({
+                'error': 'No AI provider available — check Configuration → AI Settings.',
+                'source': 'llm-pool-exhausted',
+            }), 503
     except Exception as e:
         logger.error(f"docs/ask error: {e}")
         return jsonify({'error': str(e)}), 500

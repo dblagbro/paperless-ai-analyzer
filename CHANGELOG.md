@@ -4,6 +4,70 @@ All notable changes to Paperless AI Analyzer are documented here.
 
 ---
 
+## v3.9.0 — 2026-04-23
+
+### Added
+- **LLM Proxy pool with LMRH routing** — all 29 LLM call sites across the app
+  (chat, docs-ask, form parsing, anomaly analysis, 13 Case Intelligence submodules)
+  now route through an ordered pool of llm-proxy endpoints with per-endpoint
+  circuit breakers (3 failures → 60s cooldown). Each call emits an `LLM-Hint`
+  header (LMRH protocol) with task-specific `model-pref` so the proxy can pick
+  the best upstream provider. Direct Anthropic/OpenAI SDK calls are preserved
+  as absolute-last-resort fallback when the proxy pool is exhausted.
+- **`analyzer/llm/proxy_manager.py`** — ported from devingpt's
+  `services/proxy_manager.py` (the canonical pattern). In-memory circuit breaker,
+  `get_healthy_endpoints()`, `build_client()` with v1 (Bearer) / v2 (x-api-key) auth.
+- **`analyzer/llm/lmrh.py`** — LLM Model Routing Hint builder with presets for
+  17 task types (analysis, chat, qa, extraction, classification, reasoning,
+  entity, timeline, financial, contradiction, theory, forensic, discovery,
+  witness, warroom, report, settlement).
+- **`analyzer/llm/proxy_call.py`** — unified `call_llm()` chokepoint + `call_llm_json()`
+  helper for Case Intelligence submodules. Retry loop catches connection/timeout
+  errors, marks failure, tries next endpoint.
+- **New admin UI: Config → 🛰 LLM Proxy sub-tab** — table of endpoints with
+  inline edit (label, url, version, priority, enabled), per-row Test button
+  (shows `✓ <model>` green or `✗ <error>` red for 3s), Delete, and circuit
+  breaker live status. Add Endpoint form with v1/v2 version selector.
+- **`GET/POST/PATCH/DELETE /api/llm-proxy/endpoints`** + `POST /.../<id>/test` — admin-only
+  blueprint at `analyzer/routes/llm_proxy.py`. API keys masked in responses.
+- **DB table `llm_proxy_endpoints`** (SQLite, `/app/data/app.db`) — seeded on
+  first boot from `LLM_PROXY_KEY` env var with two entries: llm-proxy-manager
+  v1 (enabled, priority 10) and llm-proxy2 v2 (disabled, priority 20 — admin
+  enables once v2 API keys are provisioned).
+- **New env vars for all three Docker services** — `LLM_PROXY_KEY`,
+  `LLM_PROXY2_URL`, `LLM_PROXY_URL` sourced from `.env`'s `LLM_PROXY_KEY_DEVINGPT`.
+
+### Changed
+- **`analyzer/llm/llm_client.py`** — `_call_llm()` simplified from 180-line
+  multi-provider retry loop to a single `call_llm()` call. Public API
+  (`analyze_anomalies`, `generate_document_summary`, etc.) unchanged.
+- **All Case Intelligence submodules** (`entity_extractor`, `entity_merger`,
+  `timeline_builder`, `financial_extractor`, `contradiction_engine`,
+  `theory_planner`, `discovery_analyst`, `forensic_accountant`,
+  `deep_financial_forensics`, `witness_analyst`, `war_room`, `report_generator`,
+  `multi_model_synthesis`, `orchestrator`) — each `_call_llm()` body replaced with
+  a short wrapper calling the proxy pool. Provider-specific branches removed;
+  LMRH `fallback-chain` + `model-pref` drive routing. Direct-provider fallback
+  via `direct_provider`/`direct_api_key`/`direct_model` parameters preserves
+  the original behavior when the pool is empty.
+- **Route handlers** (`chat.py`, `docs.py`, `forms.py`, `ci.py`) — replaced
+  inline `if provider == 'openai' ... elif provider == 'anthropic'` blocks
+  with single `call_llm()` call. Pool-exhausted failures return structured
+  HTTP 503 with `source: 'llm-pool-exhausted'` (not opaque 500s).
+- `multi_model_synthesis.py` keeps the parallel ThreadPoolExecutor but each
+  branch now uses `call_llm()` with `fallback_chain=<provider>` to pin the
+  proxy to a single upstream per branch.
+
+### Why
+The 2026-04-22 prod outage (Anthropic credits depleted, no OpenAI fallback
+configured, Waitress queue flooded to depth 87+) proved that direct provider
+keys are a single point of failure. Devingpt and coordinator-hub have been
+using llm-proxy for multi-provider failover for months; this adopts the same
+pattern. Existing `ai_config.json` global keys are preserved as the last-resort
+fallback so behavior is strictly additive for current deployments.
+
+---
+
 ## v3.8.1 — 2026-04-22
 
 ### Fixed

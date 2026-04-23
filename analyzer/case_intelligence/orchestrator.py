@@ -2343,44 +2343,29 @@ Write a concise JSON summary of the 5 most actionable findings:
 
     def _call_llm_simple(self, prompt: str, provider: str, model: str,
                           max_tokens: int, operation: str) -> Optional[str]:
-        """Simple LLM call returning raw text."""
+        """Simple LLM call returning raw text. Routes through proxy pool with
+        direct-provider fallback to the given (provider, model)."""
+        from analyzer.llm.proxy_call import call_llm, LLMUnavailableError
         client = self.llm_clients.get(provider)
-        if not client:
-            logger.warning(f"No LLM client for provider '{provider}'")
-            return None
         try:
-            if provider == 'anthropic':
-                response = client.client.messages.create(
-                    model=model, max_tokens=max_tokens,
-                    messages=[{'role': 'user', 'content': prompt}],
-                )
-                text = response.content[0].text
-                if self.usage_tracker:
-                    self.usage_tracker.log_usage(
-                        provider=provider, model=model, operation=operation,
-                        input_tokens=response.usage.input_tokens,
-                        output_tokens=response.usage.output_tokens,
-                    )
-                with self._token_lock:
-                    self._tokens_in += response.usage.input_tokens
-                    self._tokens_out += response.usage.output_tokens
-                return text
-            elif provider == 'openai':
-                response = client.client.chat.completions.create(
-                    model=model, max_tokens=max_tokens,
-                    messages=[{'role': 'user', 'content': prompt}],
-                )
-                text = response.choices[0].message.content
-                if self.usage_tracker:
-                    self.usage_tracker.log_usage(
-                        provider=provider, model=model, operation=operation,
-                        input_tokens=response.usage.prompt_tokens,
-                        output_tokens=response.usage.completion_tokens,
-                    )
-                with self._token_lock:
-                    self._tokens_in += response.usage.prompt_tokens
-                    self._tokens_out += response.usage.completion_tokens
-                return text
+            result = call_llm(
+                messages=[{'role': 'user', 'content': prompt}],
+                task='analysis',
+                max_tokens=max_tokens,
+                operation=operation,
+                direct_provider=provider,
+                direct_api_key=getattr(client, 'api_key', None) if client else None,
+                direct_model=model,
+                usage_tracker=self.usage_tracker,
+            )
+            text = result.get('content') or ''
+            with self._token_lock:
+                self._tokens_in += int(result.get('input_tokens') or 0)
+                self._tokens_out += int(result.get('output_tokens') or 0)
+            return text
+        except LLMUnavailableError as e:
+            logger.error(f"LLM unavailable [{provider}/{model}]: {e}")
+            return None
         except Exception as e:
             logger.error(f"LLM call failed [{provider}/{model}]: {e}")
             return None

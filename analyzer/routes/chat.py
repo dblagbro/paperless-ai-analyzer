@@ -76,37 +76,32 @@ def _vision_extract_doc(doc_id: int, title: str, paperless_client, ai_config: di
         if not provider_name or not api_key:
             return ''
 
+        from analyzer.llm.proxy_call import call_llm, LLMUnavailableError
         extracted_pages = []
         for i, img_b64 in enumerate(page_images[:8]):
             try:
-                page_text = ''
-                if provider_name == 'openai':
-                    import openai as _openai
-                    oc = _openai.OpenAI(api_key=api_key)
-                    resp = oc.chat.completions.create(
-                        model='gpt-4o',
-                        max_tokens=2000,
-                        messages=[{'role': 'user', 'content': [
-                            {'type': 'image_url', 'image_url': {'url': f'data:image/png;base64,{img_b64}'}},
-                            {'type': 'text', 'text': vision_prompt}
-                        ]}]
-                    )
-                    page_text = resp.choices[0].message.content or ''
-                elif provider_name == 'anthropic':
-                    import anthropic as _anthropic
-                    ac = _anthropic.Anthropic(api_key=api_key)
-                    resp = ac.messages.create(
-                        model='claude-3-5-sonnet-20241022',
-                        max_tokens=2000,
-                        messages=[{'role': 'user', 'content': [
-                            {'type': 'image', 'source': {'type': 'base64', 'media_type': 'image/png', 'data': img_b64}},
-                            {'type': 'text', 'text': vision_prompt}
-                        ]}]
-                    )
-                    page_text = resp.content[0].text if resp.content else ''
+                # OpenAI-format multimodal message — proxy translates to anthropic
+                # format upstream when needed. Direct-provider fallback via
+                # direct_provider=... also uses OpenAI format (Anthropic fallback
+                # for vision is handled only via proxy in practice).
+                result = call_llm(
+                    messages=[{'role': 'user', 'content': [
+                        {'type': 'image_url', 'image_url': {'url': f'data:image/png;base64,{img_b64}'}},
+                        {'type': 'text', 'text': vision_prompt},
+                    ]}],
+                    task='extraction',
+                    has_images=True,
+                    max_tokens=2000,
+                    operation='chat_vision_extract',
+                    document_id=doc_id,
+                    direct_provider=provider_name,
+                    direct_api_key=api_key,
+                    direct_model='gpt-4o' if provider_name == 'openai' else 'claude-3-5-sonnet-20241022',
+                )
+                page_text = result['content'] or ''
                 if page_text:
                     extracted_pages.append(f"[Page {i + 1}]\n{page_text}")
-            except Exception as page_err:
+            except (LLMUnavailableError, Exception) as page_err:
                 logger.warning(f"Vision AI page {i + 1} failed for doc {doc_id}: {page_err}")
 
         result = '\n\n'.join(extracted_pages)
@@ -926,97 +921,31 @@ You CAN access URLs and search the web. This system automatically fetches URLs a
                 providers.append({'name': fb_prov, 'enabled': True, 'api_key': fb_key,
                                   'models': [fb_model]})
 
-        ai_response = None
-        last_error = None
-        attempted = []
+        # Pick the first usable provider+model combo as the direct-provider fallback
+        direct_provider = direct_api_key = direct_model = None
+        for pc in providers:
+            if pc.get('enabled') and (pc.get('api_key') or '').strip() and pc.get('models'):
+                direct_provider = pc.get('name')
+                direct_api_key = pc.get('api_key').strip()
+                direct_model = (pc.get('models') or [None])[0]
+                break
 
-        # Try each enabled provider and their models
-        for provider_config in providers:
-            if not provider_config.get('enabled', False):
-                continue
-
-            provider_name = provider_config.get('name')
-            api_key = provider_config.get('api_key', '').strip()
-            models = provider_config.get('models', [])
-
-            if not api_key:
-                logger.warning(f"Skipping {provider_name}: No API key configured")
-                continue
-
-            # Initialize provider client
-            try:
-                if provider_name == 'openai':
-                    import openai
-                    client = openai.OpenAI(api_key=api_key)
-
-                    # Try each model for this provider
-                    for model in models:
-                        try:
-                            logger.info(f"Trying chat: OpenAI {model}")
-                            attempted.append(f"OpenAI {model}")
-
-                            response = client.chat.completions.create(
-                                model=model,
-                                messages=[{"role": "system", "content": system_prompt}] + messages,
-                                max_tokens=4096  # Increased for legal/court documents - comprehensive answers
-                            )
-                            ai_response = response.choices[0].message.content
-                            logger.info(f"Successfully used: OpenAI {model}")
-                            break
-                        except Exception as e:
-                            error_str = str(e)
-                            if '404' in error_str or 'model_not_found' in error_str:
-                                logger.warning(f"Model {model} not available, trying next...")
-                                last_error = e
-                                continue
-                            else:
-                                logger.warning(f"Error with OpenAI {model}: {e}")
-                                last_error = e
-                                continue
-
-                elif provider_name == 'anthropic':
-                    import anthropic
-                    client = anthropic.Anthropic(api_key=api_key)
-
-                    # Try each model for this provider
-                    for model in models:
-                        try:
-                            logger.info(f"Trying chat: Anthropic {model}")
-                            attempted.append(f"Anthropic {model}")
-
-                            response = client.messages.create(
-                                model=model,
-                                max_tokens=4096,  # Increased for legal/court documents - comprehensive answers
-                                system=system_prompt,
-                                messages=messages
-                            )
-                            ai_response = response.content[0].text
-                            logger.info(f"Successfully used: Anthropic {model}")
-                            break
-                        except Exception as e:
-                            error_str = str(e)
-                            if '404' in error_str or 'not_found' in error_str:
-                                logger.warning(f"Model {model} not available, trying next...")
-                                last_error = e
-                                continue
-                            else:
-                                logger.warning(f"Error with Anthropic {model}: {e}")
-                                last_error = e
-                                continue
-
-                if ai_response:
-                    break  # Success, stop trying providers
-
-            except Exception as e:
-                logger.error(f"Failed to initialize {provider_name} client: {e}")
-                last_error = e
-                continue
-
-        if ai_response is None:
-            if not attempted:
-                raise Exception("No AI API key configured. Please go to the Configuration tab → AI Configuration and add an API key.")
-            attempted_str = ", ".join(attempted)
-            raise Exception(f"No available models responded. Tried: {attempted_str}. Last error: {last_error}")
+        from analyzer.llm.proxy_call import call_llm, LLMUnavailableError
+        try:
+            result = call_llm(
+                messages=[{"role": "system", "content": system_prompt}] + messages,
+                task='chat',
+                max_tokens=4096,  # comprehensive answers for legal/court documents
+                project_slug=session.get('current_project', 'default') if 'current_project' in session else 'default',
+                operation='chat_completion',
+                direct_provider=direct_provider,
+                direct_api_key=direct_api_key,
+                direct_model=direct_model,
+            )
+            ai_response = result['content']
+        except LLMUnavailableError as e:
+            logger.error(f"chat: LLM unavailable: {e} attempted={e.attempted}")
+            raise Exception(f"No available models responded. Tried: {', '.join(e.attempted)}.")
 
         logger.info(f"Chat query: {user_message[:100]}")
 
@@ -1096,30 +1025,29 @@ def api_chat_compare():
         # Build system prompt (reuse simple version without full RAG for speed)
         system_prompt = "You are an AI assistant helping analyze documents. Answer helpfully and accurately. When mentioning any document, ALWAYS use the format [Document #NNN] to enable clickable links."
 
+        from analyzer.llm.proxy_call import call_llm as _proxy_call, LLMUnavailableError
+
         def _call_provider(pconf):
+            """Force routing to a specific provider via LMRH fallback-chain pinning.
+            Direct-provider fallback uses the configured key if proxy fails."""
             name = pconf['name']
             key = pconf['api_key']
             model = pconf['model']
             try:
-                if name == 'openai':
-                    import openai as _oai
-                    client = _oai.OpenAI(api_key=key)
-                    resp = client.chat.completions.create(
-                        model=model,
-                        messages=[{"role": "system", "content": system_prompt}] + messages,
-                        max_tokens=4096
-                    )
-                    return name, resp.choices[0].message.content, None
-                elif name == 'anthropic':
-                    import anthropic as _ant
-                    client = _ant.Anthropic(api_key=key)
-                    resp = client.messages.create(
-                        model=model, max_tokens=4096,
-                        system=system_prompt, messages=messages
-                    )
-                    return name, resp.content[0].text, None
-                else:
-                    return name, None, f"Unsupported provider: {name}"
+                result = _proxy_call(
+                    messages=[{"role": "system", "content": system_prompt}] + messages,
+                    task='chat',
+                    max_tokens=4096,
+                    fallback_chain=name,  # pin proxy to this provider only
+                    model_pref=model,
+                    operation='chat_compare',
+                    direct_provider=name,
+                    direct_api_key=key,
+                    direct_model=model,
+                )
+                return name, result['content'], None
+            except LLMUnavailableError as e:
+                return name, None, str(e)
             except Exception as e:
                 return name, None, str(e)
 

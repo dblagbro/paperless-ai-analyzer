@@ -346,22 +346,23 @@ def ci_detect_jurisdiction():
             '"reasoning": "one sentence explanation"}'
         )
 
-        if llm.provider == 'openai':
-            resp = llm.client.chat.completions.create(
-                model='gpt-4o-mini',
+        from analyzer.llm.proxy_call import call_llm, LLMUnavailableError
+        try:
+            result = call_llm(
                 messages=[{'role': 'user', 'content': prompt}],
+                task='classification',
+                max_tokens=350,
                 temperature=0,
-                max_tokens=350,
-                response_format={'type': 'json_object'},
+                response_format={'type': 'json_object'} if llm.provider == 'openai' else None,
+                direct_provider=llm.provider,
+                direct_api_key=llm.api_key,
+                direct_model='gpt-4o-mini' if llm.provider == 'openai' else 'claude-haiku-4-5-20251001',
+                operation='ci_jurisdiction_detect',
             )
-            raw = resp.choices[0].message.content
-        else:
-            resp = llm.client.messages.create(
-                model='claude-haiku-4-5-20251001',
-                max_tokens=350,
-                messages=[{'role': 'user', 'content': prompt}],
-            )
-            raw = resp.content[0].text
+            raw = result['content']
+        except LLMUnavailableError as e:
+            logger.warning(f"ci/detect-jurisdiction: {e}")
+            return jsonify({'detected': False, 'reason': 'LLM unavailable'}), 503
 
         if not raw or not raw.strip():
             return jsonify({'detected': False, 'reason': 'LLM returned an empty response'})
@@ -502,52 +503,28 @@ def ci_goal_assistant():
 
         project_slug = session.get('current_project', 'default')
         chat_cfg = get_project_ai_config(project_slug, 'chat')
-        _full_cfg = load_ai_config()
 
-        def _global_key(p):
-            return _full_cfg.get('global', {}).get(p, {}).get('api_key', '').strip()
+        # Synthetic opener when browser sends empty message list
+        if not messages:
+            messages = [{'role': 'user', 'content': 'Hello, I need help writing a focused goal statement for my Case Intelligence analysis.'}]
 
-        provider = chat_cfg.get('provider', 'openai')
-        api_key = (chat_cfg.get('api_key') or '').strip() or _global_key(provider)
-        model = chat_cfg.get('model', 'gpt-4o')
-
-        # Fallback if primary has no key
-        if not api_key:
-            fb_prov = chat_cfg.get('fallback_provider')
-            api_key = _global_key(fb_prov) if fb_prov else ''
-            if api_key:
-                provider = fb_prov
-                model = chat_cfg.get('fallback_model', model)
-
-        if not api_key:
-            return jsonify({'error': 'No AI API key configured.'}), 503
-
-        if provider == 'openai':
-            import openai as _oai
-            client = _oai.OpenAI(api_key=api_key)
-            resp = client.chat.completions.create(
-                model=model,
-                max_tokens=600,
+        from analyzer.llm.proxy_call import call_llm, LLMUnavailableError
+        try:
+            result = call_llm(
                 messages=[{'role': 'system', 'content': system_prompt}] + messages,
-            )
-            reply = resp.choices[0].message.content
-        elif provider == 'anthropic':
-            import anthropic as _ant
-            client = _ant.Anthropic(api_key=api_key)
-            # Anthropic requires at least one message; on the first greeting call
-            # the browser sends an empty list, so inject a synthetic opener.
-            ant_messages = messages if messages else [
-                {'role': 'user', 'content': 'Hello, I need help writing a focused goal statement for my Case Intelligence analysis.'}
-            ]
-            resp = client.messages.create(
-                model=model,
+                task='chat',
                 max_tokens=600,
-                system=system_prompt,
-                messages=ant_messages,
+                project_slug=project_slug,
+                operation='ci_goal_assistant',
+                direct_provider=chat_cfg.get('provider'),
+                direct_api_key=chat_cfg.get('api_key'),
+                direct_model=chat_cfg.get('model'),
             )
-            reply = resp.content[0].text
-        else:
-            return jsonify({'error': f'Unsupported provider: {provider}'}), 400
+            reply = result['content']
+        except LLMUnavailableError as e:
+            logger.warning(f"ci/goal-assistant: {e}")
+            return jsonify({'error': 'No AI provider available — check Configuration → AI Settings.',
+                             'source': 'llm-pool-exhausted'}), 503
 
         # Extract suggested goal if present
         suggested_goal = None
@@ -1477,45 +1454,28 @@ def ci_key_guide():
         def _global_key(p):
             return _full_cfg.get('global', {}).get(p, {}).get('api_key', '').strip()
 
-        provider = chat_cfg.get('provider', 'anthropic')
-        api_key = (chat_cfg.get('api_key') or '').strip() or _global_key(provider)
-        model = chat_cfg.get('model', 'claude-sonnet-4-6')
-
-        if not api_key:
-            fb_prov = chat_cfg.get('fallback_provider')
-            if fb_prov:
-                api_key = _global_key(fb_prov)
-                if api_key:
-                    provider = fb_prov
-                    model = chat_cfg.get('fallback_model', model)
-
-        if not api_key:
-            return jsonify({'error': 'No AI API key configured.'}), 503
-
         # Build message list for LLM
         llm_messages = list(messages_in)  # [{role, content}, ...]
+        if not llm_messages:
+            llm_messages = [{'role': 'user', 'content': 'Hello'}]
 
-        if provider == 'openai':
-            import openai as _oai
-            client = _oai.OpenAI(api_key=api_key)
-            resp = client.chat.completions.create(
-                model=model,
-                max_tokens=600,
+        from analyzer.llm.proxy_call import call_llm, LLMUnavailableError
+        try:
+            result = call_llm(
                 messages=[{'role': 'system', 'content': system_prompt}] + llm_messages,
-            )
-            raw_reply = resp.choices[0].message.content
-        elif provider == 'anthropic':
-            import anthropic as _ant
-            client = _ant.Anthropic(api_key=api_key)
-            resp = client.messages.create(
-                model=model,
+                task='settlement',
                 max_tokens=600,
-                system=system_prompt,
-                messages=llm_messages if llm_messages else [{'role': 'user', 'content': 'Hello'}],
+                project_slug=session.get('current_project', 'default'),
+                operation='ci_key_guide',
+                direct_provider=chat_cfg.get('provider'),
+                direct_api_key=chat_cfg.get('api_key'),
+                direct_model=chat_cfg.get('model'),
             )
-            raw_reply = resp.content[0].text
-        else:
-            return jsonify({'error': f'Unsupported provider: {provider}'}), 400
+            raw_reply = result['content']
+        except LLMUnavailableError as e:
+            logger.warning(f"ci/key-guide: {e}")
+            return jsonify({'error': 'No AI provider available — check Configuration → AI Settings.',
+                             'source': 'llm-pool-exhausted'}), 503
 
         # Parse CREDENTIALS_READY signal from response
         credentials = None

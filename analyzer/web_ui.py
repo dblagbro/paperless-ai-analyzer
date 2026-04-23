@@ -15,7 +15,7 @@ from analyzer.app import app, create_app, start_web_server_thread, update_ui_sta
 from analyzer.routes import (  # noqa: F401
     auth, status, profiles, chat, vector, documents,
     projects, upload, ai_config, users, system,
-    ci, court, forms, docs,
+    ci, court, forms, docs, llm_proxy,
 )
 
 _BLUEPRINTS = [
@@ -34,6 +34,7 @@ _BLUEPRINTS = [
     court.bp,
     forms.bp,
     docs.bp,
+    llm_proxy.bp,
 ]
 
 for _bp in _BLUEPRINTS:

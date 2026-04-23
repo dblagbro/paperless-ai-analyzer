@@ -10,6 +10,48 @@ Advanced AI-powered anomaly detection and risk analysis microservice for [Paperl
 
 ---
 
+## What's New in v3.9.0
+
+### LLM Proxy Pool + LMRH Routing (multi-provider fallback infrastructure)
+
+Every LLM call in the app — chat, docs-ask, form parsing, anomaly analysis,
+and all Case Intelligence submodules — now routes through an **ordered pool
+of llm-proxy endpoints** with **per-endpoint circuit breakers** (3 failures →
+60s cooldown). Each call carries an `LLM-Hint` header following the **LMRH
+protocol** (task-specific `model-pref`, `fallback-chain`, `quality`,
+`modality=vision`) so the proxy can pick the best upstream provider for the
+task.
+
+**Why this shipped:** The 2026-04-22 prod outage (Anthropic credits depleted,
+no OpenAI fallback on prod, Waitress queue saturated) proved direct provider
+keys are a single point of failure. Devingpt and coordinator-hub have used
+llm-proxy for multi-provider failover for months — this adopts the same pattern.
+
+**What's new:**
+- New **Config → 🛰 LLM Proxy** admin sub-tab — table of endpoints with
+  inline edit (label, url, version, priority, enabled), per-row **Test** button
+  (sends a live ping, shows `✓ <model>` green or `✗ <error>` red), and live
+  circuit-breaker status.
+- `GET/POST/PATCH/DELETE /api/llm-proxy/endpoints` + `POST /.../<id>/test`
+  admin-only endpoints. API keys are masked in responses (`sk-xxxx••••xxxx`).
+- New DB table `llm_proxy_endpoints` — seeded on first boot from the
+  `LLM_PROXY_KEY` env var with llm-proxy-manager (v1, enabled) and
+  llm-proxy2 (v2, disabled by default until an admin enables it).
+- All 29 LLM call sites migrated to a single unified chokepoint
+  (`analyzer/llm/proxy_call.py → call_llm()`) that iterates healthy proxy
+  endpoints, marks failures, and falls through to the existing Anthropic/OpenAI
+  direct-provider keys as an **absolute last-resort fallback**. No existing
+  deployment behavior changes unless proxy endpoints are reachable.
+- Pool-exhaustion errors now return structured **HTTP 503** with
+  `source: 'llm-pool-exhausted'` instead of opaque 500s.
+
+**Infrastructure reference:**
+- `llm-proxy-manager` (v1, Node.js) at `http://llm-proxy-manager:3000/v1` — 6 providers
+- `llm-proxy2` (v2, Python/FastAPI) at `http://llm-proxy2:3000/v1` — 9 providers
+- Both reachable on the shared Docker network from all three paperless containers
+
+---
+
 ## What's New in v3.8.1
 
 ### Blueprint Architecture, CI Enhancements & Regression Fixes

@@ -356,45 +356,36 @@ class MultiModelSynthesis:
 
     def _call_llm(self, client, model: str, prompt: str,
                   provider: str, operation: str, max_tokens: int = 6000) -> Optional[Dict]:
-        text = ''
+        """Route through proxy pool with provider PINNED (for parallel multi-model
+        synthesis each thread must use a single specified provider). Uses LMRH
+        fallback-chain=<provider> and direct-provider fallback to same provider."""
+        from analyzer.llm.proxy_call import call_llm, LLMUnavailableError
+        import json as _json
         try:
-            if provider == 'anthropic':
-                response = client.client.messages.create(
-                    model=model,
-                    max_tokens=max_tokens,
-                    messages=[{'role': 'user', 'content': prompt}],
-                )
-                text = response.content[0].text
-                usage = response.usage
-                if self.usage_tracker:
-                    self.usage_tracker.log_usage(
-                        provider=provider, model=model, operation=operation,
-                        input_tokens=usage.input_tokens, output_tokens=usage.output_tokens,
-                    )
-            elif provider == 'openai':
-                response = client.client.chat.completions.create(
-                    model=model,
-                    max_tokens=max_tokens,
-                    response_format={'type': 'json_object'},
-                    messages=[{'role': 'user', 'content': prompt}],
-                )
-                text = response.choices[0].message.content
-                usage = response.usage
-                if self.usage_tracker:
-                    self.usage_tracker.log_usage(
-                        provider=provider, model=model, operation=operation,
-                        input_tokens=usage.prompt_tokens, output_tokens=usage.completion_tokens,
-                    )
-            else:
-                return None
-
+            result = call_llm(
+                messages=[{'role': 'user', 'content': prompt}],
+                task='analysis',
+                fallback_chain=provider,  # pin proxy to this provider only
+                model_pref=model,
+                max_tokens=max_tokens,
+                operation=operation,
+                direct_provider=provider,
+                direct_api_key=getattr(client, 'api_key', None),
+                direct_model=model,
+                usage_tracker=self.usage_tracker,
+                response_format={'type': 'json_object'} if provider == 'openai' else None,
+            )
+            text = result.get('content') or ''
             if '```json' in text:
-                text = text.split('```json')[1].split('```')[0].strip()
+                text = text.split('```json', 1)[1].split('```', 1)[0].strip()
             elif '```' in text:
-                text = text.split('```')[1].split('```')[0].strip()
-            return json.loads(text)
-        except json.JSONDecodeError as e:
-            logger.warning(f"MultiModelSynthesis JSON error ({provider}): {e} — preview={text[:300]!r}")
+                text = text.split('```', 1)[1].split('```', 1)[0].strip()
+            return _json.loads(text)
+        except LLMUnavailableError as e:
+            logger.error(f"MultiModelSynthesis LLM unavailable ({provider}): {e}")
+            return None
+        except _json.JSONDecodeError as e:
+            logger.warning(f"MultiModelSynthesis JSON error ({provider}): {e}")
             return None
         except Exception as e:
             logger.error(f"MultiModelSynthesis LLM error ({provider}): {e}")

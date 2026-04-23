@@ -27,6 +27,10 @@
             if (name === 'users' && typeof loadUsers === 'function') {
                 loadUsers();
             }
+            // Lazy-load LLM proxy endpoints on each visit (admin only)
+            if (name === 'llm-proxy' && typeof loadLLMProxy === 'function') {
+                loadLLMProxy();
+            }
             // Update help panel to match the newly active config sub-tab
             _refreshHelpPanel();
         }

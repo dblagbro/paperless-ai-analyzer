@@ -83,55 +83,29 @@ def ai_form_parse():
     )
 
     chat_cfg = get_project_ai_config(project_slug, 'chat')
-    full_cfg = load_ai_config()
 
-    def _global_key(p):
-        return full_cfg.get('global', {}).get(p, {}).get('api_key', '').strip()
-
-    provider = chat_cfg.get('provider', 'openai')
-    api_key  = (chat_cfg.get('api_key') or '').strip() or _global_key(provider)
-    model    = chat_cfg.get('model', 'gpt-4o-mini')
-
-    if not api_key:
-        fb_prov = chat_cfg.get('fallback_provider')
-        api_key  = _global_key(fb_prov) if fb_prov else ''
-        if api_key:
-            provider = fb_prov
-            model    = chat_cfg.get('fallback_model', model)
-
-    if not api_key:
+    from analyzer.llm.proxy_call import call_llm, LLMUnavailableError
+    try:
+        result = call_llm(
+            messages=[{'role': 'system', 'content': system_prompt}] + conversation,
+            task='extraction',
+            max_tokens=800,
+            temperature=0,
+            project_slug=project_slug,
+            operation='ai_form_parse',
+            direct_provider=chat_cfg.get('provider'),
+            direct_api_key=chat_cfg.get('api_key'),
+            direct_model=chat_cfg.get('model'),
+        )
+        raw_response = result['content'] or ''
+    except LLMUnavailableError as e:
+        logger.warning(f"ai_form_parse: {e} attempted={e.attempted}")
         return jsonify({
-            'error': 'No AI API key configured — set up an AI provider in Settings first.'
+            'error': 'No AI provider available — check Configuration → AI Settings.',
+            'source': 'llm-pool-exhausted',
         }), 503
 
     try:
-        raw_response = ''
-
-        if provider == 'openai':
-            import openai as _oai
-            client = _oai.OpenAI(api_key=api_key)
-            resp = client.chat.completions.create(
-                model=model,
-                messages=[{'role': 'system', 'content': system_prompt}] + conversation,
-                temperature=0,
-                max_tokens=800,
-            )
-            raw_response = resp.choices[0].message.content or ''
-
-        elif provider == 'anthropic':
-            import anthropic as _ant
-            client = _ant.Anthropic(api_key=api_key)
-            resp = client.messages.create(
-                model=model,
-                max_tokens=800,
-                system=system_prompt,
-                messages=conversation,
-            )
-            raw_response = resp.content[0].text if resp.content else ''
-
-        else:
-            return jsonify({'error': f'Unsupported AI provider: {provider}'}), 400
-
         stripped = raw_response.strip()
         if stripped.startswith('```'):
             stripped = stripped.split('\n', 1)[1]
