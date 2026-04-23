@@ -3,6 +3,7 @@ from flask import Blueprint, request, jsonify, session
 from flask_login import login_required
 
 from analyzer.services.ai_config_service import load_ai_config, get_project_ai_config
+from analyzer.app import safe_json_body
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +32,7 @@ def ai_form_parse():
     """
     import json as _json
 
-    data         = request.get_json(force=True) or {}
+    data         = safe_json_body()
     schema       = data.get('schema') or []
     conversation = data.get('conversation') or []
     project_slug = (data.get('project_slug') or

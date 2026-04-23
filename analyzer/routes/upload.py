@@ -4,6 +4,7 @@ from flask import Blueprint, request, jsonify, current_app
 from flask_login import login_required, current_user
 
 from analyzer.db import log_import, get_import_history
+from analyzer.app import safe_json_body
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +28,7 @@ def api_transform_upload_url():
     """Transform a cloud share link into a direct download URL."""
     import re as _re
     try:
-        data = request.json or {}
+        data = safe_json_body()
         raw_url = data.get('url', '').strip()
         if not raw_url:
             return jsonify({'error': 'url is required'}), 400
@@ -99,7 +100,7 @@ def api_scan_url():
     import re as _re
     from urllib.parse import urljoin, urlparse as _urlparse, unquote as _unquote
     try:
-        data = request.json or {}
+        data = safe_json_body()
         url = data.get('url', '').strip()
         auth_type = data.get('auth_type', 'none')
         username = data.get('username')
@@ -213,7 +214,7 @@ def api_upload_history():
 def api_upload_from_url():
     """Download file from URL and upload to Paperless."""
     try:
-        data = request.json
+        data = safe_json_body()
         url = data.get('url')
         source = data.get('source', 'url')
         project_slug = data.get('project_slug')
@@ -299,9 +300,14 @@ def api_upload_from_url():
                        doc_id=doc_id, status='uploaded')
             return jsonify({'success': True, 'document_id': doc_id, 'title': title})
         else:
+            # v3.9.4: Paperless returned no result → upstream failure (502) not internal (500)
             log_import(current_user.id, source, filename, url=url,
                        status='error', error='Upload to Paperless failed')
-            return jsonify({'error': 'Upload failed'}), 500
+            return jsonify({
+                'error': 'Upload to Paperless failed',
+                'detail': 'Paperless-ngx rejected the upload (check Paperless logs, API token, and container health)',
+                'source': 'paperless-upstream',
+            }), 502
 
     except Exception as e:
         logger.error(f"Failed to upload from URL: {e}")

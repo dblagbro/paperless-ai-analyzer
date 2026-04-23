@@ -5,7 +5,7 @@ from email.message import EmailMessage
 from flask import Blueprint, request, jsonify, current_app
 from flask_login import login_required, current_user
 
-from analyzer.app import admin_required, ui_state, log_buffer
+from analyzer.app import admin_required, ui_state, log_buffer, safe_json_body
 from analyzer.services.smtp_service import (
     load_smtp_settings as _load_smtp_settings,
     save_smtp_settings as _save_smtp_settings,
@@ -237,7 +237,7 @@ def api_get_smtp_settings():
 def api_save_smtp_settings():
     if not current_user.role == 'admin':
         return jsonify({'error': 'Admin only'}), 403
-    data = request.get_json(force=True) or {}
+    data = safe_json_body()
     current = _load_smtp_settings()
     updated = {
         'host': str(data.get('host', current.get('host', ''))).strip(),
@@ -300,7 +300,7 @@ def api_about():
 @login_required
 def api_bug_report():
     if request.is_json:
-        _d = request.get_json() or {}
+        _d = safe_json_body()
         description   = (_d.get('description') or '').strip()
         severity      = (_d.get('severity') or 'Medium').strip()
         contact_email = (_d.get('contact_email') or '').strip()

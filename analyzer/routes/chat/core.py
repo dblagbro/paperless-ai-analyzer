@@ -9,7 +9,7 @@ from threading import Thread
 from flask import Blueprint, request, jsonify, session, make_response, render_template
 from flask_login import login_required, current_user
 
-from analyzer.app import ui_state
+from analyzer.app import ui_state, safe_json_body
 from analyzer.db import (
     get_session, create_session, can_access_session, get_sessions,
     get_all_sessions_by_user, get_messages, append_message, update_session_title,
@@ -51,7 +51,7 @@ def api_chat():
     """Chat with AI about documents using RAG (semantic search)."""
     from flask import current_app
     try:
-        data = request.json
+        data = safe_json_body()
         user_message = data.get('message', '').strip()
         history = data.get('history', [])
         document_type = data.get('document_type', None)  # Optional filter by document type
@@ -608,7 +608,7 @@ def api_chat_compare():
     """Call both configured LLM providers in parallel and return both responses."""
     try:
         from concurrent.futures import ThreadPoolExecutor, as_completed
-        data = request.json or {}
+        data = safe_json_body()
         user_message = data.get('message', '').strip()
         if not user_message:
             return jsonify({'error': 'Message required'}), 400

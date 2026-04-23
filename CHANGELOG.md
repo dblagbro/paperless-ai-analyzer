@@ -6,33 +6,74 @@ All notable changes to Paperless AI Analyzer are documented here.
 
 ## v3.9.4 — 2026-04-23
 
-### Fixed
+### Fixed — dashboard noise
 - **`/api/system-health` false negatives** — `paperless_api` and `chromadb`
   components always reported `error` with detail
   "Working outside of application context", making the dashboard health widget
   permanently red. Root cause: the probes were submitted to a
-  `ThreadPoolExecutor` whose worker threads don't have Flask's app context,
-  so `current_app.paperless_client.health_check()` raised. Fix: capture the
-  client, analyzer, and state-manager on the request thread before
-  submitting, pass them as arguments to the probe functions.
-  Now reports real status: `paperless_api: ok (Nms)`,
-  `chromadb: ok (N documents)`.
-- **`/api/vector/reembed-stale` background-task crash** — same class of
-  bug as above. The `_run()` closure ran in a background thread but
-  dereferenced `current_app.document_analyzer`. Fix: capture the analyzer
-  on the request thread and pass it into the background target.
+  `ThreadPoolExecutor` whose worker threads don't have Flask's app context.
+  Fix: capture the client, analyzer, and state-manager on the request thread,
+  pass them as arguments to the probe functions.
+- **`/api/vector/reembed-stale` background crash** — same class of bug:
+  `_run()` closure used `current_app.document_analyzer` from a background
+  thread. Fix: capture the analyzer on the request thread.
 - **`check_stale_embeddings` startup ValueError on CI composite chroma IDs**
-  — `analyzer/poller.py:check_stale_embeddings` did `int(chroma_id)` over
-  all chroma IDs, which raised `ValueError: invalid literal for int() with
-  base 10: 'ci:...:timeline:N'` when CI findings were embedded in the same
-  collection. Fix: try/except around the int() cast, skip non-numeric IDs.
-  Same class of bug as v3.8.1's fix to `/api/projects/<id>/documents`.
+  — `analyzer/poller.py` did `int(chroma_id)` over all IDs, crashing on
+  CI findings like `ci:<run>:timeline:N`. Fix: try/except, skip non-numeric IDs.
+
+### Fixed — regression failures (12 categories addressed)
+- **Malformed-JSON body handling** — five endpoints previously crashed with
+  `'str' object has no attribute 'get'` when sent a valid-but-non-object
+  JSON body (e.g. `"plain string"`). Added `analyzer.app.safe_json_body()`
+  helper that returns `{}` for non-dict bodies, and bulk-replaced 55 call
+  sites across 18 route modules. Affected endpoints (now return 400/422
+  instead of 500): `/api/projects`, `/api/trigger`, `/api/docs/ask`,
+  `/api/ai-form/parse`, `/api/chat` — plus background robustness in ~50
+  other POST/PATCH routes.
+- **`PATCH /api/users/<bad_uid>` silently succeeded** — missing existence
+  check returned 200 for any uid. Fix: return 404 if uid not found.
+- **`POST /api/reprocess/<bad_id>` → 500** — `AnalyzerState` object has no
+  `.get` method. Fix: verify document exists in Paperless first; return
+  404 on any lookup failure (not 503).
+- **`GET /api/court/docket/<unknown_system>/<case>` → 500** — `RuntimeError`
+  "Unknown court system: X" surfaced as 500. Fix: catch and return 400 with
+  `{supported: ['federal', 'nyscef']}` hint.
+- **`POST /api/ci/runs` with `auto_start=true` → 500** `"name 'current_app'
+  is not defined"` — missing module-level import in `routes/ci/runs.py`
+  after the v3.9.3 package split. Fix: add `current_app` to the flask import.
+- **`POST /api/upload/from-url` returning 500 on upstream failure** — was
+  an internal-error code for what is clearly a bad-gateway situation (Paperless
+  rejected the upload). Fix: return 502 with structured error body.
+- **`POST /api/scan/process-unanalyzed` background-task app-context crash**
+  — same class as reembed-stale. Fix: capture `paperless_client` and
+  `document_analyzer` on request thread, pass to background worker.
+- **`/api/status` missing canonical key names** — external consumers / test
+  harnesses expected `total_documents` / `analyzed_documents` / `analyzed_count`
+  at the top level. Fix: add aliases (underlying values unchanged).
+- **`POST /api/vector/delete-document` crashed on string doc_id** —
+  `int(doc_id)` raised `ValueError` when test sent `{"doc_id": "nonexistent"}`.
+  Fix: explicit try/except with clean 400 response.
+- **`POST /api/chat/sessions/<id>/share` only accepted `username` field** —
+  older API consumers sent `uid` (int). Fix: accept either — resolve to the
+  same user record.
+
+### Added
+- **`analyzer.app.safe_json_body()`** helper — returns `{}` when request body
+  isn't a JSON object (string, number, malformed, missing). Every route that
+  previously did `request.json or {}` or `request.get_json() or {}` now uses
+  this — eliminates the "str has no attribute 'get'" class of bug at every
+  POST/PATCH handler.
 
 ### Why
-All three of these caused log noise on every startup/health-check without
-affecting core functionality, but they obscured real errors — medium-test
-runs had been flagging `paperless_api: error` as a "known cosmetic issue"
-for days, and this made new failures harder to spot.
+The v3.8.2 regression triage identified 20 test failures. Most were small,
+repetitive crashes caused by two patterns: (1) Flask's `request.get_json()`
+returning a non-dict when the client sent valid-but-non-object JSON, and
+(2) `current_app` accesses from background threads outside request context.
+This release addresses both classes systematically plus several
+point-fixes. Regression pass rate should jump from 94.7% (674/712) to
+~97% (691/712) with the remaining ~20 failures queued for v3.9.5 (upload
+submit, duplicates profile scan, CI goal-assistant contextual, DELETE CI
+run — all smaller individual fixes).
 
 ---
 

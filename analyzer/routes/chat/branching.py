@@ -9,7 +9,7 @@ from threading import Thread
 from flask import Blueprint, request, jsonify, session, make_response, render_template
 from flask_login import login_required, current_user
 
-from analyzer.app import ui_state
+from analyzer.app import ui_state, safe_json_body
 from analyzer.db import (
     get_session, create_session, can_access_session, get_sessions,
     get_all_sessions_by_user, get_messages, append_message, update_session_title,
@@ -55,7 +55,7 @@ def api_chat_message_edit(session_id, message_id):
             return jsonify({'error': 'Session not found'}), 404
         if not can_access_session(session_id, current_user.id):
             return jsonify({'error': 'Access denied'}), 403
-        data = request.json or {}
+        data = safe_json_body()
         new_content = data.get('content', '').strip()
         if not new_content:
             return jsonify({'error': 'Content required'}), 400
@@ -81,7 +81,7 @@ def api_chat_branch(session_id):
         sess = get_session(session_id)
         if not sess or not can_access_session(session_id, current_user.id):
             return jsonify({'error': 'Access denied'}), 403
-        data = request.json or {}
+        data = safe_json_body()
         edit_from_id = data.get('edit_from_id')
         if not edit_from_id:
             return jsonify({'error': 'edit_from_id required'}), 400
@@ -139,7 +139,7 @@ def api_chat_set_leaf(session_id):
         sess = get_session(session_id)
         if not sess or not can_access_session(session_id, current_user.id):
             return jsonify({'error': 'Access denied'}), 403
-        data = request.json or {}
+        data = safe_json_body()
         leaf_id = data.get('leaf_id')
         if not leaf_id:
             return jsonify({'error': 'leaf_id required'}), 400

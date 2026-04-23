@@ -9,7 +9,7 @@ from threading import Thread
 from flask import Blueprint, request, jsonify, session, make_response, render_template
 from flask_login import login_required, current_user
 
-from analyzer.app import ui_state
+from analyzer.app import ui_state, safe_json_body
 from analyzer.db import (
     get_session, create_session, can_access_session, get_sessions,
     get_all_sessions_by_user, get_messages, append_message, update_session_title,
@@ -92,7 +92,7 @@ def api_chat_sessions_list():
 def api_chat_sessions_create():
     """Create a new chat session."""
     try:
-        data = request.json or {}
+        data = safe_json_body()
         title = data.get('title', 'New Chat')
         document_type = data.get('document_type')
         project_slug = session.get('current_project', 'default')
@@ -171,7 +171,7 @@ def api_chat_session_rename(session_id):
             return jsonify({'error': 'Session not found'}), 404
         if not current_user.is_admin and sess['user_id'] != current_user.id:
             return jsonify({'error': 'Access denied'}), 403
-        data = request.json or {}
+        data = safe_json_body()
         title = data.get('title', '').strip()
         if not title:
             return jsonify({'error': 'Title required'}), 400
@@ -185,20 +185,32 @@ def api_chat_session_rename(session_id):
 @bp.route('/api/chat/sessions/<session_id>/share', methods=['POST'])
 @login_required
 def api_chat_session_share(session_id):
-    """Share session with a user by username."""
+    """Share session with a user.
+
+    v3.9.4: accepts either `username` (string) or `uid` (int). Older API
+    consumers sent `uid`; the UI sends `username`.
+    """
     try:
         sess = get_session(session_id)
         if not sess:
             return jsonify({'error': 'Session not found'}), 404
         if not current_user.is_admin and sess['user_id'] != current_user.id:
             return jsonify({'error': 'Access denied'}), 403
-        data = request.json or {}
-        target_username = data.get('username', '').strip()
-        if not target_username:
-            return jsonify({'error': 'Username required'}), 400
-        target_user = get_user_by_username(target_username)
-        if not target_user:
-            return jsonify({'error': f"User '{target_username}' not found"}), 404
+        data = safe_json_body()
+        target_username = (data.get('username') or '').strip()
+        target_uid = data.get('uid')
+        if target_uid is not None:
+            from analyzer.db import get_user_by_id
+            target_user = get_user_by_id(target_uid)
+            if not target_user:
+                return jsonify({'error': f"User id {target_uid} not found"}), 404
+            target_username = target_user['username']
+        elif target_username:
+            target_user = get_user_by_username(target_username)
+            if not target_user:
+                return jsonify({'error': f"User '{target_username}' not found"}), 404
+        else:
+            return jsonify({'error': 'Username or uid required'}), 400
         if target_user['id'] == sess['user_id']:
             return jsonify({'error': 'Cannot share with the owner'}), 400
         share_session(session_id, target_user['id'], current_user.id)

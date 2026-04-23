@@ -68,6 +68,11 @@ def api_status():
             'awaiting_ocr': awaiting_ocr,
             'awaiting_ai': awaiting_ai,
             'paperless_total': paperless_total,
+            # v3.9.4: flat aliases at top level for API consumers that expect
+            # these canonical names (e.g. regression tests, external dashboards).
+            'total_documents': paperless_total,
+            'analyzed_documents': chroma_count,
+            'analyzed_count': chroma_count,
         })
 
 

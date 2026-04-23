@@ -26,6 +26,7 @@ _DOCS_PAGES = {
     'court-import': 'court-import',
 }
 
+from analyzer.app import safe_json_body
 try:
     from analyzer.app import _APP_VERSION
 except ImportError:
@@ -57,7 +58,7 @@ def docs(page=''):
 def api_docs_ask():
     """Answer a question about the application using the configured LLM (no RAG)."""
     try:
-        data = request.get_json() or {}
+        data = safe_json_body()
         question = data.get('question', '').strip()
         history = data.get('history', [])
         if not question:

@@ -3,7 +3,7 @@ import os
 from flask import Blueprint, request, jsonify, session, current_app
 from flask_login import login_required
 
-from analyzer.app import admin_required, _get_project_client, _project_client_cache
+from analyzer.app import admin_required, _get_project_client, _project_client_cache, safe_json_body
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +75,7 @@ def api_create_project():
         return jsonify({'error': 'Project management not enabled'}), 503
 
     try:
-        data = request.json
+        data = safe_json_body()
 
         if not data.get('name'):
             return jsonify({'error': 'Project name is required'}), 400
@@ -152,7 +152,7 @@ def api_update_project(slug):
         return jsonify({'error': 'Project management not enabled'}), 503
 
     try:
-        data = request.json
+        data = safe_json_body()
         project = current_app.project_manager.update_project(slug, **data)
         logger.info(f"Updated project: {slug}")
         return jsonify(project)
@@ -244,7 +244,7 @@ def api_set_project_paperless_config(slug):
         if not project:
             return jsonify({'error': 'Project not found'}), 404
 
-        data = request.json or {}
+        data = safe_json_body()
         updates = {}
         if 'url' in data:
             updates['paperless_url'] = data['url'] or None
@@ -478,7 +478,7 @@ def api_reprovision(slug):
 def api_paperless_health_check(slug):
     """Test-connect a Paperless URL + token without saving."""
     try:
-        data = request.json or {}
+        data = safe_json_body()
         url = (data.get('url') or '').strip().rstrip('/')
         token = (data.get('token') or '').strip()
         if not url:
@@ -636,7 +636,7 @@ def api_set_current_project():
         return jsonify({'error': 'Project management not enabled'}), 503
 
     try:
-        data = request.json
+        data = safe_json_body()
         project_slug = data.get('project_slug')
 
         if not project_slug:
@@ -691,7 +691,7 @@ def api_assign_project_to_documents():
         return jsonify({'error': 'Required services not available'}), 503
 
     try:
-        data = request.json
+        data = safe_json_body()
         document_ids = data.get('document_ids', [])
         project_slug = data.get('project_slug')
 
@@ -774,7 +774,7 @@ def api_migrate_documents():
         return jsonify({'error': 'Required services not available'}), 503
 
     try:
-        data = request.json
+        data = safe_json_body()
         source_slug = data.get('source_project')
         dest_slug = data.get('destination_project')
         document_ids = data.get('document_ids', [])

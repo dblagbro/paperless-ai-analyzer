@@ -2,6 +2,8 @@ import logging
 from flask import Blueprint, request, jsonify, session, current_app
 from flask_login import login_required
 
+from analyzer.app import safe_json_body
+
 logger = logging.getLogger(__name__)
 
 bp = Blueprint('vector', __name__)
@@ -63,11 +65,17 @@ def api_vector_delete_document(document_id):
 def api_vector_delete_document_json():
     """Delete a specific document from vector store (JSON body)."""
     try:
-        data = request.json
+        data = safe_json_body()
         doc_id = data.get('doc_id')
 
         if not doc_id:
             return jsonify({'error': 'doc_id required'}), 400
+
+        # v3.9.4: coerce to int — callers may send a stringy doc_id
+        try:
+            doc_id = int(doc_id)
+        except (ValueError, TypeError):
+            return jsonify({'error': f'doc_id must be numeric, got {doc_id!r}'}), 400
 
         from analyzer.vector_store import VectorStore
         vector_store = VectorStore(project_slug=session.get('current_project', 'default'))
@@ -75,7 +83,7 @@ def api_vector_delete_document_json():
         if not vector_store.enabled:
             return jsonify({'error': 'Vector store not enabled'}), 503
 
-        success = vector_store.delete_document(int(doc_id))
+        success = vector_store.delete_document(doc_id)
 
         if success:
             return jsonify({
@@ -95,7 +103,7 @@ def api_vector_delete_document_json():
 def api_vector_delete_by_type():
     """Delete all documents of a specific type from vector store."""
     try:
-        data = request.json
+        data = safe_json_body()
         document_type = data.get('document_type', '').strip()
 
         if not document_type:

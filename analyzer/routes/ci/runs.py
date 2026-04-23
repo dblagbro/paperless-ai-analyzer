@@ -5,10 +5,10 @@ Extracted from routes/ci.py during the v3.9.3 maintainability refactor.
 import json
 import logging
 from datetime import datetime
-from flask import Blueprint, request, jsonify, session, make_response
+from flask import Blueprint, request, jsonify, session, make_response, current_app
 from flask_login import login_required, current_user
 
-from analyzer.app import admin_required, advanced_required, _ci_gate, _ci_can_read, _ci_can_write
+from analyzer.app import admin_required, advanced_required, _ci_gate, _ci_can_read, _ci_can_write, safe_json_body
 from analyzer.db import get_user_by_id, get_user_by_username
 from analyzer.services.ai_config_service import load_ai_config, get_project_ai_config
 from analyzer.services.smtp_service import (
@@ -85,7 +85,7 @@ def ci_create_run():
     try:
         import json as _json
         from analyzer.case_intelligence.db import create_ci_run
-        data = request.json or {}
+        data = safe_json_body()
         project_slug = session.get('current_project', 'default')
 
         jurisdiction_json = '{}'
@@ -184,7 +184,7 @@ def ci_update_run(run_id):
         if not _ci_can_write(run):
             return jsonify({'error': 'Not authorized'}), 403
 
-        data = request.json or {}
+        data = safe_json_body()
         allowed_fields = {
             'role', 'goal_text', 'budget_per_run_usd', 'max_tier', 'auto_routing',
         }
@@ -497,7 +497,7 @@ def ci_add_run_share(run_id):
         if not _ci_can_write(run):
             return jsonify({'error': 'Not authorized'}), 403
 
-        data = request.json or {}
+        data = safe_json_body()
         target = None
         if 'username' in data:
             target = get_user_by_username(data['username'])
@@ -570,7 +570,7 @@ def ci_submit_answers(run_id):
         if not _ci_can_write(run):
             return jsonify({'error': 'Not authorized'}), 403
 
-        data = request.json or {}
+        data = safe_json_body()
         answers = data.get('answers', {})  # {question_id: answer_text}
         proceed_with_assumptions = data.get('proceed_with_assumptions', False)
 

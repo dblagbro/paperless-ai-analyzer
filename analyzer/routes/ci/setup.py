@@ -8,7 +8,7 @@ from datetime import datetime
 from flask import Blueprint, request, jsonify, session, make_response
 from flask_login import login_required, current_user
 
-from analyzer.app import admin_required, advanced_required, _ci_gate, _ci_can_read, _ci_can_write
+from analyzer.app import admin_required, advanced_required, _ci_gate, _ci_can_read, _ci_can_write, safe_json_body
 from analyzer.db import get_user_by_id, get_user_by_username
 from analyzer.services.ai_config_service import load_ai_config, get_project_ai_config
 from analyzer.services.smtp_service import (
@@ -188,7 +188,7 @@ def ci_goal_assistant():
         return err
     try:
         from analyzer.routes.chat import _fetch_url_text
-        data = request.json or {}
+        data = safe_json_body()
         messages = data.get('messages', [])          # [{role, content}, ...]
         ctx = data.get('context', {})
         role = ctx.get('role', 'neutral')
@@ -343,7 +343,7 @@ def ci_key_guide():
     }
 
     try:
-        data = request.json or {}
+        data = safe_json_body()
         service = (data.get('service') or '').strip()
         service_name = (data.get('service_name') or service).strip()
         messages_in = data.get('messages') or []
@@ -486,7 +486,7 @@ def ci_ingest_authorities():
         from analyzer.case_intelligence.db import init_ci_db
 
         init_ci_db()
-        data = request.json or {}
+        data = safe_json_body()
         sources = data.get('sources', ['nysenate', 'ecfr', 'courtlistener'])
 
         def _ingest():
