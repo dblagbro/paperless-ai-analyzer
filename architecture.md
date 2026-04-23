@@ -1,6 +1,6 @@
 # Architecture — Paperless AI Analyzer
 
-> Last updated: 2026-04-22 — post-refactor v3.7.4 → v3.8.x
+> Last updated: 2026-04-23 — post-refactor v3.9.0 → v3.9.1
 
 ---
 
@@ -71,7 +71,11 @@ paperless-ai-analyzer/
 │   ├── services/                    # Cross-cutting business logic (no Flask, no routes)
 │   │   ├── __init__.py
 │   │   ├── ai_config_service.py     # load/save/get AI config, project config resolution
-│   │   └── smtp_service.py          # SMTP send helpers, welcome/manual email templates
+│   │   ├── smtp_service.py          # SMTP send helpers, welcome/manual email templates
+│   │   ├── web_research_service.py  # DuckDuckGo search, URL fetch, Justia→CourtListener resolver (extracted from routes/chat.py, v3.9.1)
+│   │   ├── vision_service.py        # Vision-AI PDF page extraction for RAG (extracted from routes/chat.py, v3.9.1)
+│   │   ├── chat_branch_service.py   # Chat branch-tree computation (extracted from routes/chat.py, v3.9.1)
+│   │   └── project_provisioning_service.py  # Docker-compose + nginx + Postgres provisioning for per-project Paperless instances (extracted from routes/projects.py, v3.9.1)
 │   │
 │   ├── case_intelligence/           # CI pipeline — all /api/ci/* backend logic
 │   │   ├── __init__.py
@@ -246,6 +250,24 @@ All configuration via environment variables (`.env` or Docker Compose):
 | `URL_PREFIX` | Nginx reverse proxy path prefix |
 | `PORT` | Flask listen port (default: 8051) |
 | `SMTP_*` | Email notification settings |
+
+---
+
+## Next Recommended Refactor Targets
+
+Tracked in `project_paperless_backlog.md`; summarised here for visibility:
+
+1. **Split `case_intelligence/orchestrator.py`** (2,371 lines, single `CIOrchestrator` class)
+   into `ci_phases/` submodules (d1_plan, managers, specialist, senior_partner, tier5, writeback).
+   Deferred in the 2026-04-23 refactor because it's high-risk (real billing, parallel
+   workers, long-running) and needs a dedicated regression pass.
+2. **Split `analyzer/main.py`** (1,598 lines) — the `DocumentAnalyzer` class mixes
+   poll-loop control with per-document processing. Natural split: `poller.py` +
+   `document_processor.py`.
+3. **Split `routes/ci.py`** (1,793 lines, 40 top-level functions) by CI phase:
+   setup / runs / findings / reports. Currently one monolithic blueprint module.
+4. **Split `routes/chat.py`** further (now 1,068 lines) by grouping the 20+ handlers:
+   core `/api/chat`, session CRUD, branch/edit/leaf, sharing, export.
 
 ---
 

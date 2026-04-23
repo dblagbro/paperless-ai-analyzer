@@ -2,6 +2,102 @@
 
 ---
 
+## Entry 005 — 2026-04-23 (v3.9.1 — maintainability refactor: split oversized route files)
+
+### Scope
+Incremental architectural refactor focused on maintainability and future
+development speed. Target: the two largest route files which had mixed HTTP
+and business-logic concerns. No behavior change; pure mechanical extraction.
+
+### What was improved
+
+**Refactor 1: `routes/chat.py` (1,443 → 1,068 lines, –26%)**
+Extracted 7 business-logic helper functions from the top of `routes/chat.py`
+into three focused service modules. The route module now contains only HTTP
+handlers; all web-research, vision-OCR, and branch-tree logic lives in
+`services/`.
+
+- **`services/web_research_service.py`** (262 lines, NEW) —
+  `ddg_search`, `fetch_url_text`, `resolve_court_docket_url`,
+  `load_session_web_context`, `save_session_web_context`,
+  `SEARCH_INTENT_PHRASES` constant
+- **`services/vision_service.py`** (102 lines, NEW) —
+  `vision_extract_doc`
+- **`services/chat_branch_service.py`** (82 lines, NEW) —
+  `compute_branch_data`
+
+**Refactor 2: `routes/projects.py` (1,420 → 947 lines, –33%)**
+Extracted the 477-line docker-compose + nginx + Postgres provisioning pipeline
+and the document-migration pipeline into a single service module. The route
+module now contains only HTTP handlers.
+
+- **`services/project_provisioning_service.py`** (505 lines, NEW) —
+  `_provision_status`, `_migration_status` state dicts;
+  `_get_docker_client`, `_provision_log`, `_migration_log`;
+  `_provision_project_paperless`, `_migrate_project_to_own_paperless`
+
+### Files changed
+
+| File | Lines before | Lines after | Delta |
+|------|--------------|-------------|-------|
+| `routes/chat.py` | 1,443 | 1,068 | –375 |
+| `routes/projects.py` | 1,420 | 947 | –473 |
+| `services/web_research_service.py` | (new) | 262 | +262 |
+| `services/vision_service.py` | (new) | 102 | +102 |
+| `services/chat_branch_service.py` | (new) | 82 | +82 |
+| `services/project_provisioning_service.py` | (new) | 505 | +505 |
+| `architecture.md` | updated | — | — |
+| `refactor-log.md` | this entry | — | — |
+
+### Why this helps
+
+- **Testability**: services are plain Python functions with typed arguments
+  and typed returns. They can be unit-tested without booting Flask, without
+  a request context, without a DB connection (for the pure functions). The
+  original helpers required spinning up the full Flask app to exercise.
+- **Reusability**: `ddg_search` and `fetch_url_text` can be called from
+  Case Intelligence's `web_researcher` (currently duplicates its own search
+  code). Future refactor can de-duplicate.
+- **Review friction**: reading the 1,400-line route files required mentally
+  skipping past 400 lines of helpers to find the HTTP handler being discussed
+  in a bug report. The new layout is "one file per concern".
+- **Discoverability**: a new contributor asking "where does the AI chat
+  decide to fetch a URL?" can search `services/` for `fetch_url_text` and
+  find it in a 260-line file instead of a 1,400-line file.
+
+### Verification
+
+- `rsync` + container restart on dev
+- Full `/tmp/instance_medium.py` medium-test run — **35/43 passed on all 3 instances** (identical to pre-refactor baseline)
+- End-to-end chat + docs-ask smoke tests pass:
+  - dev: `'refactor1-ok'`, `'refactor2-ok'`
+  - jacob: `'jacob-refactor-ok'`
+- Projects API `/provision-status` + `/migration-status` return expected `{"status":"idle"}`
+
+### Why the CI orchestrator split was NOT done here
+
+`case_intelligence/orchestrator.py` (2,371 lines, single `CIOrchestrator`
+class with 30 methods spanning 6 phases) was identified as refactor candidate
+#3 but deferred. Reasoning:
+
+- It's the highest-risk code in the codebase (real billing, parallel workers,
+  long-running) — a mistake here could silently corrupt in-flight runs
+- The refactor is significantly more surgical (phase extraction with proper
+  method signature changes) vs the mechanical move-and-import pattern used in
+  #1 and #2
+- It deserves its own PR with its own CI-focused regression pass
+- Tracking in `project_paperless_backlog.md` so it's not lost
+
+### Next recommended refactor targets
+
+See `architecture.md` "Next Recommended Refactor Targets" section. Top three:
+
+1. **`case_intelligence/orchestrator.py`** — split into `ci_phases/` submodules (deferred from this pass)
+2. **`analyzer/main.py`** (1,598 lines) — split `DocumentAnalyzer` class into `poller.py` + `document_processor.py`
+3. **`routes/ci.py`** (1,793 lines, 40 functions) — split by CI phase (setup / runs / findings / reports)
+
+---
+
 ## Entry 004 — 2026-04-23 (v3.9.0 — LLM Proxy pool + LMRH)
 
 ### Scope
