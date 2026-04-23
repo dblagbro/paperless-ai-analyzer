@@ -1,6 +1,6 @@
 # Architecture — Paperless AI Analyzer
 
-> Last updated: 2026-04-23 — post-refactor v3.9.0 → v3.9.1
+> Last updated: 2026-04-23 — post-refactor v3.9.0 → v3.9.2
 
 ---
 
@@ -79,7 +79,16 @@ paperless-ai-analyzer/
 │   │
 │   ├── case_intelligence/           # CI pipeline — all /api/ci/* backend logic
 │   │   ├── __init__.py
-│   │   ├── orchestrator.py          # CIOrchestrator: 5-tier pipeline runner
+│   │   ├── orchestrator.py          # CIOrchestrator: composition-only (inherits 7 mixins from ci_phases/)
+│   │   ├── ci_phases/               # CI phase implementations as mixins (v3.9.2 split)
+│   │   │   ├── __init__.py
+│   │   │   ├── directors_mixin.py   # D1 plan, Q questions, D2 synthesis
+│   │   │   ├── managers_mixin.py    # parallel domain managers + workers
+│   │   │   ├── specialist_mixin.py  # Tier 3+ forensic / discovery / witness
+│   │   │   ├── tier4_mixin.py       # Senior Partner review
+│   │   │   ├── tier5_mixin.py       # White Glove (deep forensics / trial / multi-model)
+│   │   │   ├── writeback_mixin.py   # Paperless write-back, finding embedding
+│   │   │   └── utils_mixin.py       # budget checkpoints, status, doc fetching
 │   │   ├── db/                      # CI data access layer (split from single flat db.py)
 │   │   │   ├── __init__.py          # Re-exports all public symbols
 │   │   │   ├── schema.py            # init_ci_db(), recover_orphaned_runs()
@@ -257,17 +266,15 @@ All configuration via environment variables (`.env` or Docker Compose):
 
 Tracked in `project_paperless_backlog.md`; summarised here for visibility:
 
-1. **Split `case_intelligence/orchestrator.py`** (2,371 lines, single `CIOrchestrator` class)
-   into `ci_phases/` submodules (d1_plan, managers, specialist, senior_partner, tier5, writeback).
-   Deferred in the 2026-04-23 refactor because it's high-risk (real billing, parallel
-   workers, long-running) and needs a dedicated regression pass.
-2. **Split `analyzer/main.py`** (1,598 lines) — the `DocumentAnalyzer` class mixes
+1. **Split `analyzer/main.py`** (1,598 lines) — the `DocumentAnalyzer` class mixes
    poll-loop control with per-document processing. Natural split: `poller.py` +
    `document_processor.py`.
-3. **Split `routes/ci.py`** (1,793 lines, 40 top-level functions) by CI phase:
+2. **Split `routes/ci.py`** (1,793 lines, 40 top-level functions) by CI phase:
    setup / runs / findings / reports. Currently one monolithic blueprint module.
-4. **Split `routes/chat.py`** further (now 1,068 lines) by grouping the 20+ handlers:
+3. **Split `routes/chat.py`** further (now 1,068 lines) by grouping the 20+ handlers:
    core `/api/chat`, session CRUD, branch/edit/leaf, sharing, export.
+4. ~~Split `case_intelligence/orchestrator.py`~~ — **COMPLETED v3.9.2** (2026-04-23).
+   Split into 7 mixin files under `ci_phases/`. orchestrator.py now 334 lines.
 
 ---
 
