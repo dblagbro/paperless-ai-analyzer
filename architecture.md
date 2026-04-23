@@ -1,6 +1,6 @@
 # Architecture — Paperless AI Analyzer
 
-> Last updated: 2026-04-23 — post-refactor v3.9.0 → v3.9.2
+> Last updated: 2026-04-23 — post-refactor v3.9.0 → v3.9.3 (all backlog items completed)
 
 ---
 
@@ -36,7 +36,9 @@ paperless-ai-analyzer/
 │   ├── __init__.py                  # Package version (__version__)
 │   ├── app.py                       # Flask app instance, middleware, auth, factories
 │   ├── web_ui.py                    # Thin orchestrator: registers blueprints, server entry points
-│   ├── main.py                      # DocumentAnalyzer class, poll loop, CLI entry point
+│   ├── main.py                      # CLI entry point + DocumentAnalyzer composition (inherits 2 mixins)
+│   ├── poller.py                    # PollerMixin: poll loop, re-analysis, stale-embedding check (v3.9.3)
+│   ├── document_processor.py        # DocumentProcessorMixin: per-doc analysis, vision AI, tag compilation (v3.9.3)
 │   ├── auth.py                      # Flask-Login user model + DB init
 │   ├── db.py                        # Core SQLite (users, chat sessions, messages, upload history)
 │   ├── paperless_client.py          # Paperless-NGX REST client
@@ -55,7 +57,12 @@ paperless-ai-analyzer/
 │   │   ├── auth.py                  # /login, /logout
 │   │   ├── status.py                # /api/status, /api/recent, /health, /api/about
 │   │   ├── profiles.py              # /api/profiles, /api/staging/*, /api/active/*
-│   │   ├── chat.py                  # /api/chat, /api/chat/compare, /api/chat/sessions/*
+│   │   ├── chat/                    # /api/chat, /api/chat/compare, /api/chat/sessions/* (v3.9.3 package split)
+│   │   │   ├── __init__.py          # blueprint aggregator
+│   │   │   ├── core.py              # /api/chat, /api/chat/compare
+│   │   │   ├── sessions.py          # session CRUD, share/unshare, rename
+│   │   │   ├── branching.py         # message edit, branch, set-leaf
+│   │   │   └── export.py            # PDF export
 │   │   ├── vector.py                # /api/vector/*
 │   │   ├── documents.py             # /api/reprocess, /api/reconcile, /api/trigger, /api/logs, /api/search, /api/tag-evidence
 │   │   ├── projects.py              # /api/projects/* (CRUD + config + provisioning + migration + documents)
@@ -63,7 +70,13 @@ paperless-ai-analyzer/
 │   │   ├── ai_config.py             # /api/ai-config/*, /api/llm/*, /api/llm-usage/*
 │   │   ├── users.py                 # /api/users, /api/me, /api/change-password
 │   │   ├── system.py                # /api/containers, /api/smtp-settings, /api/bug-report, /api/system-health
-│   │   ├── ci.py                    # /api/ci/*
+│   │   ├── ci/                      # /api/ci/* (v3.9.3 package split)
+│   │   │   ├── __init__.py          # blueprint aggregator
+│   │   │   ├── helpers.py           # shared notification + LLM-client helpers
+│   │   │   ├── setup.py             # status, jurisdictions, detect, goal/key guides, cost, authority
+│   │   │   ├── runs.py              # run CRUD + lifecycle (start/cancel/interrupt/rerun/shares/questions)
+│   │   │   ├── findings.py          # findings + tier-specific report views
+│   │   │   └── reports.py           # custom report generation + PDF download
 │   │   ├── court.py                 # /api/court/*, /api/projects/<slug>/analyze-missing
 │   │   ├── forms.py                 # /api/ai-form/parse
 │   │   └── docs.py                  # /docs/*, /api/docs/ask
@@ -264,17 +277,21 @@ All configuration via environment variables (`.env` or Docker Compose):
 
 ## Next Recommended Refactor Targets
 
-Tracked in `project_paperless_backlog.md`; summarised here for visibility:
+All large-file refactor candidates completed as of v3.9.3:
+- ✅ `routes/chat.py` — split into 3 service modules (v3.9.1) + 4-file package (v3.9.3)
+- ✅ `routes/projects.py` — provisioning extracted to service (v3.9.1)
+- ✅ `case_intelligence/orchestrator.py` — 7 mixin files under `ci_phases/` (v3.9.2)
+- ✅ `analyzer/main.py` — `poller.py` + `document_processor.py` mixins (v3.9.3)
+- ✅ `routes/ci.py` — 5-file package under `routes/ci/` (v3.9.3)
 
-1. **Split `analyzer/main.py`** (1,598 lines) — the `DocumentAnalyzer` class mixes
-   poll-loop control with per-document processing. Natural split: `poller.py` +
-   `document_processor.py`.
-2. **Split `routes/ci.py`** (1,793 lines, 40 top-level functions) by CI phase:
-   setup / runs / findings / reports. Currently one monolithic blueprint module.
-3. **Split `routes/chat.py`** further (now 1,068 lines) by grouping the 20+ handlers:
-   core `/api/chat`, session CRUD, branch/edit/leaf, sharing, export.
-4. ~~Split `case_intelligence/orchestrator.py`~~ — **COMPLETED v3.9.2** (2026-04-23).
-   Split into 7 mixin files under `ci_phases/`. orchestrator.py now 334 lines.
+Remaining architectural candidates (lower priority):
+- `analyzer/routes/documents.py` (~727 lines) and `analyzer/routes/projects.py`
+  (~947 lines) could be split by concern if they continue growing, but neither
+  is currently above maintainability threshold.
+- `analyzer/case_intelligence/ci_phases/managers_mixin.py` (1,004 lines) — the
+  largest remaining mixin. `_manager_theories` (226 lines) and
+  `_run_all_managers` (169 lines) could be extracted into helper functions if
+  they grow further, but they're cohesive today.
 
 ---
 

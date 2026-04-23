@@ -2,6 +2,109 @@
 
 ---
 
+## Entry 007 — 2026-04-23 (v3.9.3 — final trio: main.py, routes/ci.py, routes/chat.py)
+
+### Scope
+Completed the three remaining backlog refactors in a single pass:
+1. **`analyzer/main.py`** (1,598 → 267 lines, –83%) — DocumentAnalyzer mixin split
+2. **`routes/ci.py`** (1,793 → 5-file package) — CI handlers grouped by concern
+3. **`routes/chat.py`** (1,068 → 4-file package) — chat handlers grouped by concern
+
+### main.py split
+- New `analyzer/poller.py` — `PollerMixin` + module-level `_poll_project_loop`
+  (566 lines total). Owns poll loop, per-project pollers, re-analysis,
+  stale-embedding check, OCR quality check.
+- New `analyzer/document_processor.py` — `DocumentProcessorMixin` (852 lines).
+  Owns vision AI extraction, the 538-line `analyze_document`, PDF path, tag
+  compilation, AI note formatting, severity helpers.
+- `main.py` retains CLI entry point + `DocumentAnalyzer(PollerMixin, DocumentProcessorMixin)` composition (267 lines total).
+
+### routes/ci.py split (converted to `routes/ci/` package)
+- `routes/ci/__init__.py` — blueprint aggregator; exports `bp = Blueprint('ci', ...)`
+- `routes/ci/helpers.py` (254 lines) — `_send_ci_budget_notification`,
+  `_send_ci_complete_notification`, `_match_jurisdiction_profile`,
+  `_ci_elapsed_seconds`, `_build_ci_llm_clients`
+- `routes/ci/setup.py` (536 lines) — status, jurisdictions, detect-jurisdiction,
+  goal-assistant, key-guide, cost-estimate, authority ingest/status
+- `routes/ci/runs.py` (590 lines) — runs list/create/get/update/delete,
+  lifecycle (start/cancel/interrupt/rerun/status), shares, questions/answers
+- `routes/ci/findings.py` (418 lines) — run findings + all tier-specific
+  report views (forensic/discovery/witness/war-room/deep-forensics/
+  trial-strategy/multi-model/settlement-valuation)
+- `routes/ci/reports.py` (138 lines) — custom report CRUD + PDF download
+
+### routes/chat.py split (converted to `routes/chat/` package)
+- `routes/chat/__init__.py` — blueprint aggregator
+- `routes/chat/core.py` (729 lines) — `/api/chat` + `/api/chat/compare`
+- `routes/chat/sessions.py` (227 lines) — session CRUD + share/unshare + rename
+- `routes/chat/branching.py` (165 lines) — message edit, branch, set-leaf
+- `routes/chat/export.py` (93 lines) — PDF export
+
+### Why two different patterns (mixin vs package)?
+
+**Mixin pattern (main.py)**: DocumentAnalyzer is a single class with heavy
+shared state (`self.llm_client`, `self.paperless`, `self.vector_store`, etc.).
+Extracting methods into mixins preserves `self` resolution exactly as before
+via Python's MRO. Same pattern used for CIOrchestrator in v3.9.2.
+
+**Package pattern (routes/ci, routes/chat)**: Flask Blueprint handlers don't
+share instance state — each is a free function decorated with `@bp.route`.
+Convert the file to a package with `__init__.py` creating the shared `bp`;
+submodules do `from analyzer.routes.{ci,chat} import bp` and attach handlers.
+Zero external API change (`web_ui.py` still imports `ci.bp` and `chat.bp`).
+
+### Files changed
+
+| File | Lines before | Lines after | Delta |
+|------|--------------|-------------|-------|
+| `analyzer/main.py` | 1,598 | 267 | –1,331 |
+| `analyzer/poller.py` | (new) | 566 | +566 |
+| `analyzer/document_processor.py` | (new) | 852 | +852 |
+| `analyzer/routes/ci.py` | 1,793 | → package | – |
+| `analyzer/routes/ci/__init__.py` | (new) | 17 | +17 |
+| `analyzer/routes/ci/helpers.py` | (new) | 254 | +254 |
+| `analyzer/routes/ci/setup.py` | (new) | 536 | +536 |
+| `analyzer/routes/ci/runs.py` | (new) | 590 | +590 |
+| `analyzer/routes/ci/findings.py` | (new) | 418 | +418 |
+| `analyzer/routes/ci/reports.py` | (new) | 138 | +138 |
+| `analyzer/routes/chat.py` | 1,068 | → package | – |
+| `analyzer/routes/chat/__init__.py` | (new) | 15 | +15 |
+| `analyzer/routes/chat/core.py` | (new) | 729 | +729 |
+| `analyzer/routes/chat/sessions.py` | (new) | 227 | +227 |
+| `analyzer/routes/chat/branching.py` | (new) | 165 | +165 |
+| `analyzer/routes/chat/export.py` | (new) | 93 | +93 |
+
+### Verification
+
+- Import-sanity: all 14 DocumentAnalyzer methods + all CI + chat handlers
+  resolve through the new structure
+- End-to-end smoke on dev + jacob:
+  - chat/core: `'all-ok'`, `'jacob-r6-ok'`, `'r4-ok'`
+  - chat/sessions: rename → 200
+  - chat/branching: message-edit → 200
+  - chat/export: 200 with 12,175-byte response
+  - ci/setup: status/jurisdictions/cost-estimate/authority all 200
+  - ci/runs: POST/GET/DELETE on test run all 200
+  - ci/findings: 200
+  - main/status: `svc=running paperless=72`
+
+### Deployment status (all instances)
+
+| Node | Port | v3.9.3 deployed |
+|------|------|-----------------|
+| Dev | 8052 | ✅ |
+| Jacob/QA | 8053 | ✅ |
+| Prod | 8051 | Pending image push |
+
+### Backlog complete
+
+All items from Entry 005's "next recommended refactor targets" are now done.
+No further large-file splits warranted — remaining files are either at
+appropriate size for their concern or represent cohesive single
+responsibilities.
+
+---
+
 ## Entry 006 — 2026-04-23 (v3.9.2 — CI orchestrator split via mixin pattern)
 
 ### Scope
