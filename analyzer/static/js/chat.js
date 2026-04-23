@@ -34,12 +34,15 @@
             function sessionItemHtml(s) {
                 const active = s.id === currentSessionId ? ' active' : '';
                 const sharedBadge = s.is_shared ? '<span class="session-badge-shared">shared</span>' : '';
+                // Delete button shows when: the user owns the session, OR viewer is admin.
+                // The backend DELETE endpoint already enforces owner-or-admin.
+                const canDelete = (s.is_own !== false) || (window.APP_CONFIG && window.APP_CONFIG.isAdmin);
                 return `<div class="session-item${active}" data-session-id="${s.id}" onclick="loadSession('${s.id}')">
                     <span class="session-title">topic: ${escapeHtml(s.title)}${sharedBadge}</span>
                     <span class="session-meta">${formatDate(s.updated_at)}</span>
                     <div class="session-actions" onclick="event.stopPropagation()">
                         <button class="session-action-btn" title="Rename" onclick="renameSessionPrompt('${s.id}', '${escapeHtml(s.title).replace(/'/g, "\\'")}')">✏️</button>
-                        ${s.is_own !== false ? `<button class="session-action-btn" title="Delete" onclick="deleteSession('${s.id}')">🗑️</button>` : ''}
+                        ${canDelete ? `<button class="session-action-btn" title="Delete" onclick="deleteSession('${s.id}')">🗑️</button>` : ''}
                     </div>
                 </div>`;
             }
