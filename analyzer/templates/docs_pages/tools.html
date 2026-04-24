@@ -1,0 +1,89 @@
+        <h1 class="page-title">Debug &amp; Tools</h1>
+        <p class="subtitle">Live logs, manual reprocess controls, and diagnostic utilities. Admin access recommended for most operations.</p>
+
+        <h2 id="health">System Health</h2>
+        <p>The <strong>Health</strong> sub-tab shows real-time status of every system component. Each card refreshes every 30 seconds automatically while the tab is open. Click <strong>Refresh</strong> to force an immediate re-check.</p>
+        <table>
+            <tr><th>Component</th><th>What it checks</th></tr>
+            <tr><td><strong>Paperless API</strong></td><td>HTTP connectivity to the Paperless-ngx instance; queries <code>/api/documents/</code> to confirm authentication and reachability.</td></tr>
+            <tr><td><strong>ChromaDB</strong></td><td>Vector store connection; verifies the current project's collection exists and is queryable.</td></tr>
+            <tr><td><strong>LLM</strong></td><td>At least one AI provider key is configured and a test completion call succeeds.</td></tr>
+            <tr><td><strong>Analyzer Loop</strong></td><td>Confirms the background polling thread is alive and ran within the last 5 minutes.</td></tr>
+            <tr><td><strong>PostgreSQL</strong></td><td>Verifies the Paperless database is reachable from inside the analyzer container.</td></tr>
+            <tr><td><strong>Redis</strong></td><td>Checks that the Paperless Redis broker responds to PING.</td></tr>
+        </table>
+        <p>The six colored dots in the dashboard header bar mirror these checks and auto-update every 30 seconds regardless of which tab is open.</p>
+
+        <h2 id="containers">Container Management</h2>
+        <p>The <strong>Containers</strong> sub-tab lists all managed Docker containers — the core analyzer stack plus any provisioned per-project Paperless instances. Requires the Docker socket mounted at <code>/var/run/docker.sock</code>.</p>
+        <ul>
+            <li><strong>Restart</strong> <span class="badge badge-blue">Admin</span> — gracefully restarts the selected container. Use this after code or config changes applied via volume mount (no image rebuild needed).</li>
+            <li><strong>View Logs</strong> — opens a live log drawer showing the last 200 lines from that container. Useful for diagnosing startup failures or integration errors in per-project Paperless instances.</li>
+            <li><strong>Status indicator</strong> — shows <code>running</code>, <code>exited</code>, or <code>restarting</code> with the container uptime.</li>
+        </ul>
+        <p>The container list auto-refreshes every 60 seconds while the Containers sub-tab is visible.</p>
+        <div class="callout callout-warn">
+            <strong>Docker socket required.</strong> If the socket is unavailable, a warning banner is shown and all container controls are disabled. Health and other sub-tabs are not affected.
+        </div>
+
+        <h2 id="reconcile">Reconcile</h2>
+        <p>The <strong>Reconcile</strong> sub-tab compares the analyzer's records against Paperless-ngx and ChromaDB, then reports and fixes discrepancies. It is a safe, read-first operation.</p>
+        <ul>
+            <li>Documents in Paperless that are missing from <code>processed_documents</code> are queued for analysis.</li>
+            <li>Embeddings in ChromaDB for documents that no longer exist in Paperless are removed from the vector store.</li>
+            <li>Orphaned <code>project:slug</code> tags for deleted projects are logged for manual review.</li>
+        </ul>
+        <p>Click <strong>Reconcile Now</strong>. The result panel shows added, removed, and unchanged record counts. Nothing is deleted without first being identified in the report.</p>
+        <div class="callout callout-tip">
+            <strong>When to use:</strong> After a Paperless database restore, after manual DB changes, or when document counts in the Overview tab don't match Paperless.
+        </div>
+
+        <h2 id="live-logs">Live Logs</h2>
+        <p>The log viewer shows the last 200 log lines from the analyzer process. Click <strong>Refresh Logs</strong> to reload. Logs include:</p>
+        <ul>
+            <li>Document analysis events (which document was analyzed, which profile matched, what tags were applied)</li>
+            <li>Vector store operations (embedding success/failure, collection counts)</li>
+            <li>API call outcomes (LLM provider used, token counts)</li>
+            <li>Error and warning messages</li>
+        </ul>
+        <p>Log lines are color-coded: white = INFO, yellow = WARNING, red = ERROR.</p>
+
+        <h2 id="reprocess-all">Reprocess All Documents</h2>
+        <p>Click <strong>Reprocess All</strong> to reset the analyzer's state file and re-queue every document in Paperless for analysis from scratch. Use this when:</p>
+        <ul>
+            <li>You have updated your YAML profiles and want all documents re-analyzed with the new profiles.</li>
+            <li>The vector store was cleared and you need to rebuild embeddings.</li>
+            <li>Major configuration changes (new AI provider, new prompts) warrant re-analysis of existing documents.</li>
+        </ul>
+        <div class="callout callout-warn">
+            <strong>This is a long-running operation.</strong> For large archives (hundreds to thousands of documents), reprocessing can take hours and will consume LLM API credits for every document. Use <strong>Process Unanalyzed Only</strong> to avoid re-analyzing already-processed documents.
+        </div>
+
+        <h2 id="reprocess-single">Reprocess a Single Document</h2>
+        <p>Enter a Paperless document ID in the <em>Single Document</em> field and click <strong>Reprocess</strong>. This forces the analyzer to re-analyze one specific document regardless of whether it was previously processed. Useful for testing after profile changes.</p>
+
+        <h2 id="process-unanalyzed">Process Unanalyzed Only</h2>
+        <p>Available in <strong>Configuration → Vector Store → Process Unanalyzed</strong>. This queries Paperless for all documents, compares them against the analyzer's <code>processed_documents</code> table, and queues only those that have never been analyzed. Already-processed documents are skipped. Use this to:</p>
+        <ul>
+            <li>Catch documents that were added to Paperless while the analyzer was offline.</li>
+            <li>Process a gap of documents without re-running everything.</li>
+        </ul>
+
+        <h2 id="reembed-stale">Re-embed Stale Documents</h2>
+        <p>Available in <strong>Configuration → Vector Store → Re-embed Stale</strong>. The analyzer tracks each document's Paperless modification timestamp. If a document was re-OCR'd or modified in Paperless after its initial embed, this operation re-analyzes and re-embeds it with the updated content.</p>
+
+        <h2 id="poll-interval">Poll Interval</h2>
+        <p>The analyzer checks Paperless for new documents every N seconds (default: 30). You can change this via the <strong>Poll Interval</strong> control in Configuration → AI Settings. Shorter intervals mean faster pickup of new documents but slightly more API traffic to Paperless.</p>
+
+        <h2 id="vector-store-tools">Vector Store tools</h2>
+        <p>In <strong>Configuration → Vector Store</strong>:</p>
+        <ul>
+            <li><strong>Clear All</strong> — deletes the entire vector index for the current project. AI Chat will have no context until documents are re-embedded (via Reprocess All or the normal analysis cycle). Use with care.</li>
+            <li><strong>View by Type</strong> — lists all document types present in the vector store and their counts.</li>
+            <li><strong>Delete by Type</strong> — removes all documents of a specific type from the vector store (not from Paperless).</li>
+            <li><strong>Delete Single Document</strong> — removes one document from the vector store by Paperless ID.</li>
+        </ul>
+
+{# ═══════════════════════════════════════════════════════════════════ #}
+{# CONFIGURATION                                                       #}
+{# ═══════════════════════════════════════════════════════════════════ #}

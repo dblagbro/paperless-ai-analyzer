@@ -1,0 +1,68 @@
+        <h1 class="page-title">Paperless AI Analyzer</h1>
+        <p class="subtitle">Intelligent document intelligence for Paperless-ngx — anomaly detection, AI analysis, project management, and natural-language search.</p>
+
+        <div class="feature-grid">
+            <div class="feature-card">
+                <h4>🗂️ Projects</h4>
+                <p>Organize documents into isolated workspaces (cases, clients, matters). Each project has its own AI vector store — chat and search stay scoped to the selected project.</p>
+            </div>
+            <div class="feature-card">
+                <h4>📤 Smart Upload</h4>
+                <p>Upload files, paste a URL, or share a Google Drive / Dropbox link. Assign the document to a project at upload time. Optional AI metadata extraction before submission.</p>
+            </div>
+            <div class="feature-card">
+                <h4>🤖 AI Chat</h4>
+                <p>Ask natural-language questions about any document or your entire project archive. RAG-powered answers cite the source document.</p>
+            </div>
+            <div class="feature-card">
+                <h4>🔍 Search &amp; Analysis</h4>
+                <p>Semantic full-text search across all analyzed documents with AI-generated summaries, risk scores, and anomaly tags displayed inline.</p>
+            </div>
+            <div class="feature-card">
+                <h4>⚠️ Anomaly Detection</h4>
+                <p>Deterministic checks (balance mismatches, missing transactions, duplicate amounts) run automatically on every document without an AI call.</p>
+            </div>
+            <div class="feature-card">
+                <h4>🔒 Multi-User</h4>
+                <p>Role-based access (Basic / Admin). Each user has their own chat history and upload history. Admins manage accounts, projects, and system settings.</p>
+            </div>
+        </div>
+
+        <h2 id="how-it-works">How it works</h2>
+        <p>Paperless AI Analyzer runs as a sidecar microservice alongside Paperless-ngx. It polls Paperless every ~30 seconds, picks up newly-ingested documents, and runs them through a pipeline:</p>
+        <ol>
+            <li><strong>Profile matching</strong> — the document is matched to a YAML analysis profile (e.g., "bank statements", "court documents").</li>
+            <li><strong>Project detection</strong> — if the document has a <code>project:slug</code> tag in Paperless, it is routed to that project's vector store collection.</li>
+            <li><strong>Deterministic checks</strong> — balance calculations, transaction counts, and pattern checks run without any AI call.</li>
+            <li><strong>AI analysis</strong> — OpenAI GPT-4o or Anthropic Claude analyzes the document and extracts metadata (entities, topics, summaries, Q&amp;A pairs).</li>
+            <li><strong>Tagging</strong> — anomaly tags (e.g., <code>anomaly:balance_mismatch</code>) and AI tags are written back to Paperless.</li>
+            <li><strong>Embedding</strong> — the enriched content is stored in the correct Chroma vector collection for AI Chat retrieval.</li>
+        </ol>
+
+        <div class="callout callout-info">
+            <strong>Non-destructive by design.</strong> The analyzer only adds tags and writes to its own database. Paperless documents are never modified — only tagged. You can remove the analyzer at any time without affecting your Paperless archive.
+        </div>
+
+        <h2 id="supported-ai-providers">Supported AI Providers</h2>
+        <table>
+            <tr><th>Provider</th><th>Used for</th><th>Default model</th></tr>
+            <tr><td>OpenAI</td><td>Document analysis, metadata extraction, AI Chat, Vision OCR fallback</td><td>gpt-4o</td></tr>
+            <tr><td>Anthropic</td><td>Document analysis, AI Chat, Vision OCR fallback</td><td>claude-3-5-sonnet</td></tr>
+            <tr><td>Cohere</td><td>Document embedding (RAG vector store — required for AI Chat &amp; Search)</td><td>embed-english-v3.0</td></tr>
+        </table>
+
+        <h2 id="tabs">Dashboard Tabs</h2>
+        <table>
+            <tr><th>Tab</th><th>Purpose</th></tr>
+            <tr><td><strong>Overview</strong></td><td>Status bar, recent analyses list, live document feed.</td></tr>
+            <tr><td><strong>Manage Projects</strong></td><td>Create and manage isolated workspaces; assign/migrate documents between projects.</td></tr>
+            <tr><td><strong>Smart Upload</strong></td><td>Upload files, URLs, or cloud share links; assign to a project.</td></tr>
+            <tr><td><strong>AI Chat</strong></td><td>Natural-language conversation grounded in project documents.</td></tr>
+            <tr><td><strong>Search &amp; Analysis</strong></td><td>Semantic search with risk scoring and anomaly filters.</td></tr>
+            <tr><td><strong>Configuration</strong></td><td>AI keys, profiles, vector store controls, AI usage chart, SMTP, users (admin only).</td></tr>
+            <tr><td><strong>Debug &amp; Tools</strong></td><td>Live logs, reprocess controls, diagnostic tools.</td></tr>
+        </table>
+
+{# ═══════════════════════════════════════════════════════════════════ #}
+{# GETTING STARTED                                                     #}
+{# ═══════════════════════════════════════════════════════════════════ #}

@@ -1,0 +1,108 @@
+        <h1 class="page-title">Configuration</h1>
+        <p class="subtitle">Admin-only settings for AI providers, document profiles, vector store, SMTP, and users.</p>
+
+        <div class="callout callout-info">
+            Most configuration sub-tabs are visible only to users with the <span class="badge badge-blue">Admin</span> role.
+        </div>
+
+        <h2 id="ai-settings">AI Settings</h2>
+        <p>The <strong>AI Settings</strong> sub-tab has two sections: <em>Global API Keys</em> (admin-only) and <em>Per-Project AI Configuration</em>.</p>
+
+        <h3>Global API Keys</h3>
+        <div class="callout callout-info">Global API Keys are visible only to <span class="badge badge-blue">Admin</span> users.</div>
+        <ul>
+            <li><strong>OpenAI API Key</strong> — used for GPT-4o document analysis, metadata extraction, Vision OCR, and AI Chat.</li>
+            <li><strong>Anthropic API Key</strong> — used for Claude document analysis, Vision OCR, and AI Chat (alternative to OpenAI).</li>
+            <li><strong>Cohere API Key</strong> — <em>required</em> for the vector store (document embedding and semantic search). Without this, AI Chat and Search are disabled.</li>
+        </ul>
+        <p>At least one of OpenAI or Anthropic is required for document analysis and AI Chat. Keys are stored in <code>/app/data/ai_config.json</code> and serve as the system-wide fallback when no per-project override is set.</p>
+        <p>Click <strong>Test</strong> next to each key to verify connectivity. The result shows whether the key is valid and the selected model is accessible.</p>
+
+        <h3>Per-Project AI Configuration</h3>
+        <p>Every project can independently configure which AI provider and model to use for each of three use-cases:</p>
+        <table>
+            <tr><th>Use-case</th><th>Description</th></tr>
+            <tr><td><strong>Document Analysis</strong></td><td>LLM used when the poller processes new documents from Paperless — metadata extraction, summaries, anomaly commentary.</td></tr>
+            <tr><td><strong>AI Chat</strong></td><td>LLM used when users ask questions in the AI Chat tab.</td></tr>
+            <tr><td><strong>Case Intelligence</strong></td><td>LLM used by the CI Director, Managers, and Workers for legal document analysis.</td></tr>
+        </table>
+        <p>For each use-case choose a <strong>Primary</strong> provider + model and an optional <strong>Fallback</strong> provider + model. If the primary call fails the system automatically retries with the fallback.</p>
+        <p><strong>Fallback chain:</strong> per-project override → global API key → system default.</p>
+        <ul>
+            <li><strong>⇉ All</strong> — copies one row's primary + fallback settings to all three use-cases in this project.</li>
+            <li><strong>📋 Copy project (admin only)</strong> — copies the entire project's AI config to another project.</li>
+        </ul>
+        <div class="callout callout-info">
+            <span class="badge badge-blue">Admin</span> users see a project dropdown and can configure any project.
+            <span class="badge badge-patch" style="background:#8e44ad;">Advanced</span> users see only their own current project.
+            <span class="badge badge-gray">Basic</span> users see a read-only display.
+        </div>
+
+        <h2 id="profiles">Profiles</h2>
+        <p>Profiles are YAML files that define document-type-specific analysis rules. Each profile specifies:</p>
+        <ul>
+            <li>Keywords and patterns that identify the document type (e.g., "bank statement", "check register").</li>
+            <li>Which fields to extract (account numbers, balances, transaction details).</li>
+            <li>Custom risk scoring weights.</li>
+        </ul>
+
+        <h3>Active profiles</h3>
+        <p>Active profiles are loaded from <code>/app/profiles/active/</code>. They appear in the <em>Active</em> section of the Profiles tab with their match count. You can:</p>
+        <ul>
+            <li><strong>View</strong> — expand to see the YAML content.</li>
+            <li><strong>Rename</strong> — change the profile filename.</li>
+            <li><strong>Delete</strong> — permanently remove the profile.</li>
+        </ul>
+
+        <h3>Staging profiles</h3>
+        <p>When a document doesn't match any active profile, the analyzer auto-generates a <em>staging profile</em> suggestion in <code>/app/profiles/staging/</code>. Review each staging profile and either:</p>
+        <ul>
+            <li><strong>Activate</strong> — move it to active profiles so future documents of that type use it.</li>
+            <li><strong>Activate All</strong> — activate every staging profile at once.</li>
+            <li><strong>Delete</strong> — discard if the suggestion is not useful.</li>
+        </ul>
+
+        <h2 id="vector-store-config">Vector Store</h2>
+        <p>Controls for the ChromaDB vector store that powers AI Chat and Search.</p>
+        <table>
+            <tr><th>Control</th><th>Effect</th></tr>
+            <tr><td><strong>Refresh</strong></td><td>Reload current document count and storage stats.</td></tr>
+            <tr><td><strong>Process Unanalyzed</strong></td><td>Find and queue all Paperless documents not yet in the analyzer DB. No LLM calls for already-processed docs.</td></tr>
+            <tr><td><strong>Re-embed Stale</strong></td><td>Re-analyze documents whose Paperless modification timestamp is newer than their last embed.</td></tr>
+            <tr><td><strong>Clear All</strong></td><td>Delete the entire vector index for the current project. Destructive — use only when rebuilding from scratch.</td></tr>
+        </table>
+
+        <h2 id="ai-usage">AI Usage &amp; Cost</h2>
+        <p>The <strong>AI Usage</strong> sub-tab shows a daily bar chart of LLM token consumption and estimated API cost, drawn from the persistent usage tracker database.</p>
+        <ul>
+            <li><strong>Blue bars</strong> — daily estimated cost in USD.</li>
+            <li><strong>Amber dashed line</strong> — daily API call volume (right axis).</li>
+        </ul>
+        <p>The chart renders in-browser using the Canvas 2D API. Hover over a bar to see the exact values for that day. For detailed per-call history and provider breakdowns, see the <a href="{{ url_prefix }}/docs/llm-usage">LLM Usage &amp; Cost</a> documentation page.</p>
+
+        <h2 id="smtp-settings">SMTP / Notifications</h2>
+        <p>Configure outgoing email for user welcome messages, bug report submissions, and Case Intelligence run notifications.</p>
+        <table>
+            <tr><th>Field</th><th>Description</th></tr>
+            <tr><td>SMTP Host</td><td>Mail server hostname (e.g., <code>smtp.gmail.com</code>)</td></tr>
+            <tr><td>SMTP Port</td><td>587 (STARTTLS) or 465 (SSL)</td></tr>
+            <tr><td>Username / Password</td><td>SMTP authentication credentials</td></tr>
+            <tr><td>From Address</td><td>The email address shown in the <em>From</em> header</td></tr>
+            <tr><td>TLS</td><td>Enable STARTTLS (recommended)</td></tr>
+        </table>
+        <p>Click <strong>Send Test Email</strong> to verify the connection before saving. A test message is sent to your own email address (configured on your user account).</p>
+
+        <h3>Case Intelligence email notifications</h3>
+        <p>When SMTP is configured, CI runs send two types of email notifications:</p>
+        <ul>
+            <li><strong>Budget alerts</strong> — sent at every 10% completion checkpoint with the status (<em>under budget / on track / over budget</em>), cost so far, and projected total vs. the run budget.</li>
+            <li><strong>Run completion</strong> — sent when the full analysis finishes, with a findings summary.</li>
+        </ul>
+        <p>Both types can be toggled per-run in <strong>Case Intelligence → Setup → Notifications</strong>. The recipient email is pre-filled from your user profile but can be changed before starting the run.</p>
+
+        <h2 id="users-config">Users</h2>
+        <p>See the full <a href="{{ url_prefix }}/docs/users">User Management documentation</a>.</p>
+
+{# ═══════════════════════════════════════════════════════════════════ #}
+{# USER MANAGEMENT                                                     #}
+{# ═══════════════════════════════════════════════════════════════════ #}

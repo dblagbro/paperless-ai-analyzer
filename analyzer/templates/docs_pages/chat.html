@@ -1,0 +1,110 @@
+        <h1 class="page-title">AI Chat</h1>
+        <p class="subtitle">Natural-language conversation grounded in your actual project documents using RAG (Retrieval Augmented Generation).</p>
+
+        <div class="callout callout-warn">
+            <strong>Requires AI key.</strong> AI Chat needs at least one OpenAI or Anthropic API key configured under <a href="{{ url_prefix }}/docs/configuration#ai-settings">Configuration → AI Settings</a>. A Cohere key is needed for the vector store (RAG retrieval).
+        </div>
+
+        <h2 id="how-rag-works">How RAG retrieval works</h2>
+        <p>Every message you send triggers a two-step process:</p>
+        <ol>
+            <li><strong>Retrieve</strong> — your query is embedded (Cohere) and compared semantically against all documents in the current project's vector store. The most relevant documents (up to 5–8) are retrieved.</li>
+            <li><strong>Generate</strong> — the retrieved document content is included in the AI's context window alongside your question. The AI generates an answer grounded in the actual document text — no hallucination of figures or names.</li>
+        </ol>
+        <p>The AI is instructed to only report numbers and facts explicitly present in the retrieved documents. If a document doesn't contain the requested information, the AI will say so rather than guess.</p>
+
+        <h2 id="starting-session">Starting a session</h2>
+        <ol>
+            <li>Click <strong>+ New Session</strong> in the left sidebar.</li>
+            <li>Type your first question and press <kbd class="kbd">Enter</kbd>.</li>
+            <li>The session title is auto-generated from your first message. You can rename it by clicking the pencil icon next to the title.</li>
+        </ol>
+
+        <h2 id="web-url-access">Web URL access</h2>
+        <p>You can paste a URL directly into any chat message and the AI will fetch the page and use its content in its answer. This is useful for:</p>
+        <ul>
+            <li>Comparing your documents to a published court decision or news article</li>
+            <li>Asking the AI to summarize an external case and relate it to your documents</li>
+            <li>Providing supplemental reference material (statute text, regulatory guidance, etc.) without uploading it</li>
+        </ul>
+        <p>Up to <strong>3 URLs</strong> per message are fetched. HTML formatting is stripped — only readable text is sent to the AI. Each URL is truncated to approximately 4,000 characters.</p>
+        <div class="callout callout-warn">
+            <strong>Limitations:</strong> Pages that rely on JavaScript to render (single-page apps, court dockets behind login walls) may return little or no readable text. In that case the AI will tell you it could not read the page and suggest you paste the text directly. The AI will <em>never</em> guess or fabricate content from a URL it could not access.
+        </div>
+
+        <h2 id="vision-ai">Vision AI fallback</h2>
+        <p>If a retrieved document has very little OCR text (fewer than ~500 characters), the system automatically:</p>
+        <ol>
+            <li>Downloads the original PDF from Paperless.</li>
+            <li>Sends PDF page images to GPT-4o Vision or Claude Vision for text extraction.</li>
+            <li>Uses the extracted text for this answer AND re-embeds the document with the better content for future queries.</li>
+        </ol>
+        <p>When Vision AI is used, the response includes a note indicating which documents were enriched this way. Treat Vision AI-extracted content as authoritative.</p>
+
+        <h2 id="document-type-filter">Filtering by document type</h2>
+        <p>The <strong>Filter by Type</strong> dropdown above the chat input limits retrieval to a specific document category (e.g., "Bank Statement", "Court Order"). This is useful when you want answers only from a specific document class.</p>
+
+        <h2 id="keyboard-shortcuts">Keyboard shortcuts</h2>
+        <table>
+            <tr><th>Key</th><th>Action</th></tr>
+            <tr><td><kbd class="kbd">Enter</kbd></td><td>Send the current message</td></tr>
+            <tr><td><kbd class="kbd">Ctrl+Enter</kbd></td><td>Insert a new line (multi-paragraph messages)</td></tr>
+        </table>
+
+        <h2 id="editing-messages">Editing past messages</h2>
+        <p>Each of your own messages has a visible <strong>✏️ Edit</strong> button to its left — no hovering required. Clicking it turns the bubble into an editable textarea (white background). You have two options:</p>
+        <ul>
+            <li><strong>↩ Resend</strong> — saves the edited text, removes the old assistant response (and any messages after it), and sends the edited message as a new query. The conversation continues from the edit point.</li>
+            <li><strong>✕ Cancel</strong> — discards the edit and restores the original text.</li>
+        </ul>
+        <p>The Edit button appears on both current-session messages and on messages restored from a saved session. Edited messages are persisted to the session — if you reload the page or restore the session, the edited text appears (not the original).</p>
+
+        <h2 id="stop-request">Stopping a request</h2>
+        <p>A red <strong>■ Stop</strong> button appears next to the Send button while the AI is generating a response. Click it to abort the request immediately. A "⚠️ Request stopped" notice replaces the typing indicator, the input is re-enabled instantly, and a <strong>✏️ Edit</strong> button is attached to the stopped message so you can fix it and resend without retyping.</p>
+
+        <h2 id="compare-mode">Dual LLM compare mode</h2>
+        <p>Click the <strong>⚖️ Compare LLMs</strong> button in the chat input bar to enable compare mode (the button turns purple and reads "⚖️ Comparing — ON"). In compare mode, each message is sent to <em>both</em> configured LLM providers simultaneously and the responses are displayed side-by-side as tabs.</p>
+        <ul>
+            <li>Tabs are labelled with the provider name (e.g. <strong>🤖 Anthropic</strong> | <strong>🤖 Openai</strong>). Click to switch between them.</li>
+            <li>The <strong>primary provider's</strong> response is saved to the session history so follow-up questions remain coherent.</li>
+            <li>If the secondary provider errors, the tab shows the error message in red.</li>
+            <li>Requires both a primary <em>and</em> a fallback provider to be configured in <strong>⚙️ Configuration → AI Settings</strong>.</li>
+        </ul>
+
+        <h2 id="document-links">Clickable document links</h2>
+        <p>When the AI references a document using the format <code>[Document #NNN]</code>, it is automatically converted to a clickable "View in Paperless" link that opens the document directly in your Paperless instance. The AI is instructed to always use this format, but the linkifier also catches informal variants like <code>Doc 123</code>.</p>
+
+        <h2 id="sharing-sessions">Sharing sessions</h2>
+        <ol>
+            <li>Open a session.</li>
+            <li>Click <strong>Share</strong> (icon in the session header).</li>
+            <li>Select one or more users from the dropdown. Click <strong>Save</strong>.</li>
+        </ol>
+        <p>Shared sessions appear in the recipient's sidebar with a "Shared" label. Recipients can read the full conversation but cannot add messages to sessions they don't own.</p>
+        <p>Admins can see and manage all sessions across all users.</p>
+
+        <h2 id="export-session">Exporting a session</h2>
+        <p>Click <strong>Export PDF</strong> in the session header. The entire conversation history is downloaded as a formatted PDF suitable for case notes or discovery production.</p>
+
+        <h2 id="chat-tips">Tips for effective queries</h2>
+        <ul>
+            <li><strong>Be specific about the project</strong> — switch to the correct project before chatting to scope the context.</li>
+            <li><strong>Reference time periods</strong> — "statements from Q1 2024", "orders issued before March 2025".</li>
+            <li><strong>Ask for comparisons</strong> — "compare the ending balances in January and February statements".</li>
+            <li><strong>Request structured output</strong> — "list all documents with balance mismatches in a table".</li>
+            <li><strong>Follow up</strong> — sessions maintain history. You can ask follow-up questions that reference earlier answers.</li>
+        </ul>
+
+        <h2 id="example-queries">Example queries</h2>
+        <ul>
+            <li>"What is the ending balance on the most recent Chase statement?"</li>
+            <li>"Which court orders mention Fairbridge Real Estate?"</li>
+            <li>"Summarize all documents filed in 2024."</li>
+            <li>"Are there any documents with balance mismatches? What are the discrepancy amounts?"</li>
+            <li>"List all vendors that appear across the invoices."</li>
+            <li>"Generate a ledger from all statements for account ending in 4521."</li>
+        </ul>
+
+{# ═══════════════════════════════════════════════════════════════════ #}
+{# SEARCH & ANALYSIS                                                   #}
+{# ═══════════════════════════════════════════════════════════════════ #}

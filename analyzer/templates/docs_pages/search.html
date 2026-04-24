@@ -1,0 +1,56 @@
+        <h1 class="page-title">Search &amp; Analysis</h1>
+        <p class="subtitle">Semantic full-text search with AI-generated summaries, risk scoring, and anomaly filtering — scoped to the current project.</p>
+
+        <div class="callout callout-tip">
+            <strong>Works immediately after restart.</strong> Search queries the Chroma vector store directly — all embedded documents are searchable the moment the container starts. There is no warm-up period and results do not depend on which documents happened to be processed in the current session.
+        </div>
+
+        <h2 id="how-search-works">How search works</h2>
+        <p>Every search goes directly to the Chroma vector store, which holds all embedded documents with their full AI-generated metadata. Two complementary approaches are used together:</p>
+        <ul>
+            <li><strong>Semantic search</strong> — your query is embedded (Cohere) and compared against document vectors. Finds documents by meaning — a search for "payment discrepancy" will surface documents about "balance mismatch" or "missing transaction" even if those exact words don't appear in your query.</li>
+            <li><strong>Exact substring match</strong> — a secondary pass searches document title, brief summary, full summary, and anomaly fields for exact matches. This ensures a search for a document ID like <em>1398</em> or a specific title keyword always returns the correct result.</li>
+        </ul>
+
+        <h2 id="performing-search">Performing a search</h2>
+        <ol>
+            <li>Switch to the project you want to search (header dropdown).</li>
+            <li>Open the <strong>Search &amp; Analysis</strong> tab.</li>
+            <li>Type your query in the search box.</li>
+            <li>Optionally apply filters (see below).</li>
+            <li>Press <kbd class="kbd">Enter</kbd> or click <strong>Search</strong>.</li>
+        </ol>
+
+        <h2 id="result-card">Reading a result card</h2>
+        <table>
+            <tr><th>Element</th><th>Meaning</th></tr>
+            <tr><td>Title</td><td>Document title from Paperless. Click to open the document in Paperless-ngx.</td></tr>
+            <tr><td>Risk badge</td><td>0–100 forensic risk score. <span class="badge badge-red">High ≥70</span> <span class="badge badge-orange">Medium 40–69</span> <span class="badge badge-green">Low &lt;40</span></td></tr>
+            <tr><td>Anomaly tags</td><td>Detected anomalies. <span class="tag-example tag-anomaly">anomaly:balance_mismatch</span> <span class="tag-example tag-ai">aianomaly:zero_transactions</span></td></tr>
+            <tr><td>Brief Summary</td><td>One-sentence AI summary of the document.</td></tr>
+            <tr><td>Full Summary</td><td>3–5 sentence detailed summary covering purpose, entities, dates, and key amounts.</td></tr>
+            <tr><td>Q&amp;A</td><td>Key questions and answers extracted by AI from the document content.</td></tr>
+            <tr><td>View Evidence</td><td>Only shown on anomaly documents. Expands specific figures that triggered the detection.</td></tr>
+        </table>
+
+        <h2 id="search-filters">Filters</h2>
+        <ul>
+            <li><strong>Anomalies only</strong> — check to see only documents that have at least one anomaly tag.</li>
+            <li><strong>Risk score range</strong> — set min/max to filter by forensic risk score (0–100).</li>
+        </ul>
+
+        <h2 id="search-tips">Search tips</h2>
+        <ul>
+            <li>Use natural language: <em>"bank statements with overdrafts"</em> works better than <em>"overdraft"</em>.</li>
+            <li>Include entity names: <em>"documents involving John Smith"</em>, <em>"invoices from Acme Corp"</em>.</li>
+            <li>Include dates or periods: <em>"statements from Q1 2025"</em>, <em>"filings after March 15"</em>.</li>
+            <li>Combine terms: <em>"court orders regarding receiver payments 2024"</em>.</li>
+            <li>For anomaly investigation: search <em>"balance discrepancy"</em> and enable <em>Anomalies only</em>.</li>
+        </ul>
+
+        <h2 id="recent-analyses">Recent Analyses section</h2>
+        <p>Below the search area, the <em>Recent Analyses</em> list shows the 50 most recently processed documents in the current project. This list auto-refreshes every 10 seconds but pauses while you have the Search tab active to prevent results jumping while you read.</p>
+
+{# ═══════════════════════════════════════════════════════════════════ #}
+{# ANOMALY DETECTION                                                   #}
+{# ═══════════════════════════════════════════════════════════════════ #}

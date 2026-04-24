@@ -1,0 +1,77 @@
+        <h1 class="page-title">Court Document Importer</h1>
+        <p>Pull entire federal or NYS court case files directly into your Paperless-ngx project library without manual downloading. Court Import is always enabled — no environment variable configuration is required.</p>
+
+        <h2 id="court-overview">Overview</h2>
+        <p>The Court Import tab (🏛️) lets you:</p>
+        <ul>
+            <li>Search federal cases via the free CourtListener/RECAP API (no account needed)</li>
+            <li>Fall back to PACER direct downloads when a document is not in the RECAP archive</li>
+            <li>Import NYS NYSCEF case files using your NY Attorney Registration credentials <em>or</em> a free NYSCEF Pro Se account (requires Playwright/Chromium)</li>
+            <li>All documents are 3-tier deduplicated so re-running an import is safe</li>
+        </ul>
+
+        <h2 id="court-credentials">Setting up credentials</h2>
+        <p>There are two ways to enter credentials from the Court Import panel:</p>
+        <ul>
+            <li><strong>📋 Paste credentials</strong> — the fastest path. Paste any email, Slack message, or attorney notes that contain login info. AI extracts all fields automatically, asks one follow-up question if anything is missing, and auto-fills the form. Opens the wizard directly on the AI Paste tab — no step 1 click required.</li>
+            <li><strong>⚙️ Manage</strong> — opens the 3-step setup wizard for manual entry or to test/update existing credentials.</li>
+        </ul>
+
+        <h3 id="court-wizard">Wizard steps (manual path)</h3>
+        <ol>
+            <li><strong>Step 1</strong> — Select the court system: Federal (PACER + CourtListener) or NYSCEF.</li>
+            <li><strong>Step 2</strong> — Choose <em>✏️ Manual</em> or <em>📋 AI Paste</em>. Enter credentials and click <strong>🔌 Test Connection</strong> to verify before saving. For federal, PACER credentials are optional (RECAP is free). For NYSCEF, enter your NY Attorney Registration # and e-Filing password — or tick <strong>Pro Se / Party access</strong> and enter your free NYSCEF account credentials instead (see below). Password fields have a Show/Hide toggle.</li>
+            <li><strong>Step 3</strong> — Confirmation. Credentials are AES-256-GCM encrypted at rest.</li>
+        </ol>
+        <p><strong>Security note:</strong> Rotating the Flask secret key (rare) invalidates all stored court passwords — you will need to re-enter them.</p>
+
+        <h2 id="court-federal">Federal courts (RECAP-first)</h2>
+        <p>Federal court imports use a two-tier strategy:</p>
+        <ul>
+            <li><strong>CourtListener RECAP (free)</strong> — the primary source. No PACER fees for documents already archived. Supports an API token (<code>courtlistener_api_token</code> in extra config) to raise the 5,000 req/day anonymous limit.</li>
+            <li><strong>PACER direct (fallback)</strong> — used only when a document is not in the RECAP archive and PACER credentials are configured. The connector uses session-cookie auth, a 1-second rate limit between downloads, and a realistic user-agent header.</li>
+        </ul>
+
+        <h2 id="court-nyscef">NYSCEF (New York courts)</h2>
+        <p>NYSCEF support uses Playwright headless Chromium and requires the image to be built with <code>INCLUDE_PLAYWRIGHT=true</code> (adds ~400 MB). Without Playwright, NYSCEF features return a clear error rather than crashing.</p>
+        <p>Set a <strong>Default County</strong> in the wizard extra config to pre-select the county dropdown on every search.</p>
+
+        <h3 id="court-nyscef-prose">Pro Se / Party access</h3>
+        <p>Attorneys use their NY Attorney Registration number as username. Parties, defendants, and plaintiffs who are <em>not</em> admitted attorneys need a free <strong>NYSCEF Pro Se account</strong> instead:</p>
+        <ol>
+            <li>Go to <a href="https://iapps.courts.state.ny.us/nyscef/HomePage" target="_blank" rel="noopener">iapps.courts.state.ny.us/nyscef</a> → <strong>Unrepresented Litigants → Create an Account</strong>.</li>
+            <li>Complete registration. You will receive a username (not a 7-digit bar number) and set a password.</li>
+            <li>In the credential wizard step 2, tick <strong>Pro Se / Party access</strong>. The label changes from "NY Attorney Registration #" to "NYSCEF Username" and the hint text updates accordingly.</li>
+            <li>Enter your Pro Se username and password and click <strong>🔌 Test Connection</strong> to verify.</li>
+        </ol>
+        <div class="callout callout-info" style="background:#eff6ff; border-left:4px solid #3b82f6; padding:10px 14px; border-radius:4px; margin:12px 0; font-size:13px;">
+            <strong>Why Pro Se users need an account:</strong> Anonymous NYSCEF case searches are protected by CAPTCHA. Any user — attorney or Pro Se — must be logged in to search and download dockets programmatically.
+        </div>
+
+        <h2 id="court-dedup">Deduplication</h2>
+        <p>Every document passes three dedup checks before upload:</p>
+        <ol>
+            <li><strong>URL match</strong> — checks the <code>court_imported_docs</code> table for the exact source URL. The fastest check; skips previously imported docs immediately.</li>
+            <li><strong>SHA-256 hash match</strong> — if the URL is new but the file bytes are identical to a previous import, the download is discarded and the doc is marked skipped.</li>
+            <li><strong>Paperless title search</strong> — searches Paperless for a document with a similar title. Protects against duplicates that arrived through other upload paths.</li>
+        </ol>
+
+        <h2 id="court-import">Running an import</h2>
+        <ol>
+            <li>Search for the case by case number or party name.</li>
+            <li>Click a result to load the full docket.</li>
+            <li>Use the filter bar to narrow by title or source (RECAP / PACER / NYSCEF), or select specific rows with checkboxes.</li>
+            <li>Click <strong>Import All</strong> or <strong>Import Selected</strong>.</li>
+            <li>Watch the live progress bar: imported · skipped · failed counters update every 2 seconds. Click <strong>Cancel</strong> to stop within one document.</li>
+        </ol>
+        <p>Imported documents are tagged <code>court:federal</code> (or <code>court:nyscef</code>) and <code>project:&lt;slug&gt;</code> in Paperless.</p>
+
+        <h2 id="court-history">Import history</h2>
+        <p>The history table shows all past jobs for the current project: case number, court system, imported/skipped/failed counts, date, and status. Click <strong>↺ Sync Again</strong> to reload the docket for a previous case — already-imported documents will be skipped by the deduplication layer.</p>
+
+        <h2 id="court-docker">Docker build options</h2>
+        <ul>
+            <li><code>INCLUDE_PLAYWRIGHT=false</code> (default) — no Chromium; NYSCEF not available; full federal support works.</li>
+            <li><code>INCLUDE_PLAYWRIGHT=true</code> — installs Playwright + Chromium; adds ~400 MB to the image; required for NYSCEF.</li>
+        </ul>
+

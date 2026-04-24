@@ -1,0 +1,101 @@
+        <h1 class="page-title">API Reference</h1>
+        <p class="subtitle">REST endpoints for integration, automation, and scripting. All endpoints require a valid session cookie (login first) unless noted.</p>
+
+        <div class="callout callout-info">
+            All paths below are relative to the application root. If your deployment is at <code>/paperless-ai-analyzer/</code>, prepend that prefix (e.g., <code>/paperless-ai-analyzer/api/status</code>).
+        </div>
+
+        <h2 id="api-status">Status &amp; Info</h2>
+        <table>
+            <tr><th>Method</th><th>Path</th><th>Description</th></tr>
+            <tr><td><span class="badge badge-blue">GET</span></td><td><code>/api/status</code></td><td>Analyzer status, document counts, vector store stats, LLM configuration summary.</td></tr>
+            <tr><td><span class="badge badge-blue">GET</span></td><td><code>/api/recent</code></td><td>Last 50 analyzed documents with summaries, tags, and risk scores.</td></tr>
+            <tr><td><span class="badge badge-blue">GET</span></td><td><code>/api/about</code></td><td>Version info and component list.</td></tr>
+            <tr><td><span class="badge badge-blue">GET</span></td><td><code>/health</code></td><td>Health check — returns <code>{"status":"ok"}</code>. No auth required.</td></tr>
+        </table>
+
+        <h2 id="api-projects">Projects</h2>
+        <table>
+            <tr><th>Method</th><th>Path</th><th>Description</th></tr>
+            <tr><td><span class="badge badge-blue">GET</span></td><td><code>/api/projects</code></td><td>List all projects with statistics.</td></tr>
+            <tr><td><span class="badge badge-green">POST</span></td><td><code>/api/projects</code></td><td>Create project. Body: <code>{"slug","name","description","color"}</code></td></tr>
+            <tr><td><span class="badge badge-blue">GET</span></td><td><code>/api/projects/{slug}</code></td><td>Get single project details and stats.</td></tr>
+            <tr><td><span class="badge badge-orange">PUT</span></td><td><code>/api/projects/{slug}</code></td><td>Update project metadata (name, description, color).</td></tr>
+            <tr><td><span class="badge badge-delete">DELETE</span></td><td><code>/api/projects/{slug}</code></td><td>Delete project. Cannot delete <em>default</em>.</td></tr>
+            <tr><td><span class="badge badge-green">POST</span></td><td><code>/api/projects/{slug}/archive</code></td><td>Archive (soft-hide) a project.</td></tr>
+            <tr><td><span class="badge badge-green">POST</span></td><td><code>/api/projects/{slug}/unarchive</code></td><td>Restore an archived project.</td></tr>
+            <tr><td><span class="badge badge-green">POST</span></td><td><code>/api/projects/{slug}/reanalyze</code></td><td>Re-queue all project documents for analysis.</td></tr>
+            <tr><td><span class="badge badge-blue">GET</span></td><td><code>/api/current-project</code></td><td>Get the currently selected project slug.</td></tr>
+            <tr><td><span class="badge badge-green">POST</span></td><td><code>/api/current-project</code></td><td>Set current project. Body: <code>{"project_slug":"slug"}</code></td></tr>
+            <tr><td><span class="badge badge-blue">GET</span></td><td><code>/api/orphan-documents</code></td><td>List documents with no <code>project:</code> tag.</td></tr>
+            <tr><td><span class="badge badge-green">POST</span></td><td><code>/api/assign-project</code></td><td>Assign document(s) to a project. Body: <code>{"document_ids":[1,2],"project_slug":"slug"}</code></td></tr>
+        </table>
+
+        <h2 id="api-search">Search</h2>
+        <table>
+            <tr><th>Method</th><th>Path</th><th>Description</th></tr>
+            <tr><td><span class="badge badge-blue">GET</span></td><td><code>/api/search</code></td><td>Search across all embedded documents. Params: <code>q</code> (text), <code>has_anomalies</code> (bool), <code>risk_min</code> (int), <code>risk_max</code> (int). Queries Chroma directly — results available immediately after startup.</td></tr>
+        </table>
+
+        <h2 id="api-chat">AI Chat</h2>
+        <table>
+            <tr><th>Method</th><th>Path</th><th>Description</th></tr>
+            <tr><td><span class="badge badge-green">POST</span></td><td><code>/api/chat</code></td><td>Send message. Body: <code>{"message":"...","session_id":"...","history":[]}</code></td></tr>
+            <tr><td><span class="badge badge-blue">GET</span></td><td><code>/api/chat/sessions</code></td><td>List sessions for current user.</td></tr>
+            <tr><td><span class="badge badge-green">POST</span></td><td><code>/api/chat/sessions</code></td><td>Create session. Body: <code>{"title":"..."}</code></td></tr>
+            <tr><td><span class="badge badge-blue">GET</span></td><td><code>/api/chat/sessions/{id}</code></td><td>Get session with messages.</td></tr>
+            <tr><td><span class="badge badge-delete">DELETE</span></td><td><code>/api/chat/sessions/{id}</code></td><td>Delete session.</td></tr>
+            <tr><td><span class="badge badge-patch">PATCH</span></td><td><code>/api/chat/sessions/{id}</code></td><td>Rename session. Body: <code>{"title":"..."}</code></td></tr>
+            <tr><td><span class="badge badge-green">POST</span></td><td><code>/api/chat/sessions/{id}/share</code></td><td>Share with users. Body: <code>{"user_ids":[1,2]}</code></td></tr>
+            <tr><td><span class="badge badge-blue">GET</span></td><td><code>/api/chat/sessions/{id}/export</code></td><td>Download session as PDF.</td></tr>
+        </table>
+
+        <h2 id="api-upload">Upload</h2>
+        <table>
+            <tr><th>Method</th><th>Path</th><th>Description</th></tr>
+            <tr><td><span class="badge badge-green">POST</span></td><td><code>/api/upload/submit</code></td><td>Upload a file (multipart/form-data). Fields: <code>file</code>, <code>project_slug</code> (optional), <code>use_smart_metadata</code> (optional bool).</td></tr>
+            <tr><td><span class="badge badge-green">POST</span></td><td><code>/api/upload/from-url</code></td><td>Download and upload from URL. Body: <code>{"url":"...","project_slug":"...","username":"...","password":"..."}</code></td></tr>
+            <tr><td><span class="badge badge-green">POST</span></td><td><code>/api/upload/transform-url</code></td><td>Resolve a cloud share link to a direct URL. Body: <code>{"url":"..."}</code></td></tr>
+            <tr><td><span class="badge badge-green">POST</span></td><td><code>/api/upload/scan-url</code></td><td>Probe a URL/directory for downloadable files. Returns file list.</td></tr>
+            <tr><td><span class="badge badge-blue">GET</span></td><td><code>/api/upload/history</code></td><td>Last 20 uploads for current user.</td></tr>
+        </table>
+
+        <h2 id="api-vector">Vector Store</h2>
+        <table>
+            <tr><th>Method</th><th>Path</th><th>Description</th></tr>
+            <tr><td><span class="badge badge-blue">GET</span></td><td><code>/api/vector/documents</code></td><td>All documents in vector store grouped by type.</td></tr>
+            <tr><td><span class="badge badge-blue">GET</span></td><td><code>/api/vector/types</code></td><td>List document types and counts.</td></tr>
+            <tr><td><span class="badge badge-green">POST</span></td><td><code>/api/vector/reembed-stale</code></td><td>Re-embed documents with stale OCR content.</td></tr>
+            <tr><td><span class="badge badge-green">POST</span></td><td><code>/api/vector/clear</code></td><td>Clear entire vector index for current project.</td></tr>
+            <tr><td><span class="badge badge-delete">DELETE</span></td><td><code>/api/vector/delete/{doc_id}</code></td><td>Remove single document from vector store.</td></tr>
+        </table>
+
+        <h2 id="api-admin">Administration</h2>
+        <table>
+            <tr><th>Method</th><th>Path</th><th>Description</th></tr>
+            <tr><td><span class="badge badge-green">POST</span></td><td><code>/api/reprocess</code></td><td>Reset state and reprocess all documents. Long-running.</td></tr>
+            <tr><td><span class="badge badge-green">POST</span></td><td><code>/api/reprocess/{doc_id}</code></td><td>Reprocess a single document by Paperless ID.</td></tr>
+            <tr><td><span class="badge badge-green">POST</span></td><td><code>/api/scan/process-unanalyzed</code></td><td>Queue only unanalyzed documents (no re-processing).</td></tr>
+            <tr><td><span class="badge badge-blue">GET</span></td><td><code>/api/logs</code></td><td>Recent log entries.</td></tr>
+        </table>
+
+        <h2 id="api-users">Users (Admin only)</h2>
+        <table>
+            <tr><th>Method</th><th>Path</th><th>Description</th></tr>
+            <tr><td><span class="badge badge-blue">GET</span></td><td><code>/api/users</code></td><td>List all users.</td></tr>
+            <tr><td><span class="badge badge-green">POST</span></td><td><code>/api/users</code></td><td>Create user. Body: <code>{"username","display_name","email","password","role"}</code></td></tr>
+            <tr><td><span class="badge badge-patch">PATCH</span></td><td><code>/api/users/{id}</code></td><td>Update user fields. Partial update — send only changed fields.</td></tr>
+            <tr><td><span class="badge badge-delete">DELETE</span></td><td><code>/api/users/{id}</code></td><td>Deactivate user (soft delete).</td></tr>
+        </table>
+
+        <h2 id="api-llm-usage">LLM Usage</h2>
+        <table>
+            <tr><th>Method</th><th>Path</th><th>Description</th></tr>
+            <tr><td><span class="badge badge-blue">GET</span></td><td><code>/api/llm-usage/stats</code></td><td>Aggregate usage statistics (tokens, cost, call count).</td></tr>
+            <tr><td><span class="badge badge-blue">GET</span></td><td><code>/api/llm-usage/recent</code></td><td>Last N API calls with model, tokens, and prompt excerpt.</td></tr>
+            <tr><td><span class="badge badge-blue">GET</span></td><td><code>/api/llm-usage/pricing</code></td><td>Current pricing table used for cost estimates.</td></tr>
+        </table>
+
+{# ═══════════════════════════════════════════════════════════════════ #}
+{# CASE INTELLIGENCE                                                   #}
+{# ═══════════════════════════════════════════════════════════════════ #}

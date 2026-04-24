@@ -1,0 +1,55 @@
+        <h1 class="page-title">Quick Start</h1>
+        <p class="subtitle">From login to your first AI-powered document analysis in five minutes.</p>
+
+        <h2 id="login">Step 1 — Log in</h2>
+        <p>Navigate to the application URL provided by your administrator (typically <code>/paperless-ai-analyzer/</code>). Enter your username and password. Contact your admin if you don't have credentials.</p>
+
+        <div class="callout callout-tip">
+            <strong>Tip:</strong> If you forget your password, an admin can reset it via <strong>Configuration → Users → Edit</strong>.
+        </div>
+
+        <h2 id="dashboard">Step 2 — Explore the Dashboard</h2>
+        <p>After login you land on the <strong>Overview</strong> tab. The status bar at the top shows:</p>
+        <ul>
+            <li><strong>Status</strong> — Running / Stopped indicator for the analyzer.</li>
+            <li><strong>Documents Analyzed</strong> — cumulative count of all processed documents.</li>
+            <li><strong>Anomalies Detected</strong> — documents with at least one <code>anomaly:</code> or <code>aianomaly:</code> tag.</li>
+            <li><strong>High Risk</strong> — documents with a forensic risk score ≥ 70.</li>
+            <li><strong>Active Profiles</strong> — YAML document-type profiles loaded.</li>
+            <li><strong>Embedded Documents</strong> — documents in the vector store (available for AI Chat).</li>
+        </ul>
+        <p>The <em>Recent Analyses</em> list auto-refreshes every 10 seconds showing the 50 most recently processed documents. Each card shows the document title, risk score, brief summary, anomaly tags, and any Q&amp;A pairs extracted.</p>
+
+        <h2 id="select-project">Step 3 — Select a Project</h2>
+        <p>The header bar shows <strong>Current Project</strong>. Click the dropdown to switch projects. AI Chat and Search operate within the selected project's document collection only. To work across all documents, select <em>Default Project</em>.</p>
+
+        <h2 id="upload-first-doc">Step 4 — Upload a document</h2>
+        <ol>
+            <li>Open the <strong>Smart Upload</strong> tab.</li>
+            <li>Select your project from the <strong>Project</strong> dropdown (or leave as Default).</li>
+            <li>Choose a mode: <strong>File</strong>, <strong>URL</strong>, or <strong>Cloud Link</strong>.</li>
+            <li>Drag a file or paste a link. Optionally enable <strong>Smart Metadata</strong> to let AI suggest a title, date, and document type before uploading.</li>
+            <li>Click <strong>Upload to Paperless</strong>. The document is submitted to Paperless-ngx for OCR.</li>
+            <li>Within ~60 seconds, the analyzer picks it up, runs analysis, and the document appears in <em>Recent Analyses</em>.</li>
+        </ol>
+
+        <h2 id="search-first">Step 5 — Search your documents</h2>
+        <p>Open <strong>Search &amp; Analysis</strong>. Type any natural-language query — e.g., <em>"Chase statements with overdrafts"</em> or <em>"documents mentioning the receiver"</em>. Results are ranked by semantic relevance within the current project.</p>
+
+        <h2 id="chat-first">Step 6 — Chat with your documents</h2>
+        <ol>
+            <li>Open <strong>AI Chat</strong>.</li>
+            <li>Click <strong>+ New Session</strong>.</li>
+            <li>Type a question and press <kbd class="kbd">Enter</kbd>. Try:<br>
+                <em>"What is the ending balance on the most recent Chase statement?"</em><br>
+                <em>"Which documents mention Fairbridge Real Estate?"</em></li>
+            <li>The AI retrieves the most relevant documents and answers based on their actual content.</li>
+        </ol>
+
+        <div class="callout callout-tip">
+            <strong>Keyboard shortcuts:</strong> <kbd class="kbd">Enter</kbd> sends a message. <kbd class="kbd">Ctrl+Enter</kbd> inserts a new line without sending.
+        </div>
+
+{# ═══════════════════════════════════════════════════════════════════ #}
+{# PROJECTS                                                            #}
+{# ═══════════════════════════════════════════════════════════════════ #}
