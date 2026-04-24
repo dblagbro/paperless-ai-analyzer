@@ -377,12 +377,24 @@ def api_submit_upload():
         project_slug = request.form.get('project_slug')
         import json as _json
         metadata_json = request.form.get('metadata', '{}')
-        metadata = _json.loads(metadata_json)
+        try:
+            metadata = _json.loads(metadata_json)
+        except (ValueError, TypeError):
+            return jsonify({'error': f'metadata must be valid JSON: {metadata_json[:60]!r}'}), 400
 
         import tempfile
         temp_dir = tempfile.mkdtemp()
         file_path = os.path.join(temp_dir, file.filename)
         file.save(file_path)
+
+        # v3.9.4: reject zero-byte uploads with clean 400 (was 500 from upstream)
+        if os.path.getsize(file_path) == 0:
+            try:
+                os.remove(file_path)
+                os.rmdir(temp_dir)
+            except Exception:
+                pass
+            return jsonify({'error': 'File is empty (0 bytes)'}), 400
 
         try:
             if project_slug and metadata and current_app.smart_uploader:

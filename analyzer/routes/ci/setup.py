@@ -187,7 +187,7 @@ def ci_goal_assistant():
     if not ok:
         return err
     try:
-        from analyzer.routes.chat import _fetch_url_text
+        from analyzer.services.web_research_service import fetch_url_text as _fetch_url_text
         data = safe_json_body()
         messages = data.get('messages', [])          # [{role, content}, ...]
         ctx = data.get('context', {})
