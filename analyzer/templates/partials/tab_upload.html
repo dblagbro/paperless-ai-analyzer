@@ -1,0 +1,395 @@
+            <div id="tab-upload" class="tab-content">
+                <div class="tab-help-panel" id="help-upload">
+                    <strong>📤 Smart Upload</strong> — Get documents into Paperless from any source.
+                    <ul style="margin:8px 0 0 0; padding-left:18px;">
+                        <li><strong>File</strong> — Drag and drop or browse for a PDF, image, or document file.</li>
+                        <li><strong>URL</strong> — Paste a direct file link <em>or a folder/directory URL</em>. If the URL points to an HTML directory listing, all compatible files are discovered automatically. Add Basic Auth credentials if the link requires a login.</li>
+                        <li><strong>Cloud Share Link</strong> — Paste a Google Drive, Dropbox, or OneDrive share link; it will be converted automatically to a direct download URL.</li>
+                        {% if COURT_IMPORT_ENABLED %}<li><strong>Court Import</strong> — Pull entire case files from federal courts (PACER / CourtListener RECAP) or NYS NYSCEF directly into your project library with 3-tier deduplication. Click <strong>📋 Paste credentials</strong> to let AI extract login info from any email or Slack message in one step, or <strong>⚙️ Manage</strong> to enter credentials manually. NYSCEF: attorneys enter their NY Bar Registration #; parties/defendants without bar numbers tick <em>Pro Se / Party access</em> and use a free NYSCEF account (create at iapps.courts.state.ny.us/nyscef → Unrepresented Litigants). <a href="{{ request.script_root }}/docs/court-import#court-nyscef-prose" target="_blank" style="color:#5dade2;">Pro Se setup guide →</a></li>{% endif %}
+                        <li>Enable <strong>Smart Metadata</strong> (File / URL / Cloud modes) to let the AI suggest a title, tags, and project assignment before uploading.</li>
+                        <li>The <strong>Recent Imports</strong> panel below tracks all file/URL/cloud uploads. Successful imports show a <strong>🔗 View</strong> link to open the document in Paperless. Failed imports show <strong>❌</strong> with an error tooltip on hover.</li>
+                    </ul>
+                    <div style="margin-top:8px; font-size:12px;"><a href="{{ request.script_root }}/docs/upload" target="_blank" style="color:#5dade2;">📖 Full manual for this section →</a></div>
+                </div>
+                <h2>📤 Smart Upload</h2>
+                <p style="color: #666; margin-bottom: 20px;">Upload documents to Paperless from a file, URL, or cloud share link.</p>
+
+                <!-- Upload Source Card -->
+                <div style="background: white; border: 1px solid #e1e4e8; border-radius: 10px; overflow: hidden; margin-bottom: 24px; box-shadow: 0 1px 4px rgba(0,0,0,.06);">
+
+                    <!-- Mode tabs -->
+                    <div style="display: flex; border-bottom: 1px solid #e1e4e8; background: #f6f8fa;">
+                        <button id="umode-file" onclick="switchUploadMode('file')"
+                            style="flex:1; padding: 12px 0; border: none; background: #fff; border-bottom: 3px solid #2563eb; font-weight: 600; color: #2563eb; cursor: pointer; font-size: 14px;">
+                            📁 File
+                        </button>
+                        <button id="umode-url" onclick="switchUploadMode('url')"
+                            style="flex:1; padding: 12px 0; border: none; background: transparent; border-bottom: 3px solid transparent; font-weight: 500; color: #555; cursor: pointer; font-size: 14px;">
+                            🔗 URL
+                        </button>
+                        <button id="umode-cloud" onclick="switchUploadMode('cloud')"
+                            style="flex:1; padding: 12px 0; border: none; background: transparent; border-bottom: 3px solid transparent; font-weight: 500; color: #555; cursor: pointer; font-size: 14px;">
+                            ☁️ Cloud Link
+                        </button>
+                        {% if COURT_IMPORT_ENABLED %}
+                        <button id="umode-court" onclick="switchUploadMode('court')"
+                            style="flex:1; padding: 12px 0; border: none; background: transparent; border-bottom: 3px solid transparent; font-weight: 500; color: #555; cursor: pointer; font-size: 14px;">
+                            🏛️ Court Import
+                        </button>
+                        {% endif %}
+                    </div>
+
+                    <div style="padding: 24px;">
+
+                        <!-- FILE MODE -->
+                        <div id="uinput-file">
+                            <div id="upload-dropzone"
+                                ondragover="event.preventDefault(); this.style.background='#eff6ff'; this.style.borderColor='#2563eb';"
+                                ondragleave="this.style.background=''; this.style.borderColor='#cbd5e1';"
+                                ondrop="handleDrop(event)"
+                                onclick="document.getElementById('upload-file-input').click()"
+                                style="border: 2px dashed #cbd5e1; border-radius: 8px; padding: 40px 20px; text-align: center; cursor: pointer; transition: all .2s;">
+                                <div style="font-size: 36px; margin-bottom: 8px;">📄</div>
+                                <div style="font-weight: 600; color: #374151; margin-bottom: 4px;">Drop file here or click to browse</div>
+                                <div style="font-size: 12px; color: #9ca3af;">PDF, PNG, JPG, JPEG, DOCX, HEIC</div>
+                                <div id="upload-file-name" style="margin-top: 10px; font-size: 13px; color: #2563eb; font-weight:500;"></div>
+                            </div>
+                            <input type="file" id="upload-file-input"
+                                accept=".pdf,.png,.jpg,.jpeg,.doc,.docx,.heic"
+                                style="display: none;"
+                                onchange="document.getElementById('upload-file-name').textContent = this.files[0]?.name || ''">
+                        </div>
+
+                        <!-- URL MODE -->
+                        <div id="uinput-url" style="display:none;">
+                            <label style="display:block; font-weight:600; margin-bottom:6px; color:#374151;">File or Folder URL</label>
+                            <input type="url" id="upload-url-input" placeholder="https://example.com/document.pdf  or  https://example.com/docs/"
+                                style="width:100%; box-sizing:border-box; padding:10px 12px; border:1px solid #d1d5db; border-radius:6px; font-size:14px; margin-bottom:14px;">
+
+                            <label style="display:block; font-weight:600; margin-bottom:6px; color:#374151;">Authentication</label>
+                            <select id="upload-auth-type" onchange="updateAuthFields()"
+                                style="padding:8px 12px; border:1px solid #d1d5db; border-radius:6px; font-size:14px; margin-bottom:10px;">
+                                <option value="none">None</option>
+                                <option value="basic">Username / Password</option>
+                                <option value="token">Bearer Token</option>
+                            </select>
+                            <div id="upload-auth-basic" style="display:none; margin-top:8px;">
+                                <input type="text" id="upload-auth-user" placeholder="Username" autocomplete="off"
+                                    style="width:100%; box-sizing:border-box; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px; font-size:14px; margin-bottom:8px;">
+                                <input type="password" id="upload-auth-pass" placeholder="Password" autocomplete="new-password"
+                                    style="width:100%; box-sizing:border-box; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px; font-size:14px;">
+                            </div>
+                            <div id="upload-auth-token" style="display:none; margin-top:8px;">
+                                <input type="text" id="upload-auth-token-val" placeholder="Bearer token"
+                                    style="width:100%; box-sizing:border-box; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px; font-size:14px;">
+                            </div>
+                        </div>
+
+                        <!-- CLOUD LINK MODE -->
+                        <div id="uinput-cloud" style="display:none;">
+                            <label style="display:block; font-weight:600; margin-bottom:6px; color:#374151;">Cloud Share Link</label>
+                            <input type="url" id="upload-cloud-input"
+                                placeholder="Paste a Google Drive, Dropbox, or OneDrive share link"
+                                style="width:100%; box-sizing:border-box; padding:10px 12px; border:1px solid #d1d5db; border-radius:6px; font-size:14px; margin-bottom:8px;">
+                            <div id="upload-cloud-detected" style="font-size:12px; color:#6b7280; min-height:18px;"></div>
+                        </div>
+
+                        {% if COURT_IMPORT_ENABLED %}
+                        <!-- COURT IMPORT MODE -->
+                        <div id="uinput-court" style="display:none;">
+                            <!-- Credential status pills -->
+                            <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:16px; padding-bottom:14px; border-bottom:1px solid #e5e7eb;">
+                                <span style="font-size:12px; color:#6b7280; font-weight:500;">Court credentials:</span>
+                                <span style="border:1px solid #d1d5db; border-radius:12px; padding:3px 10px; font-size:12px; color:#6b7280;" id="court-cred-pill-federal">Federal — loading…</span>
+                                <span style="border:1px solid #d1d5db; border-radius:12px; padding:3px 10px; font-size:12px; color:#6b7280;" id="court-cred-pill-nyscef">NYSCEF — loading…</span>
+                                <div style="margin-left:auto; display:flex; gap:6px;">
+                                    <button class="btn" onclick="openCourtWizard()" style="padding:4px 12px; font-size:12px; background:#f3f4f6; color:#374151; border:1px solid #d1d5db; border-radius:5px; cursor:pointer;">⚙️ Manage</button>
+                                    <button class="btn" onclick="openCourtWizardAIPaste()" style="padding:4px 12px; font-size:12px; background:#eff6ff; color:#2563eb; border:1px solid #bfdbfe; border-radius:5px; cursor:pointer;">📋 Paste credentials</button>
+                                </div>
+                            </div>
+
+                            <!-- Case search -->
+                            <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; margin-bottom:14px;">
+                                <div style="flex:0 0 130px;">
+                                    <label style="display:block; font-size:12px; font-weight:600; color:#374151; margin-bottom:4px;">Court System</label>
+                                    <select id="court-system-select" style="width:100%; padding:7px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:13px; color:#374151;">
+                                        <option value="federal">Federal</option>
+                                        <option value="nyscef">NYSCEF (NYS)</option>
+                                    </select>
+                                </div>
+                                <div style="flex:1; min-width:140px;">
+                                    <label style="display:block; font-size:12px; font-weight:600; color:#374151; margin-bottom:4px;">Case Number</label>
+                                    <input type="text" id="court-case-number" placeholder="e.g. 1:23-cv-04567"
+                                           style="width:100%; box-sizing:border-box; padding:7px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:13px;">
+                                </div>
+                                <div style="flex:1; min-width:140px;">
+                                    <label style="display:block; font-size:12px; font-weight:600; color:#374151; margin-bottom:4px;">Party Name <span style="color:#9ca3af; font-weight:400;">(optional)</span></label>
+                                    <input type="text" id="court-party-name" placeholder="Plaintiff or defendant"
+                                           style="width:100%; box-sizing:border-box; padding:7px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:13px;">
+                                </div>
+                                <button class="btn btn-primary" onclick="searchCourt()" style="padding:7px 18px; font-size:13px;">Search</button>
+                            </div>
+                            <div id="court-search-results" style="margin-bottom:10px;"></div>
+
+                            <!-- Docket section (hidden until case selected) -->
+                            <div id="court-docket-section" style="display:none;">
+                                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
+                                    <div>
+                                        <div style="font-weight:600; color:#374151; font-size:14px;" id="court-docket-case-title">Case Documents</div>
+                                        <div style="font-size:12px; color:#6b7280;" id="court-docket-meta"></div>
+                                    </div>
+                                    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                                        <button class="btn" id="btn-court-import-selected" onclick="startCourtImport(false)" style="display:none; padding:6px 14px; font-size:13px; background:#f3f4f6; color:#374151; border:1px solid #d1d5db; border-radius:5px; cursor:pointer;">Import Selected</button>
+                                        <button class="btn btn-primary" id="btn-court-import-all" onclick="startCourtImport(true)" style="padding:6px 14px; font-size:13px;">Import All</button>
+                                    </div>
+                                </div>
+                                <!-- Filter bar -->
+                                <div style="display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap;">
+                                    <input type="text" id="court-docket-filter" placeholder="Filter by title…"
+                                           oninput="filterDocket()" style="flex:1; min-width:120px; padding:5px 9px; border:1px solid #d1d5db; border-radius:5px; font-size:12px; box-sizing:border-box;">
+                                    <select id="court-source-filter" onchange="filterDocket()" style="padding:5px 9px; border:1px solid #d1d5db; border-radius:5px; font-size:12px; color:#374151;">
+                                        <option value="">All sources</option>
+                                        <option value="recap">RECAP</option>
+                                        <option value="pacer">PACER</option>
+                                        <option value="nyscef">NYSCEF</option>
+                                    </select>
+                                </div>
+                                <!-- Docket table -->
+                                <div style="overflow-x:auto; max-height:260px; overflow-y:auto; border:1px solid #e5e7eb; border-radius:6px; margin-bottom:10px;">
+                                    <table style="width:100%; border-collapse:collapse; font-size:12px;" id="court-docket-table">
+                                        <thead>
+                                            <tr style="background:#f6f8fa; color:#6b7280; text-align:left; position:sticky; top:0;">
+                                                <th style="padding:7px 8px; width:28px; border-bottom:1px solid #e5e7eb;"><input type="checkbox" id="court-select-all" onchange="courtSelectAll(this)"></th>
+                                                <th style="padding:7px 8px; width:55px; border-bottom:1px solid #e5e7eb;">Seq #</th>
+                                                <th style="padding:7px 8px; width:85px; border-bottom:1px solid #e5e7eb;">Date</th>
+                                                <th style="padding:7px 8px; border-bottom:1px solid #e5e7eb;">Description</th>
+                                                <th style="padding:7px 8px; width:65px; border-bottom:1px solid #e5e7eb;">Source</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="court-docket-tbody"></tbody>
+                                    </table>
+                                </div>
+                                <!-- Import progress -->
+                                <div id="court-import-progress" style="display:none; margin-top:10px; padding:12px; background:#f9fafb; border:1px solid #e5e7eb; border-radius:8px;">
+                                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                                        <span style="font-weight:600; color:#374151; font-size:13px;">Import Progress</span>
+                                        <button class="btn" style="padding:3px 10px; font-size:11px; background:#f3f4f6; color:#374151; border:1px solid #d1d5db; border-radius:4px; cursor:pointer;" id="btn-court-cancel" onclick="cancelCourtImport()">Cancel</button>
+                                    </div>
+                                    <div style="background:#e5e7eb; border-radius:4px; height:8px; overflow:hidden; margin-bottom:6px;">
+                                        <div id="court-import-bar" style="height:100%; background:#2563eb; width:0%; transition:width .4s ease;"></div>
+                                    </div>
+                                    <div id="court-import-counters" style="font-size:12px; color:#6b7280; margin-bottom:8px;"></div>
+                                    <div id="court-import-log" style="font-family:monospace; font-size:11px; color:#374151; max-height:120px; overflow-y:auto; background:#fff; border:1px solid #e5e7eb; border-radius:4px; padding:6px;"></div>
+                                </div>
+                            </div>
+
+                            <!-- Court import history -->
+                            <div style="margin-top:14px; padding-top:14px; border-top:1px solid #e5e7eb;">
+                                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                                    <span style="font-weight:600; font-size:13px; color:#374151;">📋 Court Import History</span>
+                                    <button onclick="loadCourtHistory()" style="font-size:12px; border:none; background:none; color:#2563eb; cursor:pointer;">↻ Refresh</button>
+                                </div>
+                                <div id="court-history-table" style="font-size:12px; color:#6b7280;">Loading…</div>
+                            </div>
+                        </div>
+                        {% endif %}
+
+                        <!-- Shared upload controls (hidden when court mode is active) -->
+                        <div id="upload-shared-controls">
+                            <!-- Project selector -->
+                            <div style="margin-top:14px;">
+                                <label style="display:block; font-weight:600; margin-bottom:6px; font-size:14px; color:#374151;">Project</label>
+                                <select id="upload-project-select" style="width:100%; box-sizing:border-box; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px; font-size:14px; color:#374151;">
+                                    <option value="">None (auto-assign by analyzer)</option>
+                                </select>
+                            </div>
+
+                            <!-- Smart Metadata toggle -->
+                            <div style="margin-top:18px; display:flex; align-items:center; gap:10px;">
+                                <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:14px; color:#374151; font-weight:500;">
+                                    <input type="checkbox" id="upload-smart-meta" style="width:16px; height:16px; accent-color:#2563eb;">
+                                    Smart Metadata — AI analyzes before uploading (shows preview)
+                                </label>
+                            </div>
+
+                            <!-- Upload button -->
+                            <div style="margin-top:20px;">
+                                <button class="btn btn-primary" onclick="doUpload()"
+                                    id="upload-submit-btn"
+                                    style="padding: 10px 28px; font-size: 15px;">
+                                    📤 Upload to Paperless
+                                </button>
+                            </div>
+
+                            <!-- Status -->
+                            <div id="upload-status" style="margin-top: 16px;"></div>
+
+                            <!-- Directory file-list picker (shown when a folder URL is scanned) -->
+                            <div id="upload-filelist" style="display:none; margin-top:16px; background:#f9fafb; border:1px solid #e5e7eb; border-radius:8px; overflow:hidden;">
+                                <div style="padding:10px 14px; border-bottom:1px solid #e5e7eb; display:flex; align-items:center; gap:12px; background:#fff;">
+                                    <span style="font-weight:600; font-size:13px; color:#374151;">📁 <span id="upload-filelist-count">0</span> compatible files found</span>
+                                    <label style="font-size:12px; color:#6b7280; display:flex; align-items:center; gap:5px; cursor:pointer; margin-left:auto;">
+                                        <input type="checkbox" id="upload-filelist-selectall" checked
+                                            onchange="toggleSelectAllFiles(this.checked)"
+                                            style="width:13px; height:13px;">
+                                        Select all
+                                    </label>
+                                </div>
+                                <div id="upload-filelist-table"
+                                    style="max-height:280px; overflow-y:auto;"
+                                    onchange="if(event.target.classList.contains('flist-cb')) _updateFileListBtn()">
+                                </div>
+                                <div style="padding:10px 14px; border-top:1px solid #e5e7eb; display:flex; gap:8px; align-items:center; background:#fff;">
+                                    <button class="btn btn-primary" id="upload-filelist-btn"
+                                        onclick="uploadSelectedFiles()"
+                                        style="font-size:13px; padding:7px 18px;">Upload 0 files</button>
+                                    <button class="btn" onclick="cancelFileList()"
+                                        style="font-size:13px; padding:7px 14px; background:#f3f4f6; color:#374151; border:1px solid #d1d5db; border-radius:5px;">Cancel</button>
+                                    <span id="upload-filelist-progress" style="font-size:12px; color:#6b7280; margin-left:6px;"></span>
+                                </div>
+                            </div>
+
+                            <!-- Smart metadata preview card -->
+                            <div id="upload-meta-preview" style="display:none; margin-top:16px; background:#f0f9ff; border:1px solid #bae6fd; border-radius:8px; padding:16px;">
+                                <div style="font-weight:600; color:#0c4a6e; margin-bottom:10px;">AI Metadata Preview — confirm before submitting</div>
+                                <div id="upload-meta-content" style="font-size:13px; color:#374151;"></div>
+                                <div style="margin-top:14px; display:flex; gap:10px;">
+                                    <button class="btn btn-primary" onclick="confirmSmartUpload()" style="padding:8px 20px;">
+                                        ✅ Confirm &amp; Upload
+                                    </button>
+                                    <button class="btn" onclick="cancelSmartPreview()" style="padding:8px 16px; background:#e5e7eb; color:#374151;">
+                                        Cancel
+                                    </button>
+                                </div>
+                            </div>
+                        </div><!-- /upload-shared-controls -->
+                    </div>
+                </div>
+
+                {% if COURT_IMPORT_ENABLED %}
+                <!-- Court credentials wizard modal (fixed overlay — works from anywhere in the DOM) -->
+                <div id="court-wizard-overlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:9000; align-items:center; justify-content:center;">
+                    <div style="background:#fff; border:1px solid #d1d5db; border-radius:12px; width:520px; max-width:95vw; padding:28px; box-shadow:0 8px 32px rgba(0,0,0,.2);">
+                        <h3 style="margin:0 0 20px 0; color:#111827;">⚙️ Court Credentials Setup</h3>
+
+                        <!-- Step 1: Select court -->
+                        <div id="court-wizard-step1">
+                            <p style="color:#6b7280; margin-bottom:14px;">Select which court system to configure:</p>
+                            <label style="display:flex; align-items:flex-start; gap:10px; margin-bottom:12px; cursor:pointer;">
+                                <input type="radio" name="court-wizard-system" value="federal" checked style="margin-top:3px;">
+                                <span>
+                                    <strong style="color:#111827;">Federal Courts (PACER + CourtListener)</strong><br>
+                                    <small style="color:#6b7280;">CourtListener RECAP is free and requires no credentials. PACER credentials are optional for documents not in the archive.</small>
+                                </span>
+                            </label>
+                            <label style="display:flex; align-items:flex-start; gap:10px; margin-bottom:20px; cursor:pointer;">
+                                <input type="radio" name="court-wizard-system" value="nyscef" style="margin-top:3px;">
+                                <span>
+                                    <strong style="color:#111827;">New York Courts (NYSCEF)</strong><br>
+                                    <small style="color:#6b7280;">Requires NY Attorney Registration # and Playwright/Chromium. Rebuild image with <code>INCLUDE_PLAYWRIGHT=true</code>.</small>
+                                </span>
+                            </label>
+                            <div style="display:flex; justify-content:flex-end; gap:8px;">
+                                <button class="btn" onclick="closeCourtWizard()" style="padding:7px 16px; background:#f3f4f6; color:#374151; border:1px solid #d1d5db; border-radius:5px; cursor:pointer;">Cancel</button>
+                                <button class="btn btn-primary" onclick="courtWizardStep(2)" style="padding:7px 16px;">Next →</button>
+                            </div>
+                        </div>
+
+                        <!-- Step 2: Enter credentials + test -->
+                        <div id="court-wizard-step2" style="display:none;">
+
+                            <!-- Entry mode tab toggle -->
+                            <div style="display:flex; border-bottom:1px solid #e5e7eb; margin-bottom:14px;">
+                                <button id="court-wiz-tab-manual" onclick="courtWizEntryMode('manual')"
+                                        style="background:none; border:none; padding:7px 14px 6px; cursor:pointer; font-size:13px; color:#2563eb; font-weight:600; border-bottom:2px solid #2563eb;">✏️ Manual</button>
+                                <button id="court-wiz-tab-paste" onclick="courtWizEntryMode('paste')"
+                                        style="background:none; border:none; padding:7px 14px 6px; cursor:pointer; font-size:13px; color:#6b7280; font-weight:400; border-bottom:2px solid transparent;">📋 AI Paste</button>
+                            </div>
+
+                            <!-- Manual entry panel -->
+                            <div id="court-wiz-manual-panel">
+                                <div id="court-wizard-federal-fields">
+                                    <p style="color:#6b7280; margin-bottom:12px; font-size:14px;"><strong>Federal Courts</strong> — CourtListener is free (no credentials needed). Enter PACER credentials to access documents not in the RECAP archive.</p>
+                                    <label style="display:block; margin-bottom:5px; font-size:13px; font-weight:600; color:#374151;">PACER Username <span style="color:#9ca3af; font-weight:400;">(optional)</span></label>
+                                    <input type="text" id="court-wiz-federal-user" placeholder="PACER username"
+                                           style="width:100%; box-sizing:border-box; padding:8px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:13px; margin-bottom:10px;">
+                                    <label style="display:block; margin-bottom:5px; font-size:13px; font-weight:600; color:#374151;">PACER Password <span style="color:#9ca3af; font-weight:400;">(optional)</span></label>
+                                    <div style="display:flex; gap:6px; margin-bottom:10px;">
+                                        <input type="password" id="court-wiz-federal-pass" placeholder="PACER password"
+                                               style="flex:1; padding:8px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:13px;">
+                                        <button type="button" onclick="toggleCourtPassword('court-wiz-federal-pass', this)"
+                                                style="padding:8px 10px; border:1px solid #d1d5db; border-radius:6px; background:#f9fafb; color:#6b7280; cursor:pointer; font-size:12px; white-space:nowrap;">Show</button>
+                                    </div>
+                                    <label style="display:block; margin-bottom:5px; font-size:13px; font-weight:600; color:#374151;">PACER Login Court <span style="color:#9ca3af; font-weight:400;">(required for doc downloads)</span></label>
+                                    <input type="text" id="court-wiz-federal-court" placeholder="e.g. New York Southern Bankruptcy, Texas Southern Bankruptcy"
+                                           style="width:100%; box-sizing:border-box; padding:8px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:13px; margin-bottom:10px;">
+                                    <label style="display:block; margin-bottom:5px; font-size:13px; font-weight:600; color:#374151;">PACER Client Code <span style="color:#9ca3af; font-weight:400;">(optional)</span></label>
+                                    <input type="text" id="court-wiz-federal-client" placeholder="Billing client code"
+                                           style="width:100%; box-sizing:border-box; padding:8px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:13px; margin-bottom:10px;">
+                                    <label style="display:block; margin-bottom:5px; font-size:13px; font-weight:600; color:#374151;">CourtListener API Token <span style="color:#9ca3af; font-weight:400;">(optional — raises rate limit)</span></label>
+                                    <input type="text" id="court-wiz-cl-token" placeholder="Free token from courtlistener.com"
+                                           style="width:100%; box-sizing:border-box; padding:8px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:13px; margin-bottom:4px;">
+                                </div>
+                                <div id="court-wizard-nyscef-fields" style="display:none;">
+                                    <div style="margin-bottom:12px; padding:10px 12px; background:#f0fdf4; border:1px solid #bbf7d0; border-radius:6px;">
+                                        <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:13px; color:#374151;">
+                                            <input type="checkbox" id="court-wiz-nyscef-public" onchange="toggleNyscefPublic(this.checked)"
+                                                   style="width:15px; height:15px;">
+                                            <span><strong>Pro Se / Party access</strong> — I'm a party/defendant (not an attorney). Create a free NYSCEF account at iapps.courts.state.ny.us/nyscef → Unrepresented Litigants → Create an Account, then enter those credentials below.</span>
+                                        </label>
+                                    </div>
+                                    <div id="court-wiz-nyscef-cred-fields">
+                                        <p id="court-wiz-nyscef-cred-desc" style="color:#6b7280; margin-bottom:12px; font-size:14px;"><strong>NYSCEF</strong> — Enter your NY Attorney Registration number and e-Filing password.</p>
+                                        <label id="court-wiz-nyscef-user-lbl" style="display:block; margin-bottom:5px; font-size:13px; font-weight:600; color:#374151;">NY Attorney Registration #</label>
+                                        <input type="text" id="court-wiz-nyscef-user" placeholder="e.g. 1234567"
+                                               style="width:100%; box-sizing:border-box; padding:8px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:13px; margin-bottom:10px;">
+                                        <label style="display:block; margin-bottom:5px; font-size:13px; font-weight:600; color:#374151;">NYSCEF Password</label>
+                                        <div style="display:flex; gap:6px; margin-bottom:10px;">
+                                            <input type="password" id="court-wiz-nyscef-pass" placeholder="NYSCEF e-Filing password"
+                                                   style="flex:1; padding:8px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:13px;">
+                                            <button type="button" onclick="toggleCourtPassword('court-wiz-nyscef-pass', this)"
+                                                    style="padding:8px 10px; border:1px solid #d1d5db; border-radius:6px; background:#f9fafb; color:#6b7280; cursor:pointer; font-size:12px; white-space:nowrap;">Show</button>
+                                        </div>
+                                    </div>
+                                    <label style="display:block; margin-bottom:5px; font-size:13px; font-weight:600; color:#374151;">Default County</label>
+                                    <input type="text" id="court-wiz-nyscef-county" placeholder="e.g. new york"
+                                           style="width:100%; box-sizing:border-box; padding:8px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:13px; margin-bottom:4px;">
+                                </div>
+                            </div><!-- /court-wiz-manual-panel -->
+
+                            <!-- AI Paste panel — content injected by AIFormFiller widget -->
+                            <div id="court-wiz-paste-panel" style="display:none;"></div>
+
+                            <div id="court-wiz-test-result" style="margin:10px 0; font-size:13px; min-height:18px;"></div>
+                            <div style="display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap;">
+                                <button class="btn" onclick="courtWizardStep(1)" style="padding:7px 14px; background:#f3f4f6; color:#374151; border:1px solid #d1d5db; border-radius:5px; cursor:pointer;">← Back</button>
+                                <div style="display:flex; gap:8px;">
+                                    <button class="btn" onclick="testCourtCredentials()" style="padding:7px 14px; background:#f3f4f6; color:#374151; border:1px solid #d1d5db; border-radius:5px; cursor:pointer;">🔌 Test Connection</button>
+                                    <button class="btn btn-primary" onclick="saveCourtCredentials()" style="padding:7px 16px;">💾 Save</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Step 3: Confirmation -->
+                        <div id="court-wizard-step3" style="display:none;">
+                            <div id="court-wiz-confirm-msg" style="color:#16a34a; font-size:15px; margin-bottom:20px;"></div>
+                            <div style="display:flex; justify-content:flex-end; gap:8px;">
+                                <button class="btn" onclick="closeCourtWizard()" style="padding:7px 14px; background:#f3f4f6; color:#374151; border:1px solid #d1d5db; border-radius:5px; cursor:pointer;">Close</button>
+                                <button class="btn btn-primary" onclick="closeCourtWizard()" style="padding:7px 16px;">Done</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+
+                <!-- Import History -->
+                <div style="background: white; border: 1px solid #e1e4e8; border-radius: 10px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,.06);">
+                    <div style="padding: 16px 20px; border-bottom: 1px solid #e1e4e8; display:flex; justify-content:space-between; align-items:center;">
+                        <span style="font-weight:600; color:#374151;">Recent Imports</span>
+                        <button onclick="loadImportHistory()" style="font-size:12px; border:none; background:none; color:#2563eb; cursor:pointer;">↻ Refresh</button>
+                    </div>
+                    <div id="upload-history-body" style="overflow-x:auto;">
+                        <div style="padding:20px; color:#9ca3af; font-size:13px; text-align:center;">Loading…</div>
+                    </div>
+                </div>
+            </div>

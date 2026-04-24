@@ -1,0 +1,625 @@
+            <div id="tab-config" class="tab-content">
+                <div class="tab-help-panel" id="help-config">
+                    <strong>⚙️ Configuration</strong> — Set up AI providers, analysis profiles, and system settings. Switch sub-tabs to see context-specific help.
+                    <ul style="margin:8px 0 0 0; padding-left:18px;">
+                        <li><strong>AI Settings</strong> — Global API Keys (admin) + per-project provider/model for 3 use-cases (Document Analysis, AI Chat, Case Intelligence). Fallback chain: per-project → global → system default.</li>
+                        <li><strong>AI Usage</strong> — Daily cost + call volume chart. Hover a bar for exact values.</li>
+                        <li><strong>Profiles</strong> — Rules files that define how the AI tags and classifies documents. Activate staging profiles to use them.</li>
+                        <li><strong>Vector Store</strong> — Manages the embedded document index used for AI Chat. Clear it if documents seem stale.</li>
+                        <li><strong>Notifications (SMTP)</strong> (admin) — Configure outgoing email for welcome messages, CI budget alerts, and CI completion emails.</li>
+                        <li><strong>Users</strong> (admin) — Add, edit, or remove user accounts. Three roles: Admin / Advanced / Basic.</li>
+                    </ul>
+                    <div style="margin-top:8px; font-size:12px;"><a href="{{ request.script_root }}/docs/configuration" target="_blank" style="color:#5dade2;">📖 Full manual for this section →</a></div>
+                </div>
+
+                <!-- Sub-tab help panels — hidden by default; _refreshHelpPanel() shows the active one -->
+                <div class="tab-help-panel" id="help-config-ai" style="display:none;">
+                    <strong>🤖 AI Settings</strong> — Provider and model configuration.
+                    <ul style="margin:8px 0 0 0; padding-left:18px;">
+                        <li><strong>Global API Keys</strong> (admin only) — OpenAI and Anthropic keys stored in <code>/app/data/ai_config.json</code>. Click <strong>Test</strong> next to each key to verify before saving.</li>
+                        <li><strong>Per-project AI Configuration</strong> — Three use-cases per project: Document Analysis / AI Chat / Case Intelligence. Each has a Primary and a Fallback provider+model.</li>
+                        <li><strong>⇉ All</strong> — copies that row's settings to all three use-cases in this project.</li>
+                        <li><strong>📋 Copy</strong> (admin) — copies one project's full config to another project.</li>
+                        <li><strong>Fallback chain:</strong> per-project override → global key → system default.</li>
+                        <li>Admin sees all-projects dropdown; Advanced users see only their own project.</li>
+                    </ul>
+                    <div style="margin-top:8px; font-size:12px;"><a href="{{ request.script_root }}/docs/configuration#ai-settings" target="_blank" style="color:#5dade2;">📖 AI Settings manual →</a></div>
+                </div>
+
+                <div class="tab-help-panel" id="help-config-usage" style="display:none;">
+                    <strong>💰 AI Usage</strong> — Daily token and cost history.
+                    <ul style="margin:8px 0 0 0; padding-left:18px;">
+                        <li><strong>Blue bars</strong> — daily estimated cost (USD).</li>
+                        <li><strong>Amber dashed line</strong> — daily API call volume (right axis).</li>
+                        <li>Hover a bar to see exact date, cost, and call count for that day.</li>
+                        <li>Use the days selector to widen or narrow the date range.</li>
+                    </ul>
+                    <div style="margin-top:8px; font-size:12px;"><a href="{{ request.script_root }}/docs/llm-usage" target="_blank" style="color:#5dade2;">📖 Full per-call history →</a></div>
+                </div>
+
+                <div class="tab-help-panel" id="help-config-profiles" style="display:none;">
+                    <strong>📄 Profiles</strong> — Document-type analysis rules.
+                    <ul style="margin:8px 0 0 0; padding-left:18px;">
+                        <li><strong>Active profiles</strong> are loaded from <code>/app/profiles/active/</code> and define extraction rules, risk weights, and tagging for each document type.</li>
+                        <li><strong>Staging profiles</strong> are auto-generated when a document matches no active profile. Review and activate the ones you want to keep.</li>
+                        <li><strong>Activate / Activate All</strong> — move staging profiles to active.</li>
+                        <li><strong>Delete</strong> — permanently remove a staging or active profile.</li>
+                    </ul>
+                    <div style="margin-top:8px; font-size:12px;"><a href="{{ request.script_root }}/docs/configuration#profiles" target="_blank" style="color:#5dade2;">📖 Profiles manual →</a></div>
+                </div>
+
+                <div class="tab-help-panel" id="help-config-vectorstore" style="display:none;">
+                    <strong>🗄️ Vector Store</strong> — ChromaDB document index.
+                    <ul style="margin:8px 0 0 0; padding-left:18px;">
+                        <li><strong>Process Unanalyzed</strong> — queue docs not yet embedded. No LLM cost for already-processed docs.</li>
+                        <li><strong>Re-embed Stale</strong> — re-analyze docs modified in Paperless since their last embed.</li>
+                        <li><strong>Clear All</strong> — <em>destructive</em> — wipes the entire project's vector index. Use only when rebuilding from scratch.</li>
+                        <li><strong>Reconcile</strong> — removes orphaned DB records for docs deleted from Paperless.</li>
+                    </ul>
+                    <div style="margin-top:8px; font-size:12px;"><a href="{{ request.script_root }}/docs/configuration#vector-store-config" target="_blank" style="color:#5dade2;">📖 Vector Store manual →</a></div>
+                </div>
+
+                <div class="tab-help-panel" id="help-config-smtp" style="display:none;">
+                    <strong>📧 Notifications</strong> — SMTP outgoing email configuration (admin only).
+                    <ul style="margin:8px 0 0 0; padding-left:18px;">
+                        <li>SMTP is used for: welcome emails on user creation, bug reports, CI budget alerts, and CI run completion emails.</li>
+                        <li><strong>CI budget alerts</strong> fire at every 10% completion checkpoint with a projected-vs-budget status.</li>
+                        <li><strong>CI completion emails</strong> fire when a run finishes (success or failure).</li>
+                        <li>CI notification recipient is set per-run in CI Setup → Notifications section (pre-filled from the user's profile email).</li>
+                        <li>Click <strong>Send Test Email</strong> to validate SMTP — a test message is sent to your own account address.</li>
+                    </ul>
+                    <div style="margin-top:8px; font-size:12px;"><a href="{{ request.script_root }}/docs/configuration#smtp-settings" target="_blank" style="color:#5dade2;">📖 SMTP manual →</a></div>
+                </div>
+
+                <div class="tab-help-panel" id="help-config-users" style="display:none;">
+                    <strong>👥 Users</strong> — User account management (admin only).
+                    <ul style="margin:8px 0 0 0; padding-left:18px;">
+                        <li><strong>Three roles:</strong> Admin (full access) / Advanced (CI + power features) / Basic (own sessions only). Role is set via the Edit (pencil) icon.</li>
+                        <li><strong>+ Add User</strong> — creates a new account. A welcome email is sent automatically if SMTP is configured.</li>
+                        <li><strong>Deactivate</strong> (trash icon) — soft-deletes the account; chat history is preserved. Click Reactivate to restore access.</li>
+                        <li>You cannot deactivate your own account. At least one Admin must remain active.</li>
+                        <li><strong>👤 My Profile</strong> (header button, all users) — every user can update their own name, email, phone, address, job title, and password without admin help.</li>
+                    </ul>
+                    <div style="margin-top:8px; font-size:12px;"><a href="{{ request.script_root }}/docs/users" target="_blank" style="color:#5dade2;">📖 User Management manual →</a></div>
+                </div>
+
+                <!-- Sub-tab navigation (fixed header — not inside scroll body) -->
+                <div class="config-sub-nav">
+                    <button class="config-sub-btn active" onclick="switchConfigTab('ai')" id="cfg-btn-ai">🤖 AI Settings</button>
+                    <button class="config-sub-btn" onclick="switchConfigTab('usage')" id="cfg-btn-usage">💰 AI Usage</button>
+                    <button class="config-sub-btn" onclick="switchConfigTab('profiles')" id="cfg-btn-profiles">📄 Profiles</button>
+                    <button class="config-sub-btn" onclick="switchConfigTab('vectorstore')" id="cfg-btn-vectorstore">🗄️ Vector Store</button>
+                    {% if is_admin %}
+                    <button class="config-sub-btn" onclick="switchConfigTab('smtp')" id="cfg-btn-smtp">📧 Notifications</button>
+                    <button class="config-sub-btn" onclick="switchConfigTab('llm-proxy')" id="cfg-btn-llm-proxy">🛰 LLM Proxy</button>
+                    <button class="config-sub-btn" onclick="switchConfigTab('users')" id="cfg-btn-users">👥 Users</button>
+                    {% endif %}
+                </div>
+                <!-- ── AI Settings sub-section ── -->
+                <div id="cfg-ai" class="config-sub-content active">
+                <h2 style="margin-bottom: 15px;">🤖 AI Configuration</h2>
+
+                {% if is_admin %}
+                <!-- Section 1: Global API Keys (admin only) -->
+                <details id="global-api-keys-section" style="margin-bottom: 20px;">
+                    <summary style="cursor:pointer; font-weight:700; font-size:15px; padding:12px 16px; background:#f0f4ff; border:1px solid #c9d8f5; border-radius:6px; list-style:none; display:flex; align-items:center; gap:8px;">
+                        🔑 Global API Keys <span style="font-size:11px; font-weight:400; color:#666; margin-left:8px;">(admin only)</span>
+                        <span style="margin-left:auto; font-size:11px; color:#888;">▼ expand</span>
+                    </summary>
+                    <div class="card" style="margin-top:8px; border-top:none; border-radius:0 0 6px 6px;">
+                        <p style="font-size:13px; color:#555; margin-bottom:14px;">These API keys are shared across all projects as the default credential source. Per-project overrides can be set below.</p>
+                        <!-- OpenAI -->
+                        <div style="background:#f8f9fa; padding:14px; border-radius:6px; margin-bottom:12px;">
+                            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+                                <h3 style="margin:0; font-size:14px;">OpenAI</h3>
+                                <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener"
+                                   style="font-size:12px; color:#3b82f6; text-decoration:none;">🔗 Get a key →</a>
+                            </div>
+                            <div class="action-group" style="margin-bottom:6px;">
+                                <input type="text" autocomplete="off" id="openai-api-key" placeholder="sk-..."
+                                       style="flex:1; font-family:monospace; font-size:13px;" />
+                                <button class="btn" onclick="testAIProvider('openai')">🧪 Test</button>
+                            </div>
+                            <div id="openai-test-result" style="margin-top:6px; display:none;"></div>
+                        </div>
+                        <!-- Anthropic -->
+                        <div style="background:#f8f9fa; padding:14px; border-radius:6px; margin-bottom:12px;">
+                            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+                                <h3 style="margin:0; font-size:14px;">Anthropic</h3>
+                                <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener"
+                                   style="font-size:12px; color:#3b82f6; text-decoration:none;">🔗 Get a key →</a>
+                            </div>
+                            <div class="action-group" style="margin-bottom:6px;">
+                                <input type="text" autocomplete="off" id="anthropic-api-key" placeholder="sk-ant-api03-..."
+                                       style="flex:1; font-family:monospace; font-size:13px;" />
+                                <button class="btn" onclick="testAIProvider('anthropic')">🧪 Test</button>
+                            </div>
+                            <div id="anthropic-test-result" style="margin-top:6px; display:none;"></div>
+                        </div>
+                        <div style="text-align:center; padding-top:12px; border-top:1px solid #dee2e6;">
+                            <button class="btn btn-success" onclick="saveGlobalAIKeys()" style="padding:8px 28px;">
+                                💾 Save Global API Keys
+                            </button>
+                            <div id="global-keys-result" style="margin-top:8px; display:none;"></div>
+                        </div>
+                        <div style="font-size:12px; color:#888; margin-top:12px; text-align:center;">
+                            Keys stored in /app/data/ai_config.json — never leave your server
+                        </div>
+                    </div>
+                </details>
+                {% endif %}
+
+                <!-- Section 2: Per-project AI Configuration -->
+                <div class="card" style="margin-bottom:20px;">
+                    <div style="display:flex; align-items:center; gap:12px; margin-bottom:16px; flex-wrap:wrap;">
+                        <strong style="font-size:14px;">Project AI Configuration</strong>
+                        {% if is_admin %}
+                        <select id="ai-project-selector" onchange="loadProjectAIConfig(this.value)"
+                                style="font-size:13px; padding:4px 8px; border:1px solid #ccc; border-radius:4px; min-width:180px;">
+                            <option value="">— select project —</option>
+                        </select>
+                        {% else %}
+                        <span style="font-size:13px; color:#555; font-style:italic;" id="ai-project-label">
+                            {{ session.get('current_project', 'default') }}
+                        </span>
+                        {% endif %}
+                    </div>
+
+                    <div id="project-ai-config-wrap">
+                        <!-- Populated by loadProjectAIConfig() -->
+                        <p style="color:#888; font-size:13px; font-style:italic;" id="project-ai-placeholder">
+                            {% if is_admin %}Select a project above to configure its AI settings.{% else %}Loading AI settings…{% endif %}
+                        </p>
+
+                        <!-- Per-project API key overrides -->
+                        <div id="project-api-keys-wrap" style="display:none; margin-bottom:16px; padding:12px 14px; background:#f8f9ff; border:1px solid #d4ddf7; border-radius:6px;">
+                            <div style="font-size:13px; font-weight:600; margin-bottom:10px; color:#374151;">
+                                🔑 API Key Overrides
+                                <span style="font-size:11px; font-weight:400; color:#6b7280; margin-left:6px;">Leave blank to use the global key</span>
+                            </div>
+                            <div style="display:flex; flex-direction:column; gap:8px;">
+                                <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                                    <label style="font-size:12px; min-width:80px; color:#555;">OpenAI:</label>
+                                    <input type="text" autocomplete="off" id="proj-openai-key"
+                                        placeholder="sk-…  (blank = use global key)"
+                                        style="flex:1; min-width:200px; padding:5px 8px; border:1px solid #ccc; border-radius:4px; font-size:12px; font-family:monospace;" />
+                                    <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener"
+                                       style="font-size:11px; color:#3b82f6; text-decoration:none; white-space:nowrap;">🔗 Get a key</a>
+                                    <button class="btn btn-sm" onclick="clearProjectKey('openai')" style="font-size:11px; padding:4px 8px;">✕ Clear</button>
+                                    <button class="btn btn-sm" onclick="testProjectKey('openai')" style="font-size:11px; padding:4px 8px;">🧪 Test</button>
+                                    <span id="proj-openai-key-status" style="font-size:11px;"></span>
+                                </div>
+                                <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                                    <label style="font-size:12px; min-width:80px; color:#555;">Anthropic:</label>
+                                    <input type="text" autocomplete="off" id="proj-anthropic-key"
+                                        placeholder="sk-ant-…  (blank = use global key)"
+                                        style="flex:1; min-width:200px; padding:5px 8px; border:1px solid #ccc; border-radius:4px; font-size:12px; font-family:monospace;" />
+                                    <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener"
+                                       style="font-size:11px; color:#3b82f6; text-decoration:none; white-space:nowrap;">🔗 Get a key</a>
+                                    <button class="btn btn-sm" onclick="clearProjectKey('anthropic')" style="font-size:11px; padding:4px 8px;">✕ Clear</button>
+                                    <button class="btn btn-sm" onclick="testProjectKey('anthropic')" style="font-size:11px; padding:4px 8px;">🧪 Test</button>
+                                    <span id="proj-anthropic-key-status" style="font-size:11px;"></span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="project-ai-table" style="display:none;">
+                            <table style="width:100%; font-size:13px; border-collapse:collapse;">
+                                <thead>
+                                    <tr style="background:#f0f4ff; text-align:left;">
+                                        <th style="padding:8px 10px; border-bottom:2px solid #c9d8f5; width:160px;">Use-case</th>
+                                        <th style="padding:8px 10px; border-bottom:2px solid #c9d8f5;">Primary Provider / Model</th>
+                                        <th style="padding:8px 10px; border-bottom:2px solid #c9d8f5;">Fallback Provider / Model</th>
+                                        {% if not is_basic %}<th style="padding:8px 10px; border-bottom:2px solid #c9d8f5; width:80px;">Copy</th>{% endif %}
+                                    </tr>
+                                </thead>
+                                <tbody id="project-ai-tbody">
+                                    <!-- rows injected by JS -->
+                                </tbody>
+                            </table>
+                            {% if not is_basic %}
+                            <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:14px; padding-top:12px; border-top:1px solid #dee2e6;">
+                                <button class="btn btn-success" onclick="saveProjectAIConfig()" style="padding:8px 20px;">
+                                    💾 Save Project Config
+                                </button>
+                                {% if is_admin %}
+                                <span style="color:#888; font-size:12px;">|</span>
+                                <span style="font-size:13px;">Copy entire config to:</span>
+                                <select id="ai-copy-dest-project" style="font-size:13px; padding:4px 8px; border:1px solid #ccc; border-radius:4px; min-width:160px;">
+                                    <option value="">— other project —</option>
+                                </select>
+                                <button class="btn" onclick="copyProjectAIConfig()" style="font-size:12px; padding:6px 14px;">
+                                    📋 Copy
+                                </button>
+                                {% endif %}
+                            </div>
+                            {% endif %}
+                            <div id="project-ai-result" style="margin-top:10px; display:none;"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Settings sub-section folded into AI tab -->
+                <h2 style="margin-top: 30px; padding-top: 20px; border-top: 2px solid #ecf0f1;">⚙️ Settings</h2>
+                <div class="card" style="margin-top: 15px;">
+                    <h3 style="margin-bottom: 15px; font-size: 16px;">Polling Configuration</h3>
+                    <div class="action-group">
+                        <label for="poll-interval" style="font-weight: 500;">Poll Interval (seconds):</label>
+                        <input type="number" id="poll-interval" value="30" min="5" max="3600" style="width: 100px;" />
+                        <button class="btn" onclick="updatePollInterval()">Update Interval</button>
+                    </div>
+                    <div style="font-size: 12px; color: #666; margin-top: 10px;">
+                        ℹ️ How often the analyzer checks for new documents (default: 30 seconds)
+                    </div>
+                    <div id="settings-result" style="margin-top: 10px; padding: 10px; border-radius: 4px; display: none;"></div>
+                </div>
+                </div><!-- /cfg-ai -->
+
+                <!-- ── AI Usage sub-section ── -->
+                <div id="cfg-usage" class="config-sub-content">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+                    <h2 style="margin:0;">💰 AI Usage &amp; Cost</h2>
+                    <div style="display:flex; gap:8px; align-items:center;">
+                        <select id="usage-days-select" onchange="loadLlmUsage()" style="padding:5px 10px; border:1px solid #ddd; border-radius:4px; font-size:13px;">
+                            <option value="7">Last 7 days</option>
+                            <option value="30" selected>Last 30 days</option>
+                            <option value="90">Last 90 days</option>
+                        </select>
+                        <button class="btn btn-small" onclick="loadLlmUsage()">↻ Refresh</button>
+                    </div>
+                </div>
+
+                <!-- Summary cards -->
+                <div id="usage-summary" style="display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; margin-bottom:20px;">
+                    <div class="loading">Loading usage data…</div>
+                </div>
+
+                <!-- Per-model breakdown -->
+                <div class="card" style="margin-bottom:16px;">
+                    <h3 style="font-size:14px; font-weight:600; margin-bottom:12px; color:#374151;">By Model</h3>
+                    <div id="usage-by-model" style="overflow-x:auto;">
+                        <div style="color:#888; font-size:13px;">—</div>
+                    </div>
+                </div>
+
+                <!-- Per-operation breakdown -->
+                <div class="card" style="margin-bottom:16px;">
+                    <h3 style="font-size:14px; font-weight:600; margin-bottom:12px; color:#374151;">By Operation</h3>
+                    <div id="usage-by-op" style="overflow-x:auto;">
+                        <div style="color:#888; font-size:13px;">—</div>
+                    </div>
+                </div>
+
+                <!-- Daily usage chart + table -->
+                <div class="card" style="margin-bottom:16px;">
+                    <h3 style="font-size:14px; font-weight:600; margin-bottom:12px; color:#374151;">Daily Usage</h3>
+                    <canvas id="usage-chart" style="width:100%; height:200px; display:block; margin-bottom:16px;"></canvas>
+                    <div id="usage-daily" style="overflow-x:auto;">
+                        <div style="color:#888; font-size:13px;">—</div>
+                    </div>
+                </div>
+
+                <!-- Pricing reference -->
+                <div class="card">
+                    <h3 style="font-size:14px; font-weight:600; margin-bottom:12px; color:#374151;">Pricing Reference <span style="font-size:11px; font-weight:400; color:#888;">(per 1M tokens)</span></h3>
+                    <div id="usage-pricing" style="overflow-x:auto;">
+                        <div style="color:#888; font-size:13px;">—</div>
+                    </div>
+                </div>
+                </div><!-- /cfg-usage -->
+
+                <!-- ── Profiles sub-section ── -->
+                <div id="cfg-profiles" class="config-sub-content">
+                <h2 style="margin-bottom: 15px;">📄 Profile Management</h2>
+                <div class="content-grid">
+                    <div class="card">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                            <h2 style="margin: 0;">Active Profiles</h2>
+                            <button class="btn btn-primary" onclick="detectDuplicates()">🔍 Detect Duplicates</button>
+                        </div>
+                        <ul id="active-profiles-list" class="profile-list loading">Loading...</ul>
+                        <div id="duplicates-result" style="margin-top: 15px; display: none;"></div>
+                    </div>
+
+                    <div class="card" id="staging-section" style="display: none;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                            <h2 style="margin: 0;">Staging Profiles (Awaiting Review)</h2>
+                            <button class="btn btn-success" onclick="activateAllStagingProfiles()" id="activate-all-btn">✓ Activate All</button>
+                        </div>
+                        <div id="staging-profiles"></div>
+                    </div>
+                </div>
+
+                </div><!-- /cfg-profiles -->
+
+                <!-- ── Vector Store sub-section ── -->
+                <div id="cfg-vectorstore" class="config-sub-content">
+                <h2 style="margin-bottom: 15px;">🗄️ Vector Store Management</h2>
+                <div class="card">
+                    <!-- Search + controls bar -->
+                    <div style="display:flex; gap:10px; align-items:center; margin-bottom:16px; flex-wrap:wrap;">
+                        <input type="text" id="vs-search" placeholder="Search by title, ID or type…"
+                               oninput="filterVsDocs()"
+                               style="flex:1; min-width:180px; padding:7px 12px; border:1px solid #ddd; border-radius:4px; font-size:13px;" />
+                        <span id="vs-count-label" style="font-size:13px; color:#666; white-space:nowrap;"></span>
+                        <button class="btn btn-small" onclick="loadVectorStoreDocuments()">↻ Refresh</button>
+                        <button class="btn btn-small" onclick="triggerReembedStale()" id="btn-reembed-stale" title="Re-analyze documents whose OCR content changed after they were first embedded">⟳ Re-embed Stale</button>
+                        <button class="btn btn-small" onclick="processUnanalyzed()" id="btn-process-unanalyzed" title="Analyze only documents not yet in the processed history — skips already-done docs">▶ Process Unanalyzed</button>
+                        <button class="btn btn-warning" onclick="confirmClearVectorStore()">Clear All</button>
+                    </div>
+                    <div id="vector-store-manager">
+                        <div class="loading">Loading vector store documents…</div>
+                    </div>
+                    <!-- Pagination -->
+                    <div id="vs-pagination" style="display:none; margin-top:16px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; justify-content:center;"></div>
+                </div>
+                </div><!-- /cfg-vectorstore -->
+
+                <!-- ── SMTP / Notifications sub-section (admin only) ── -->
+                {% if is_admin %}
+                <div id="cfg-smtp" class="config-sub-content">
+                <h2 style="margin-bottom: 15px;">📧 Notifications &amp; Email</h2>
+                <div class="card" style="margin-bottom: 20px;">
+                    <p style="color:#555; font-size:14px; margin-bottom:16px;">
+                        Configure outgoing email (SMTP) used for bug reports and alerts. All settings are stored securely on the server.
+                    </p>
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px;">
+                        <div>
+                            <label style="display:block; font-size:12px; color:#666; margin-bottom:4px;">SMTP Host</label>
+                            <input type="text" id="smtp-host" placeholder="e.g. smtpauth.earthlink.net" style="width:100%; padding:8px 10px; border:1px solid #ddd; border-radius:4px; font-size:13px; box-sizing:border-box;">
+                        </div>
+                        <div>
+                            <label style="display:block; font-size:12px; color:#666; margin-bottom:4px;">Port</label>
+                            <input type="number" id="smtp-port" value="587" min="1" max="65535" style="width:100%; padding:8px 10px; border:1px solid #ddd; border-radius:4px; font-size:13px; box-sizing:border-box;">
+                        </div>
+                        <div>
+                            <label style="display:block; font-size:12px; color:#666; margin-bottom:4px;">Username</label>
+                            <input type="text" id="smtp-user" autocomplete="off" placeholder="your@email.com" style="width:100%; padding:8px 10px; border:1px solid #ddd; border-radius:4px; font-size:13px; box-sizing:border-box;">
+                        </div>
+                        <div>
+                            <label style="display:block; font-size:12px; color:#666; margin-bottom:4px;">Password</label>
+                            <input type="password" id="smtp-pass" autocomplete="new-password" placeholder="••••••••" style="width:100%; padding:8px 10px; border:1px solid #ddd; border-radius:4px; font-size:13px; box-sizing:border-box;">
+                        </div>
+                        <div>
+                            <label style="display:block; font-size:12px; color:#666; margin-bottom:4px;">From Address</label>
+                            <input type="text" id="smtp-from" placeholder="noreply@yourdomain.com" style="width:100%; padding:8px 10px; border:1px solid #ddd; border-radius:4px; font-size:13px; box-sizing:border-box;">
+                        </div>
+                        <div>
+                            <label style="display:block; font-size:12px; color:#666; margin-bottom:4px;">HELO Hostname (optional)</label>
+                            <input type="text" id="smtp-helo" placeholder="yourdomain.com" style="width:100%; padding:8px 10px; border:1px solid #ddd; border-radius:4px; font-size:13px; box-sizing:border-box;">
+                        </div>
+                        <div>
+                            <label style="display:block; font-size:12px; color:#666; margin-bottom:4px;">Bug Reports Sent To</label>
+                            <input type="email" id="smtp-bug-report-to" placeholder="admin@yourdomain.com" style="width:100%; padding:8px 10px; border:1px solid #ddd; border-radius:4px; font-size:13px; box-sizing:border-box;">
+                        </div>
+                        <div style="display:flex; align-items:center; gap:8px; padding-top:18px;">
+                            <input type="checkbox" id="smtp-starttls" checked style="cursor:pointer;">
+                            <label for="smtp-starttls" style="font-size:13px; cursor:pointer;">Use STARTTLS (recommended)</label>
+                        </div>
+                    </div>
+                    <div id="smtp-result" style="display:none; padding:8px 12px; border-radius:4px; font-size:13px; margin-bottom:12px;"></div>
+                    <div style="display:flex; gap:10px;">
+                        <button class="btn btn-success" onclick="saveSmtpSettings()">💾 Save Settings</button>
+                        <button class="btn" onclick="testSmtpSettings()">📨 Send Test Email</button>
+                    </div>
+                </div>
+                </div><!-- /cfg-smtp -->
+                {% endif %}
+
+                <!-- ── LLM Proxy endpoints (admin only) ── -->
+                {% if is_admin %}
+                <div id="cfg-llm-proxy" class="config-sub-content">
+                <h2 style="margin-bottom: 15px;">🛰 LLM Proxy Endpoints</h2>
+                <div class="card" style="margin-bottom: 20px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                        <span style="color:#555; font-size:14px;">
+                            Ordered pool of llm-proxy nodes. Calls are tried in priority order;
+                            on failure the next healthy endpoint is used. Direct Anthropic/OpenAI
+                            keys (in AI Settings) are the absolute last-resort fallback.
+                        </span>
+                        <button class="btn btn-primary" onclick="showAddLLMProxyForm()">+ Add Endpoint</button>
+                    </div>
+
+                    <table class="user-table" id="llm-proxy-table">
+                        <thead>
+                            <tr>
+                                <th>Label</th>
+                                <th>URL</th>
+                                <th>Version</th>
+                                <th style="width:80px;">Priority</th>
+                                <th style="width:90px;">Enabled</th>
+                                <th>Key</th>
+                                <th style="width:110px;">Breaker</th>
+                                <th style="width:220px;">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="llm-proxy-table-body"></tbody>
+                    </table>
+                </div>
+
+                <!-- Add endpoint form (hidden by default) -->
+                <div id="add-llm-proxy-form" class="card" style="display:none; margin-bottom:20px;">
+                    <h3 style="margin-top:0;">Add LLM Proxy Endpoint</h3>
+                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
+                        <div>
+                            <label style="font-size:12px; color:#666;">Label</label>
+                            <input type="text" id="llm-proxy-add-label" placeholder="e.g. llm-proxy-manager (v1)" style="width:100%; padding:6px;">
+                        </div>
+                        <div>
+                            <label style="font-size:12px; color:#666;">URL (ends in /v1)</label>
+                            <input type="text" id="llm-proxy-add-url" placeholder="http://llm-proxy-manager:3000/v1" style="width:100%; padding:6px;">
+                        </div>
+                        <div>
+                            <label style="font-size:12px; color:#666;">API Key</label>
+                            <input type="password" id="llm-proxy-add-key" placeholder="sk-..." style="width:100%; padding:6px;">
+                        </div>
+                        <div>
+                            <label style="font-size:12px; color:#666;">Version</label>
+                            <select id="llm-proxy-add-version" style="width:100%; padding:6px;">
+                                <option value="1">v1 (Node.js, Bearer auth)</option>
+                                <option value="2">v2 (FastAPI, x-api-key auth)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label style="font-size:12px; color:#666;">Priority (lower = tried first)</label>
+                            <input type="number" id="llm-proxy-add-priority" value="10" style="width:100%; padding:6px;">
+                        </div>
+                        <div>
+                            <label style="font-size:12px; color:#666;">Enabled</label>
+                            <select id="llm-proxy-add-enabled" style="width:100%; padding:6px;">
+                                <option value="true">Yes</option>
+                                <option value="false">No (disabled)</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div style="margin-top:15px; display:flex; gap:10px;">
+                        <button class="btn btn-primary" onclick="createLLMProxy()">Save</button>
+                        <button class="btn" onclick="hideAddLLMProxyForm()">Cancel</button>
+                    </div>
+                </div>
+                </div><!-- /cfg-llm-proxy -->
+                {% endif %}
+
+                <!-- ── Users sub-section (admin only) ── -->
+                {% if is_admin %}
+                <div id="cfg-users" class="config-sub-content">
+                <h2 style="margin-bottom: 15px;">👥 User Management</h2>
+                <div class="card" style="margin-bottom: 20px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                        <span style="color: #555; font-size: 14px;">Manage user accounts and roles.</span>
+                        <button class="btn btn-primary" onclick="showAddUserForm()">+ Add User</button>
+                    </div>
+
+                    <!-- Add User Form (hidden by default) -->
+                    <div id="add-user-form" style="display: none; background: #f8f9fa; padding: 16px; border-radius: 6px; margin-bottom: 16px;">
+                        <h3 style="margin-bottom: 12px; font-size: 15px;">New User</h3>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 10px;">
+                            <input type="text" id="new-user-username" placeholder="Username *" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px;">
+                            <input type="text" id="new-user-display" placeholder="Display Name" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px;">
+                            <input type="email" id="new-user-email" placeholder="Email (for notifications)" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px;">
+                            <input type="password" id="new-user-password" placeholder="Password *" autocomplete="new-password" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px;">
+                            <select id="new-user-role" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px;">
+                                <option value="basic">Basic</option>
+                                <option value="advanced">Advanced</option>
+                                <option value="admin">Admin</option>
+                            </select>
+                            <div style="display:flex; align-items:center; font-size:12px; color:#888;">
+                                A welcome email will be sent if SMTP is configured and an email is provided.
+                            </div>
+                        </div>
+                        <div id="add-user-error" style="color: #e74c3c; font-size: 13px; margin-bottom: 8px; display:none;"></div>
+                        <div style="display: flex; gap: 8px;">
+                            <button class="btn btn-success" onclick="createUser()">Create User</button>
+                            <button class="btn" onclick="hideAddUserForm()">Cancel</button>
+                        </div>
+                    </div>
+
+                    <!-- Edit User Modal -->
+                    <div id="edit-user-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.45); z-index:9999; align-items:center; justify-content:center;">
+                        <div style="background:#fff; border-radius:8px; padding:28px; width:560px; max-width:95vw; max-height:90vh; overflow-y:auto; box-shadow:0 8px 32px rgba(0,0,0,0.2);">
+                            <h3 style="margin:0 0 18px; font-size:16px;">✏️ Edit User: <span id="edit-user-name-label"></span></h3>
+                            <input type="hidden" id="edit-user-id">
+                            <!-- Contact info -->
+                            <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:10px;">
+                                <div>
+                                    <label style="font-size:13px; font-weight:600; display:block; margin-bottom:4px;">Display Name</label>
+                                    <input type="text" id="edit-display-name" style="width:100%; box-sizing:border-box; padding:8px 12px; border:1px solid #ddd; border-radius:4px;">
+                                </div>
+                                <div>
+                                    <label style="font-size:13px; font-weight:600; display:block; margin-bottom:4px;">Job Title</label>
+                                    <input type="text" id="edit-job-title" style="width:100%; box-sizing:border-box; padding:8px 12px; border:1px solid #ddd; border-radius:4px;">
+                                </div>
+                            </div>
+                            <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:10px;">
+                                <div>
+                                    <label style="font-size:13px; font-weight:600; display:block; margin-bottom:4px;">Email</label>
+                                    <input type="email" id="edit-email" style="width:100%; box-sizing:border-box; padding:8px 12px; border:1px solid #ddd; border-radius:4px;">
+                                </div>
+                                <div>
+                                    <label style="font-size:13px; font-weight:600; display:block; margin-bottom:4px;">Phone</label>
+                                    <input type="text" id="edit-phone" style="width:100%; box-sizing:border-box; padding:8px 12px; border:1px solid #ddd; border-radius:4px;">
+                                </div>
+                            </div>
+                            <div style="margin-bottom:10px;">
+                                <label style="font-size:13px; font-weight:600; display:block; margin-bottom:4px;">Address</label>
+                                <input type="text" id="edit-address" style="width:100%; box-sizing:border-box; padding:8px 12px; border:1px solid #ddd; border-radius:4px;">
+                            </div>
+                            <!-- Professional -->
+                            <div style="margin:14px 0 8px; font-size:11px; font-weight:700; text-transform:uppercase; color:#6b7280; letter-spacing:.05em; border-top:1px solid #e5e7eb; padding-top:12px;">Professional</div>
+                            <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:10px;">
+                                <div>
+                                    <label style="font-size:13px; font-weight:600; display:block; margin-bottom:4px;">GitHub</label>
+                                    <input type="text" id="edit-github" placeholder="github.com/username" style="width:100%; box-sizing:border-box; padding:8px 12px; border:1px solid #ddd; border-radius:4px;">
+                                </div>
+                                <div>
+                                    <label style="font-size:13px; font-weight:600; display:block; margin-bottom:4px;">LinkedIn</label>
+                                    <input type="text" id="edit-linkedin" placeholder="linkedin.com/in/username" style="width:100%; box-sizing:border-box; padding:8px 12px; border:1px solid #ddd; border-radius:4px;">
+                                </div>
+                            </div>
+                            <!-- Social -->
+                            <div style="margin:14px 0 8px; font-size:11px; font-weight:700; text-transform:uppercase; color:#6b7280; letter-spacing:.05em; border-top:1px solid #e5e7eb; padding-top:12px;">Social</div>
+                            <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:10px;">
+                                <div>
+                                    <label style="font-size:13px; font-weight:600; display:block; margin-bottom:4px;">Facebook</label>
+                                    <input type="text" id="edit-facebook" style="width:100%; box-sizing:border-box; padding:8px 12px; border:1px solid #ddd; border-radius:4px;">
+                                </div>
+                                <div>
+                                    <label style="font-size:13px; font-weight:600; display:block; margin-bottom:4px;">Instagram</label>
+                                    <input type="text" id="edit-instagram" style="width:100%; box-sizing:border-box; padding:8px 12px; border:1px solid #ddd; border-radius:4px;">
+                                </div>
+                            </div>
+                            <div style="margin-bottom:10px;">
+                                <label style="font-size:13px; font-weight:600; display:block; margin-bottom:4px;">Other Handles <span style="font-weight:400; color:#888;">(Twitter/X, etc.)</span></label>
+                                <input type="text" id="edit-other-handles" style="width:100%; box-sizing:border-box; padding:8px 12px; border:1px solid #ddd; border-radius:4px;">
+                            </div>
+                            <!-- Account -->
+                            <div style="margin:14px 0 8px; font-size:11px; font-weight:700; text-transform:uppercase; color:#6b7280; letter-spacing:.05em; border-top:1px solid #e5e7eb; padding-top:12px;">Account</div>
+                            <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:10px;">
+                                <div>
+                                    <label style="font-size:13px; font-weight:600; display:block; margin-bottom:4px;">Role</label>
+                                    <select id="edit-role" style="width:100%; box-sizing:border-box; padding:8px 12px; border:1px solid #ddd; border-radius:4px;">
+                                        <option value="basic">Basic</option>
+                                        <option value="advanced">Advanced</option>
+                                        <option value="admin">Admin</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label style="font-size:13px; font-weight:600; display:block; margin-bottom:4px;">Timezone</label>
+                                    <input type="text" id="edit-timezone" placeholder="e.g. America/New_York" style="width:100%; box-sizing:border-box; padding:8px 12px; border:1px solid #ddd; border-radius:4px;">
+                                </div>
+                            </div>
+                            <div>
+                                <label style="font-size:13px; font-weight:600; display:block; margin-bottom:4px;">New Password <span style="font-weight:400; color:#888;">(leave blank to keep current)</span></label>
+                                <input type="password" id="edit-password" placeholder="New password (optional)" autocomplete="new-password" style="width:100%; box-sizing:border-box; padding:8px 12px; border:1px solid #ddd; border-radius:4px;">
+                            </div>
+                            <div id="edit-user-error" style="color:#e74c3c; font-size:13px; margin-top:10px; display:none;"></div>
+                            <div id="edit-user-success" style="color:#27ae60; font-size:13px; margin-top:10px; display:none;"></div>
+                            <div style="display:flex; gap:8px; margin-top:18px; align-items:center;">
+                                <button class="btn" style="margin-right:auto;" onclick="emailUserManual()" title="Send the user manual link to this user's email address">📧 Email Manual</button>
+                                <button class="btn" onclick="closeEditUserModal()">Cancel</button>
+                                <button class="btn btn-success" onclick="saveEditUser()">Save Changes</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <table class="user-table" id="users-table">
+                        <thead>
+                            <tr>
+                                <th>Username</th>
+                                <th>Display Name</th>
+                                <th>Email</th>
+                                <th>Role</th>
+                                <th>Last Login</th>
+                                <th>Active</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="users-table-body">
+                            <tr><td colspan="7" class="loading">Loading users...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                </div><!-- /cfg-users -->
+                {% endif %}
+
+            </div><!-- /tab-config -->

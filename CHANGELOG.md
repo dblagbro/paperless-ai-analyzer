@@ -4,6 +4,33 @@ All notable changes to Paperless AI Analyzer are documented here.
 
 ---
 
+## v3.9.7 — 2026-04-23
+
+### Refactored — maintainability pass
+- **`analyzer/routes/projects.py` (988 lines) → package of 5 cohesive
+  modules** (`core`, `paperless_config`, `provisioning`, `migration`,
+  `documents`). External API unchanged — `web_ui.py` still registers
+  `projects.bp`. See refactor-log Entry 010.
+- **`templates/dashboard.html` (2,994 lines) → 1,089-line shell + 3 Jinja
+  partials** in `templates/partials/`: `tab_config.html` (625),
+  `tab_upload.html` (395), `tab_case_intelligence.html` (888). Tab panels
+  under ~150 lines stay inline.
+
+### Fixed — during refactor drive-by
+- `GET /api/orphan-documents` no longer 500s (`'int' object is not
+  subscriptable`) when Paperless returns a malformed entry in the results
+  list. Non-dict items are now skipped rather than aborting the whole
+  response.
+
+### Why
+`routes/projects.py` had grown back to 988 lines with 24 routes covering
+six distinct concerns — any edit pulled in the full file. `dashboard.html`
+at ~3,000 lines regularly overflowed AI context windows when touching any
+UI area. Both splits are pure reorganisation; no behavior changes beyond
+the orphan-documents bugfix.
+
+---
+
 ## v3.9.6 — 2026-04-23
 
 ### Added — project provision throttling

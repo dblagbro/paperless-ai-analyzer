@@ -2,6 +2,86 @@
 
 ---
 
+## Entry 010 — 2026-04-23 (v3.9.7 — projects route package + dashboard partials)
+
+### Scope
+Maintainability pass focused on the two worst file-size offenders outside
+`case_intelligence/`. No behavior changes; pure reorganisation.
+
+### Changes
+
+**`routes/projects.py` (988 lines) → `routes/projects/` package (5 files, ~250 avg):**
+
+| File | Lines | Purpose |
+|------|-------|---------|
+| `__init__.py`           |  22 | Blueprint + side-effect imports |
+| `core.py`               | 260 | CRUD + archive/unarchive + current-project |
+| `paperless_config.py`   | 100 | per-project Paperless config + test + doc-link |
+| `provisioning.py`       | 170 | provision-snippets + status + reprovision (delegates to service) |
+| `migration.py`          | 230 | migrate-to-own-paperless + migration-status + migrate-documents |
+| `documents.py`          | 240 | list/delete project docs + orphan-documents + assign-project + reanalyze |
+
+Pattern follows `routes/chat/` and `routes/ci/` — `__init__.py` creates the
+blueprint; each submodule imports `bp` from the package and registers routes
+by side-effect. External import surface is unchanged: `from analyzer.routes import projects`
+still works; `projects.bp` is registered in `web_ui.py` as before.
+
+Drive-by fix while in the file: `GET /api/orphan-documents` no longer 500s when
+Paperless returns a non-dict inside the results list (pre-existing `'int'
+object is not subscriptable` bug, logged for weeks). Malformed entries are now
+skipped rather than aborting the whole response.
+
+**`templates/dashboard.html` (2,994 lines) → shell + 3 partials:**
+
+| File | Lines | Notes |
+|------|-------|-------|
+| `dashboard.html`                                 | 1,089 | Shell: head, tab bar, 4 small panels, project modals, trailing scripts |
+| `partials/tab_config.html`                       |   625 | Whole Config tab: AI settings, profiles, vector store, SMTP, LLM proxy, Users |
+| `partials/tab_upload.html`                       |   395 | Smart Upload panel + Court Import wizard |
+| `partials/tab_case_intelligence.html`            |   888 | Entire CI tab (Setup / Findings / Specialists / Tier 5) |
+
+Jinja `{% include %}` inherits the parent context by default, so `{% if
+is_admin %}`, `{{ request.script_root }}`, and other template variables work
+unchanged inside partials.
+
+Skipped from this pass:
+- `tab-overview` (61 lines), `tab-projects` (29 lines; modals live outside the
+  panel), `tab-ai-chat` (91), `tab-search` (117), `tab-tools` (119) — all below
+  the threshold for a dedicated partial.
+- Project-related modals (248–497 in the old file) — kept inline for now; would
+  be a second pass if the modal stack grows further.
+
+### Verification
+- Dashboard renders 200 with all 8 tab panels present (grep-verified after restart).
+- 9/10 project endpoint smoke tests pass; the 10th (`/api/orphan-documents`)
+  only failed due to a pre-existing malformed-doc serialization bug which was
+  fixed as part of the move.
+
+### Deferred to future passes (see architecture.md § Next Recommended Refactor Targets)
+- `static/js/config.js` (2,361 lines) — split plan drafted but not executed;
+  JS-specific risk (shared top-level `let` state across scripts) needs a small
+  proof-of-concept before full execution.
+- `static/js/ci.js` (2,229 lines) — same pattern as config.js once proven.
+- `case_intelligence/web_researcher.py` (1,362 lines) — mixin split planned
+  (legal / general / entities providers).
+
+### Files touched (10)
+- `analyzer/routes/projects.py` — **deleted** (replaced by package)
+- `analyzer/routes/projects/__init__.py` — new
+- `analyzer/routes/projects/core.py` — new
+- `analyzer/routes/projects/paperless_config.py` — new
+- `analyzer/routes/projects/provisioning.py` — new
+- `analyzer/routes/projects/migration.py` — new
+- `analyzer/routes/projects/documents.py` — new (includes orphan-documents bugfix)
+- `analyzer/templates/dashboard.html` — trimmed 2,994 → 1,089 lines
+- `analyzer/templates/partials/tab_config.html` — new
+- `analyzer/templates/partials/tab_upload.html` — new
+- `analyzer/templates/partials/tab_case_intelligence.html` — new
+- `architecture.md` — tree updated, "Next targets" rewritten
+- `refactor-log.md` — this entry
+
+---
+
 ## Entry 009 — 2026-04-23 (v3.9.6 — Paperless-slow hardening + provision throttling)
 
 ### Scope

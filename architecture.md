@@ -90,6 +90,14 @@ paperless-ai-analyzer/
 │   │   ├── chat_branch_service.py   # Chat branch-tree computation (extracted from routes/chat.py, v3.9.1)
 │   │   └── project_provisioning_service.py  # Docker-compose + nginx + Postgres provisioning for per-project Paperless instances (extracted from routes/projects.py, v3.9.1; throttled FIFO queue + single worker added v3.9.6, PROVISION_MIN_INTERVAL_SECS default 180s)
 │   │
+│   ├── routes/projects/              # Projects blueprint as a package (v3.9.7 split from 988-line projects.py)
+│   │   ├── __init__.py               # Blueprint + side-effect imports
+│   │   ├── core.py                   # CRUD + archive/unarchive + current-project (~260 lines)
+│   │   ├── paperless_config.py       # per-project Paperless config + test-connect + doc-link (~100 lines)
+│   │   ├── provisioning.py           # provision-snippets + provision-status + reprovision (~170 lines)
+│   │   ├── migration.py              # migrate-to-own-paperless + migration-status + migrate-documents (~230 lines)
+│   │   └── documents.py              # list/delete project docs, orphan-documents, assign-project, reanalyze (~240 lines)
+│   │
 │   ├── case_intelligence/           # CI pipeline — all /api/ci/* backend logic
 │   │   ├── __init__.py
 │   │   ├── orchestrator.py          # CIOrchestrator: composition-only (inherits 7 mixins from ci_phases/)
@@ -164,7 +172,11 @@ paperless-ai-analyzer/
 │   │   └── risk_score.py
 │   │
 │   ├── templates/
-│   │   ├── dashboard.html           # Single-page app shell (~2,900 lines HTML only)
+│   │   ├── dashboard.html           # Single-page app shell (~1,100 lines after v3.9.7 partial extraction)
+│   │   ├── partials/                # Tab-specific includes — extracted from dashboard.html (v3.9.7)
+│   │   │   ├── tab_config.html            # Config tab (~625 lines: AI settings, profiles, vector store, SMTP, LLM proxy, users)
+│   │   │   ├── tab_upload.html            # Smart Upload tab + Court Import wizard (~395 lines)
+│   │   │   └── tab_case_intelligence.html # CI tab — Setup / Findings / Specialists / Tier 5 (~890 lines)
 │   │   ├── docs.html
 │   │   ├── login.html
 │   │   └── chat_export.html
@@ -277,21 +289,44 @@ All configuration via environment variables (`.env` or Docker Compose):
 
 ## Next Recommended Refactor Targets
 
-All large-file refactor candidates completed as of v3.9.3:
-- ✅ `routes/chat.py` — split into 3 service modules (v3.9.1) + 4-file package (v3.9.3)
+Historical splits (all shipped):
+- ✅ `routes/chat.py` — 3 service modules (v3.9.1) + 4-file package (v3.9.3)
 - ✅ `routes/projects.py` — provisioning extracted to service (v3.9.1)
 - ✅ `case_intelligence/orchestrator.py` — 7 mixin files under `ci_phases/` (v3.9.2)
 - ✅ `analyzer/main.py` — `poller.py` + `document_processor.py` mixins (v3.9.3)
 - ✅ `routes/ci.py` — 5-file package under `routes/ci/` (v3.9.3)
+- ✅ `routes/projects.py` — 5-file package under `routes/projects/` (v3.9.7)
+- ✅ `templates/dashboard.html` — tab-config, tab-upload, tab-case-intelligence
+  extracted to `templates/partials/` (v3.9.7)
 
-Remaining architectural candidates (lower priority):
-- `analyzer/routes/documents.py` (~727 lines) and `analyzer/routes/projects.py`
-  (~947 lines) could be split by concern if they continue growing, but neither
-  is currently above maintainability threshold.
-- `analyzer/case_intelligence/ci_phases/managers_mixin.py` (1,004 lines) — the
-  largest remaining mixin. `_manager_theories` (226 lines) and
-  `_run_all_managers` (169 lines) could be extracted into helper functions if
-  they grow further, but they're cohesive today.
+Outstanding candidates (ranked by current size vs. cost to split):
+
+1. **`static/js/config.js` — 2,361 lines** (highest remaining priority).
+   9 distinct responsibilities, editing any one pulls in the full file. Plan:
+   split into `static/js/config/` package — `core.js` (sub-tab switch + tools
+   + vector store + smtp), `projects.js` (CRUD + modals + Paperless), `llm_usage.js`
+   (cost chart), `profiles_and_ai.js` (LLM settings + AI config mgmt), `search.js`
+   (search tab). Load sequentially via `<script>` tags in `dashboard.html`.
+   Risk: shared top-level `let`/`const` state works across scripts today — need
+   to verify no accidental module-scoping when splitting.
+
+2. **`static/js/ci.js` — 2,229 lines.** Clean banner-comment sections per tier.
+   Split along tier boundaries once config.js pattern is proven.
+
+3. **`case_intelligence/web_researcher.py` — 1,362 lines.** `WebResearcher`
+   orchestrator class + 25+ provider methods (CourtListener, PACER, GDELT, SEC,
+   FEC, Brave, Google, Exa, Perplexity, NewsAPI, OpenSanctions, OpenCorporates,
+   Tavily, Serper, LexisNexis, vLex, Westlaw, CLEAR, Docket Alarm, UniCourt, …).
+   Follow `ci_phases/` mixin pattern: `web_researchers/` package with
+   `providers_legal_mixin.py`, `providers_general_mixin.py`, `providers_entities_mixin.py`,
+   `base_mixin.py` (constants + throttle + HTTP helpers). Main class composes mixins.
+
+4. **`case_intelligence/ci_phases/managers_mixin.py` — 1,004 lines.** Still the
+   largest remaining CI mixin. `_manager_theories` (226 lines) and `_run_all_managers`
+   (169 lines) are the extractable helpers.
+
+5. **`routes/projects/` core.py — 280 lines** after the v3.9.7 split. Healthy
+   size; split again only if a single concern balloons.
 
 ---
 
