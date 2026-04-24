@@ -57,6 +57,49 @@ def api_staging_profile(filename):
         return jsonify({'error': str(e)}), 500
 
 
+@bp.route('/api/staging/upload', methods=['POST'])
+@login_required
+def api_staging_upload():
+    """Upload a new profile file into the staging directory.
+
+    Accepts multipart/form-data with a `file` field. File must be .yaml or
+    .json (stored as-is in /app/profiles/staging/). v3.9.5: added to replace
+    the previous 405 Method Not Allowed (route pattern matched the `<filename>`
+    GET handler).
+    """
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file uploaded'}), 400
+
+    file = request.files['file']
+    if not file.filename:
+        return jsonify({'error': 'No filename'}), 400
+
+    # Reject anything but .yaml/.json
+    ext = file.filename.rsplit('.', 1)[-1].lower() if '.' in file.filename else ''
+    if ext not in ('yaml', 'yml', 'json'):
+        return jsonify({'error': f'File must be .yaml or .json (got .{ext})'}), 400
+
+    staging_dir = Path('/app/profiles/staging')
+    staging_dir.mkdir(parents=True, exist_ok=True)
+    dest = staging_dir / file.filename
+
+    try:
+        file.save(str(dest))
+        if dest.stat().st_size == 0:
+            dest.unlink(missing_ok=True)
+            return jsonify({'error': 'File is empty (0 bytes)'}), 400
+        logger.info(f"Staging upload: {file.filename} ({dest.stat().st_size} bytes)")
+        return jsonify({
+            'success': True,
+            'filename': file.filename,
+            'size': dest.stat().st_size,
+            'path': str(dest),
+        }), 201
+    except Exception as e:
+        logger.error(f"Staging upload failed for {file.filename}: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 @bp.route('/api/staging/<filename>/activate', methods=['POST'])
 @login_required
 def api_activate_staging_profile(filename):

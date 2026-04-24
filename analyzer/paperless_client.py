@@ -30,6 +30,13 @@ class PaperlessClient:
             'Authorization': f'Token {api_token}',
             'Content-Type': 'application/json'
         })
+        # v3.9.5: default timeout on every request so a slow/unresponsive
+        # Paperless does not hang Waitress threads. Per-call timeouts still win.
+        _orig_request = self.session.request
+        def _timed_request(method, url, **kwargs):
+            kwargs.setdefault('timeout', 15)
+            return _orig_request(method, url, **kwargs)
+        self.session.request = _timed_request
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=10))
     def get_documents(self,
@@ -191,20 +198,35 @@ class PaperlessClient:
         # This function is kept for API compatibility but doesn't write to Paperless
         # The full analysis is in the vector store, accessible via chat
 
-    def health_check(self) -> bool:
+    _HEALTH_CACHE_SECS = 10.0
+
+    def health_check(self, timeout: float = 3.0, use_cache: bool = True) -> bool:
         """
         Check if Paperless API is accessible.
+
+        Args:
+            timeout: seconds to wait before declaring unhealthy.
+            use_cache: if True, return a cached result (up to 10s old) to
+                avoid blocking hot paths when Paperless is slow.
 
         Returns:
             True if healthy, False otherwise
         """
+        import time as _time
+        now = _time.time()
+        if use_cache:
+            cached = getattr(self, '_health_cache', None)
+            if cached and (now - cached[1]) < self._HEALTH_CACHE_SECS:
+                return cached[0]
         try:
             url = f'{self.base_url}/api/documents/'
-            response = self.session.get(url, params={'page_size': 1})
+            response = self.session.get(url, params={'page_size': 1}, timeout=timeout)
             response.raise_for_status()
+            self._health_cache = (True, now)
             return True
         except Exception as e:
             logger.error(f"Health check failed: {e}")
+            self._health_cache = (False, now)
             return False
 
     # ==================== Project Management Methods (v1.5.0) ====================
@@ -391,19 +413,19 @@ class PaperlessClient:
             List of documents without project: tags
         """
         try:
-            # Get all documents
-            all_docs = self.get_documents(page_size=1000, **filters)
-
-            # Filter for documents without project: tags
-            orphans = []
-            for doc in all_docs.get('results', []):
-                tags = [t['name'] for t in doc.get('tags', [])]
-                has_project = any(t.startswith('project:') for t in tags)
-
-                if not has_project:
+            # v3.9.5: page_size=1000 was timing out on Paperless. Scan a single
+            # page of 100 recently-modified docs — the route caps the response
+            # at 100 orphans anyway. Bounded wall-clock under ~15s.
+            resp = self.get_documents(page_size=100, **filters)
+            orphans: List[Dict] = []
+            for doc in resp.get('results', []):
+                if not isinstance(doc, dict):
+                    continue
+                tags = [t['name'] for t in doc.get('tags', []) if isinstance(t, dict) and 'name' in t]
+                if not any(t.startswith('project:') for t in tags):
                     orphans.append(doc)
 
-            logger.info(f"Found {len(orphans)} documents without project tags")
+            logger.info(f"Found {len(orphans)} documents without project tags (first page)")
             return orphans
 
         except Exception as e:
