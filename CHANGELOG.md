@@ -4,6 +4,37 @@ All notable changes to Paperless AI Analyzer are documented here.
 
 ---
 
+## v3.9.5 — 2026-04-23
+
+### Fixed — the last regression stragglers
+- **CI goal-assistant 500** — `routes/ci/setup.py` tried to
+  `from analyzer.routes.chat import _fetch_url_text`, but chat was converted
+  to a package in v3.9.3 (that symbol moved to
+  `analyzer.services.web_research_service.fetch_url_text`). Stale import
+  fixed — all 3 goal-assistant tests (25.11 / 25.12 / 25.25) now pass.
+- **`POST /api/active/duplicates/remove` crashed** with `NameError:
+  safe_json_body is not defined` — the bulk-edit that introduced
+  `safe_json_body` across routes missed adding the import in
+  `routes/profiles.py`. Fixed.
+- **`GET /api/active/duplicates` timeout on large profile sets** — the
+  O(n²) similarity-scan loop runs 3.3M iterations on dev's 2,580 profiles.
+  Fix: skip the similarity pass when `len(profiles) > 500` unless
+  `?deep=1` is passed. Fast exact-hash scan still runs; response now
+  returns in < 1s with a `scan_note` field indicating the skip.
+- **Zero-byte file upload returned 500** — `POST /api/upload/submit` with
+  an empty file bubbled an upstream error into a 500. Fix: explicit
+  `os.path.getsize == 0` check, clean 400 "File is empty (0 bytes)".
+
+### Why
+These were the last four items on the v3.8.2 regression backlog after v3.9.4
+cleared the main 12. The goal-assistant stale import was a post-refactor
+artifact — my v3.9.3 package split missed this one caller in CI setup.
+The duplicates perf fix is a proper optimization: O(n²) against a growing
+profile directory would have timed out more frequently as more suggested
+profiles accumulated.
+
+---
+
 ## v3.9.4 — 2026-04-23
 
 ### Fixed — dashboard noise

@@ -4,6 +4,8 @@ from pathlib import Path
 from flask import Blueprint, request, jsonify, current_app
 from flask_login import login_required
 
+from analyzer.app import safe_json_body
+
 logger = logging.getLogger(__name__)
 
 bp = Blueprint('profiles', __name__)
@@ -256,21 +258,26 @@ def api_detect_duplicates():
         similar_pairs = []
         exact_hashes = {p['content_hash'] for group in content_map.values() if len(group) > 1 for p in group}
 
-        for i, p1 in enumerate(profiles):
-            if p1['content_hash'] in exact_hashes:
-                continue
-
-            for p2 in profiles[i+1:]:
-                if p1['content_hash'] == p2['content_hash'] or p2['content_hash'] in exact_hashes:
+        # v3.9.4: O(n²) similarity scan caps at 500 profiles to keep the
+        # endpoint under a reasonable response time. Deep scan gated behind
+        # ?deep=1 query param.
+        deep_scan = request.args.get('deep', '0') in ('1', 'true', 'yes')
+        if deep_scan or len(profiles) <= 500:
+            for i, p1 in enumerate(profiles):
+                if p1['content_hash'] in exact_hashes:
                     continue
 
-                if p1['keywords'] and p2['keywords']:
-                    intersection = len(p1['keywords'] & p2['keywords'])
-                    union = len(p1['keywords'] | p2['keywords'])
-                    similarity = intersection / union if union > 0 else 0
+                for p2 in profiles[i+1:]:
+                    if p1['content_hash'] == p2['content_hash'] or p2['content_hash'] in exact_hashes:
+                        continue
 
-                    if similarity > 0.7 and p1['checks'] == p2['checks']:
-                        similar_pairs.append((i, profiles[i+1:].index(p2) + i + 1, similarity))
+                    if p1['keywords'] and p2['keywords']:
+                        intersection = len(p1['keywords'] & p2['keywords'])
+                        union = len(p1['keywords'] | p2['keywords'])
+                        similarity = intersection / union if union > 0 else 0
+
+                        if similarity > 0.7 and p1['checks'] == p2['checks']:
+                            similar_pairs.append((i, profiles[i+1:].index(p2) + i + 1, similarity))
 
         if similar_pairs:
             parent = {i: i for i in range(len(profiles))}
@@ -306,10 +313,17 @@ def api_detect_duplicates():
                                    for p, _ in group_profiles]
                     })
 
+        scan_note = None
+        if not deep_scan and len(profiles) > 500:
+            scan_note = (f'Similarity scan skipped (O(n²) on {len(profiles)} profiles '
+                         f'would take too long); exact-hash duplicates only. '
+                         f'Use ?deep=1 to force full scan.')
+
         return jsonify({
             'total_profiles': len(profiles),
             'duplicate_groups': len(duplicate_groups),
-            'groups': duplicate_groups
+            'groups': duplicate_groups,
+            'scan_note': scan_note,
         })
 
     except Exception as e:
