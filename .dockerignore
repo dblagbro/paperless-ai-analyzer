@@ -1,0 +1,50 @@
+# v3.9.10: keep image size + build context small.
+# Anything listed here will NOT be sent to the Docker daemon during build.
+
+# Version control
+.git/
+.gitignore
+.gitattributes
+
+# Python bytecode and caches
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Build + backup artifacts (users accumulate these locally; they do not belong in a shipped image)
+backups/
+dist/
+build/
+*.tar.gz
+*.tgz
+
+# Local dev / test artifacts
+.coverage
+htmlcov/
+*.log
+logs/
+
+# Staging profiles — AI-generated suggestions accumulated from real documents.
+# These leak customer doc IDs and balloon every build context. The runtime
+# app creates /app/profiles/staging/ at startup if missing, and users add to
+# it via POST /api/staging/upload. Do not ship any from the source tree.
+profiles/staging/
+
+# Docs / markdown (not needed at runtime; user manual is served via Flask from
+# templates/docs.html + templates/docs_pages/ which ARE still included because
+# they live under analyzer/templates/)
+*.md
+!analyzer/**/*.md
+
+# Editor / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo

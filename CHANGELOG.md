@@ -4,6 +4,38 @@ All notable changes to Paperless AI Analyzer are documented here.
 
 ---
 
+## v3.9.10 — 2026-04-24
+
+### Docker image diet — 7.73 GB → 3.84 GB (50% reduction)
+
+Same app, same dependencies, same behavior. The giant was GPU libraries that
+the CPU-only server never touches.
+
+**Dockerfile:** install CPU-only `torch` + `torchvision` from
+`https://download.pytorch.org/whl/cpu` BEFORE the main `pip install -r
+requirements.txt`. The transitive torch dep pulled by `unstructured[pdf]`
+(via `timm`, `torchvision`, `effdet`) is now satisfied without fetching the
+default CUDA wheel. Removed from the image: `nvidia-*` CUDA runtime
+(~2.7 GB), `triton` GPU compiler (~640 MB), and `torch` shrinks
+~1.2 GB → ~250 MB. `torch.cuda.is_available()` returns `False` —
+confirmed no code path relies on CUDA.
+
+**`.dockerignore`** (new): excludes build-context cruft that never needs to
+enter the image — `.git/`, `backups/`, `__pycache__/`, `*.pyc`, logs, editor
+files, and `profiles/staging/` (1,443 AI-suggested YAML files accumulated
+over months, ~5.8 MB, that reference real customer document IDs; now
+generated fresh per-instance at runtime).
+
+**Why it matters**
+- Docker Hub push time drops roughly proportionally (4.5 GB less to upload).
+- Prod pull on recreate is ~50% faster.
+- Fewer bytes shipped that could accidentally leak customer metadata.
+
+**No behavior changes.** Version bumped from 3.9.9 → 3.9.10 to mark the
+image change so rollback tags are unambiguous.
+
+---
+
 ## v3.9.9 — 2026-04-23
 
 ### Refactored — two more splits (see refactor-log Entry 012)
