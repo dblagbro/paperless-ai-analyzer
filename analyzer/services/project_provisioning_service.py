@@ -43,6 +43,123 @@ def _get_docker_client():
         return None
 
 
+# ── Flattened nginx.conf management (v3.10+) ────────────────────────────────
+# When the host nginx.conf has been flattened to a single file (sentinel markers
+# present), we edit it in place between `# <paperless-projects-begin>` and
+# `# <paperless-projects-end>`. Each project gets its own nested marker block:
+#
+#     # <paperless-project slug="pw-flow-04222114">
+#     ...location block...
+#     # </paperless-project>
+#
+# Concurrent project provisioning is serialized with fcntl.flock on the file.
+# Returns True on success, False if markers not found (caller should then fall
+# back to the legacy per-project file-write path).
+
+_NGINX_CONF_PATH     = '/app/nginx.conf'            # mounted rw from host
+_MARKER_BEGIN        = '# <paperless-projects-begin>'
+_MARKER_END          = '# <paperless-projects-end>'
+_PROJECT_INDENT_SP   = 8                             # voipguru server body indent
+
+
+def _update_nginx_project_block(slug: str, block_content: str) -> bool:
+    """Insert/replace a project's location block in the flattened nginx.conf.
+    Returns True on success, False if the nginx.conf doesn't have the sentinel
+    markers (caller should fall back to legacy behavior).
+    """
+    import fcntl
+    import re as _re
+
+    if not os.path.isfile(_NGINX_CONF_PATH):
+        return False
+
+    try:
+        with open(_NGINX_CONF_PATH, 'r+') as fh:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+            content = fh.read()
+
+            begin = content.find(_MARKER_BEGIN)
+            end   = content.find(_MARKER_END)
+            if begin < 0 or end < 0:
+                return False
+
+            # Find end of the line containing _MARKER_BEGIN
+            begin_line_end = content.index('\n', begin) + 1
+            # Find start of the line containing _MARKER_END
+            end_line_start = content.rfind('\n', 0, end) + 1
+
+            section = content[begin_line_end:end_line_start]
+
+            # Re-indent the new block body to the server-block body indent
+            indent = ' ' * _PROJECT_INDENT_SP
+            indented_body = '\n'.join(
+                (indent + line if line.strip() else '') for line in block_content.rstrip().split('\n')
+            )
+            new_sub_block = (
+                f'{indent}# <paperless-project slug="{slug}">\n'
+                f'{indented_body}\n'
+                f'{indent}# </paperless-project>\n'
+            )
+
+            # Replace an existing sub-block for this slug (idempotent re-provision),
+            # else append to the end of the section.
+            pat = _re.compile(
+                r'^[ \t]*# <paperless-project slug="' + _re.escape(slug) + r'">'
+                r'[\s\S]*?'
+                r'^[ \t]*# </paperless-project>\s*\n',
+                _re.MULTILINE,
+            )
+            if pat.search(section):
+                new_section = pat.sub(new_sub_block, section)
+            else:
+                new_section = section + new_sub_block
+
+            new_content = content[:begin_line_end] + new_section + content[end_line_start:]
+            fh.seek(0)
+            fh.write(new_content)
+            fh.truncate()
+            # Lock released on file close
+        return True
+    except Exception as e:
+        logger.warning(f"[Provision] _update_nginx_project_block failed for {slug}: {e}")
+        return False
+
+
+def _remove_nginx_project_block(slug: str) -> bool:
+    """Remove a project's location block from the flattened nginx.conf.
+    Returns True on success or if the block wasn't there. False if markers not found.
+    """
+    import fcntl
+    import re as _re
+
+    if not os.path.isfile(_NGINX_CONF_PATH):
+        return False
+
+    try:
+        with open(_NGINX_CONF_PATH, 'r+') as fh:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+            content = fh.read()
+
+            if _MARKER_BEGIN not in content or _MARKER_END not in content:
+                return False
+
+            pat = _re.compile(
+                r'^[ \t]*# <paperless-project slug="' + _re.escape(slug) + r'">'
+                r'[\s\S]*?'
+                r'^[ \t]*# </paperless-project>\s*\n',
+                _re.MULTILINE,
+            )
+            new_content, n = pat.subn('', content)
+            if n > 0:
+                fh.seek(0)
+                fh.write(new_content)
+                fh.truncate()
+        return True
+    except Exception as e:
+        logger.warning(f"[Provision] _remove_nginx_project_block failed for {slug}: {e}")
+        return False
+
+
 def _provision_log(slug: str, phase: str, status: str = None):
     s = _provision_status.setdefault(slug, {})
     s['phase'] = phase
@@ -290,9 +407,13 @@ location = /paperless-{slug} {{
     return 301 /paperless-{slug}/;
 }}
 """
-        nginx_conf_path = f'/app/nginx-projects-locations.d/paperless-{slug}.conf'
-        with open(nginx_conf_path, 'w') as f:
-            f.write(nginx_conf)
+        # Try the new marker-based nginx.conf edit first (v3.10+ deployment).
+        # Falls back to the legacy per-project file write if markers aren't present
+        # in nginx.conf (rollback or not-yet-migrated environments).
+        if not _update_nginx_project_block(slug, nginx_conf):
+            nginx_conf_path = f'/app/nginx-projects-locations.d/paperless-{slug}.conf'
+            with open(nginx_conf_path, 'w') as f:
+                f.write(nginx_conf)
 
         _provision_log(slug, 'Reloading nginx')
         try:
