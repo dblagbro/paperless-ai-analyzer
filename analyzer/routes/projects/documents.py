@@ -6,7 +6,7 @@ import sqlite3
 from flask import current_app, jsonify
 from flask_login import login_required
 
-from analyzer.app import _get_project_client, safe_json_body
+from analyzer.app import _get_project_client, safe_json_body, admin_required
 
 from . import bp
 
@@ -101,6 +101,108 @@ def api_delete_project_document(slug, doc_id):
 
     logger.info(f"Deleted document {doc_id} from project {slug} (Paperless + Chroma + DB)")
     return jsonify({'success': True, 'message': f'Document {doc_id} deleted'})
+
+
+@bp.route('/api/projects/<slug>/cleanup-stale-embeddings', methods=['POST'])
+@login_required
+@admin_required
+def api_cleanup_stale_embeddings(slug):
+    """
+    Purge Chroma rows for a project whose numeric doc_id no longer exists in
+    the project's Paperless instance. Fixes the "Document not found" symptom
+    on Search & Analysis when Paperless docs were deleted but Chroma retained
+    the embedding. CI finding rows (string IDs like "ci:...") are untouched.
+    """
+    if not current_app.project_manager:
+        return jsonify({'error': 'Project management not enabled'}), 503
+
+    # Collect Paperless doc IDs that actually belong to this project today.
+    # - Primary path: per-project client lists all docs in its dedicated
+    #   Paperless instance.
+    # - Fallback path: if the project client is unreachable (stale token /
+    #   unprovisioned child container), use the global client filtered by the
+    #   `project:<slug>` tag — matches the set of docs that nginx+Paperless
+    #   would show under the project's public view.
+    def _collect_paginated(fetch_page):
+        ids = set()
+        page = 1
+        while True:
+            resp = fetch_page(page)
+            for d in resp.get('results', []) or []:
+                if isinstance(d, dict) and 'id' in d:
+                    ids.add(int(d['id']))
+            if not resp.get('next'):
+                break
+            page += 1
+            if page > 500:
+                logger.warning(f"cleanup-stale-embeddings: hit page cap (500) for {slug}")
+                break
+        return ids
+
+    try:
+        pc = _get_project_client(slug)
+        if not pc:
+            return jsonify({'error': 'No Paperless client available'}), 400
+
+        try:
+            live_paperless_ids = _collect_paginated(
+                lambda page: pc.get_documents(page=page, page_size=200)
+            )
+            source = 'project-client'
+        except Exception as proj_err:
+            logger.warning(
+                f"cleanup-stale-embeddings: project client for {slug} failed "
+                f"({proj_err}) — falling back to global + project tag filter"
+            )
+            gpc = getattr(current_app, 'paperless_client', None)
+            if not gpc or gpc is pc:
+                return jsonify({'error': f'Paperless API unreachable for this project: {proj_err}'}), 502
+            live_paperless_ids = _collect_paginated(
+                lambda page: gpc.get_documents_by_project(slug, page=page, page_size=200)
+            )
+            source = 'global-client-project-tag'
+
+        from analyzer.vector_store import VectorStore
+        vs = VectorStore(project_slug=slug)
+        if not vs.enabled:
+            return jsonify({'error': 'Vector store not enabled'}), 503
+
+        all_chroma_ids = vs.collection.get(include=[]).get('ids', [])
+        stale_ids = [i for i in all_chroma_ids if i.isdigit() and int(i) not in live_paperless_ids]
+
+        if stale_ids:
+            vs.collection.delete(ids=stale_ids)
+            try:
+                with sqlite3.connect('/app/data/app.db') as conn:
+                    conn.executemany(
+                        "DELETE FROM processed_documents WHERE doc_id = ?",
+                        [(int(i),) for i in stale_ids]
+                    )
+            except Exception as e:
+                logger.warning(f"processed_documents cleanup failed during stale purge ({slug}): {e}")
+
+        try:
+            new_count = sum(1 for i in vs.collection.get(include=[]).get('ids', []) if i.isdigit())
+            current_app.project_manager.update_document_count(slug, new_count)
+        except Exception:
+            new_count = None
+
+        logger.info(
+            f"cleanup-stale-embeddings({slug}): paperless={len(live_paperless_ids)} "
+            f"chroma_before={len(all_chroma_ids)} purged={len(stale_ids)} "
+            f"docs_after={new_count} source={source}"
+        )
+        return jsonify({
+            'success': True,
+            'paperless_count': len(live_paperless_ids),
+            'chroma_before': len(all_chroma_ids),
+            'purged': len(stale_ids),
+            'docs_after': new_count,
+            'source': source,
+        })
+    except Exception as e:
+        logger.error(f"cleanup-stale-embeddings failed for {slug}: {e}")
+        return jsonify({'error': str(e)}), 500
 
 
 @bp.route('/api/orphan-documents', methods=['GET'])

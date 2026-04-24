@@ -347,11 +347,20 @@ class ProjectManager:
 
         # Query live Chroma count so the UI always reflects reality
         # (the cached document_count in projects.db is only updated by explicit
-        # upload paths, not by the normal analysis loop)
+        # upload paths, not by the normal analysis loop).
+        # v3.9.11: Case Intelligence writes its findings into the same Chroma
+        # collection using string IDs like "ci:<run>:timeline:42"; those were
+        # being counted as "analyzed documents" and inflating the displayed
+        # number (e.g. prod default project showed 6023 with only 808 real
+        # docs). Split the count: numeric IDs = real documents, prefixed
+        # string IDs = CI findings.
+        ci_finding_count = 0
         try:
             from analyzer.vector_store import VectorStore
             vs = VectorStore(project_slug=slug)
-            live_count = vs.collection.count()
+            all_ids = vs.collection.get(include=[]).get('ids', [])
+            live_count = sum(1 for i in all_ids if i.isdigit())
+            ci_finding_count = len(all_ids) - live_count
         except Exception:
             live_count = project['document_count']  # fall back to cached
 
@@ -361,6 +370,7 @@ class ProjectManager:
 
         stats = {
             'document_count': live_count,
+            'ci_finding_count': ci_finding_count,
             'last_analyzed_at': project['last_analyzed_at'],
             'created_at': project['created_at'],
             'updated_at': project['updated_at']

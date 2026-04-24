@@ -4,6 +4,41 @@ All notable changes to Paperless AI Analyzer are documented here.
 
 ---
 
+## v3.9.11 — 2026-04-24
+
+### Fixes
+
+- **Manage Projects "analyzed" count no longer inflated by CI findings.**
+  Prod's `default` project was showing `6023 analyzed` while Paperless held
+  810 docs and the Search & Analysis tab listed 808. Root cause:
+  `_embed_ci_run_findings` (writeback_mixin) stores Case Intelligence
+  artifacts (entities, timeline events, contradictions, theories,
+  authorities, disputed facts) in the same Chroma collection as document
+  embeddings, using string IDs like `ci:<run>:timeline:<id>`. `collection.
+  count()` was counting those alongside real docs.
+
+  `get_statistics()` now partitions the collection: numeric IDs → real
+  documents (displayed as "📄 N analyzed"), everything else → CI findings
+  (displayed as "🧠 N CI findings" when non-zero). Counts on Manage
+  Projects now agree with Search & Analysis.
+
+- **New admin action: "🧹 Clean Stale" per project.** Purges Chroma rows
+  whose numeric `document_id` is no longer present in Paperless — fixes
+  the symptom where clicking a document tile in Search & Analysis returns
+  a Paperless 404 because the doc was deleted after being embedded. Uses
+  the project-specific Paperless client when available and falls back to
+  the global client filtered by `project:<slug>` tag when the per-project
+  token is stale. CI findings (non-numeric IDs) are never touched.
+  Response returns `purged`, `docs_after`, and `source` so the toast can
+  surface what happened.
+
+### API changes
+
+- `GET /api/projects` — each project now includes `ci_finding_count`.
+- `POST /api/projects/<slug>/cleanup-stale-embeddings` (new, admin-only).
+
+---
+
 ## v3.9.10 — 2026-04-24
 
 ### Docker image diet — 7.73 GB → 3.84 GB (50% reduction)
