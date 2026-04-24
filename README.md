@@ -10,6 +10,47 @@ Advanced AI-powered anomaly detection and risk analysis microservice for [Paperl
 
 ---
 
+## What's New in v3.9.6
+
+### Paperless-slow hardening + project provision throttling
+
+Two related reliability fixes bundled:
+
+**1. Slow-Paperless no longer hangs Waitress.** Five routes
+(`/api/status`, `/api/reconcile`, `/api/orphan-documents`,
+`POST /api/projects`, `POST /api/scan/process-unanalyzed`) used to call
+Paperless synchronously, so a slow (but reachable) Paperless could park a
+Waitress thread for 15–45s on tenacity retries. With only 4 threads
+configured, even fast admin requests queued up behind. Fixes:
+
+- `PaperlessClient` installs a default 15s per-request timeout on the shared
+  session, plus a 10s result cache on `health_check()`.
+- All five routes now short-circuit with `503` / `paperless_available: false`
+  when the health check fails — no more retry-loop starvation.
+- Waitress `threads` bumped from 4 → 16.
+- `POST /api/projects` tag creation moved off the request thread
+  (response now returns in < 50ms; previously 15s+).
+- `get_documents_without_project()` paginates 1 page of 100 docs (matches
+  the route's cap) instead of `page_size=1000`; `/api/reconcile` uses
+  `page_size=200`.
+
+**2. Project provisioning is now throttled.** Rapid creation of dedicated
+Paperless stacks (e.g. from test suites) would saturate host CPU/RAM and
+starve earlier stacks before they finished warming up. New behaviour:
+
+- First project after boot starts immediately.
+- Every subsequent provision waits `PROVISION_MIN_INTERVAL_SECS` (default
+  180s, env-tunable) after the previous one **started**.
+- A single background worker drains the FIFO queue sequentially.
+- Project cards show a gray pill: *⏸️ Waiting in provisioning queue (#N).
+  Starting in ~M mins — host throttled to one Paperless stack at a time.*
+- Toast on create reports the ETA immediately when queued.
+- `GET /api/projects/<slug>/provision-status` adds `queue_position` and
+  `eta_seconds`; `POST /api/projects` returns a `provision: {...}` object
+  with the same fields.
+
+---
+
 ## What's New in v3.9.0
 
 ### LLM Proxy Pool + LMRH Routing (multi-provider fallback infrastructure)
@@ -404,6 +445,11 @@ services:
       WEB_UI_ENABLED: "true"
       WEB_HOST: 0.0.0.0
       WEB_PORT: 8051
+      # Optional — throttle between new-project Paperless stack spin-ups.
+      # First project after boot starts immediately; each subsequent project
+      # waits this many seconds after the previous provision started.
+      # Default: 180 (set to 0 to disable throttling — not recommended).
+      PROVISION_MIN_INTERVAL_SECS: "180"
     volumes:
       - ./profiles:/app/profiles
       - analyzer_data:/app/data

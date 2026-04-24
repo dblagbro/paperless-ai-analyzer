@@ -425,7 +425,9 @@ def run_web_server(state_manager, profile_loader, paperless_client, host='0.0.0.
                smart_uploader=smart_uploader, document_analyzer=document_analyzer)
     logger.info(f"Starting production web UI on {host}:{port}")
     from waitress import serve
-    serve(app, host=host, port=port, threads=4, channel_timeout=300,
+    # v3.9.5: threads=4 was too few — a slow Paperless + running poller
+    # saturated the pool and blocked even fast admin requests for 10+s.
+    serve(app, host=host, port=port, threads=16, channel_timeout=300,
           cleanup_interval=10, _quiet=False)
 
 

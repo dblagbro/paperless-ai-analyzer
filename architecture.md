@@ -41,7 +41,7 @@ paperless-ai-analyzer/
 │   ├── document_processor.py        # DocumentProcessorMixin: per-doc analysis, vision AI, tag compilation (v3.9.3)
 │   ├── auth.py                      # Flask-Login user model + DB init
 │   ├── db.py                        # Core SQLite (users, chat sessions, messages, upload history)
-│   ├── paperless_client.py          # Paperless-NGX REST client
+│   ├── paperless_client.py          # Paperless-NGX REST client (default 15s session timeout + 10s health_check cache, v3.9.6)
 │   ├── vector_store.py              # ChromaDB wrapper (multi-project collections)
 │   ├── state.py                     # Per-project state persistence (state_{slug}.json)
 │   ├── profile_loader.py            # YAML analysis profile loader
@@ -88,7 +88,7 @@ paperless-ai-analyzer/
 │   │   ├── web_research_service.py  # DuckDuckGo search, URL fetch, Justia→CourtListener resolver (extracted from routes/chat.py, v3.9.1)
 │   │   ├── vision_service.py        # Vision-AI PDF page extraction for RAG (extracted from routes/chat.py, v3.9.1)
 │   │   ├── chat_branch_service.py   # Chat branch-tree computation (extracted from routes/chat.py, v3.9.1)
-│   │   └── project_provisioning_service.py  # Docker-compose + nginx + Postgres provisioning for per-project Paperless instances (extracted from routes/projects.py, v3.9.1)
+│   │   └── project_provisioning_service.py  # Docker-compose + nginx + Postgres provisioning for per-project Paperless instances (extracted from routes/projects.py, v3.9.1; throttled FIFO queue + single worker added v3.9.6, PROVISION_MIN_INTERVAL_SECS default 180s)
 │   │
 │   ├── case_intelligence/           # CI pipeline — all /api/ci/* backend logic
 │   │   ├── __init__.py

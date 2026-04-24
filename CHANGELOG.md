@@ -4,6 +4,69 @@ All notable changes to Paperless AI Analyzer are documented here.
 
 ---
 
+## v3.9.6 — 2026-04-23
+
+### Added — project provision throttling
+- **Sequential container provisioning with 180s cooldown.** Spinning up a
+  dedicated Paperless-ngx stack (web + consumer + postgres + redis) is
+  expensive during the first minute. Back-to-back project creates (e.g.
+  from a regression run) used to saturate the host CPU/RAM and starve
+  earlier stacks before they finished warming up. New behaviour:
+  - First project after boot starts immediately.
+  - Every subsequent project waits `PROVISION_MIN_INTERVAL_SECS`
+    (default 180s, env-tunable) after the previous provision started.
+  - A single background worker drains the queue FIFO, sleeping out the
+    cooldown between items.
+- **UI feedback.** Project cards show `⏸️ Waiting in provisioning queue
+  (#N). Starting in ~M mins — host throttled to one Paperless stack at a
+  time.` while `status=queued_waiting`. Toast on project create reports
+  the ETA immediately: `Project created — queued for Paperless
+  provisioning (#N in line, starts in ~M min).`
+- New fields on `GET /api/projects/<slug>/provision-status`:
+  `queue_position`, `eta_seconds` (both refresh live every 5s).
+- New field on `POST /api/projects` response: `provision.status`,
+  `provision.queue_position`, `provision.eta_seconds`,
+  `provision.throttle_interval_secs`.
+
+### Fixed — Paperless-slow failures that stalled /api/status, /api/reconcile, /api/orphan-documents, POST /api/projects, /api/scan/process-unanalyzed
+- **Root cause.** Several endpoints called the Paperless client on the
+  request thread. With a slow or unreachable Paperless, the `tenacity`
+  decorator retried for up to 45s, saturating the 4-thread Waitress
+  pool and making even fast admin requests time out at 10–15s.
+- **Fixes:**
+  - `PaperlessClient.health_check()` now accepts a `timeout` (default 3s)
+    and caches the result for 10s so hot paths don't ping repeatedly.
+  - `PaperlessClient.__init__` installs a default 15s per-request timeout
+    on the shared `requests.Session` — a slow upstream can no longer hang
+    a Waitress thread forever.
+  - `GET /api/orphan-documents`, `POST /api/reconcile`,
+    `POST /api/scan/process-unanalyzed`, `POST /api/projects`,
+    `GET /api/status` all short-circuit with a structured 503 /
+    `paperless_available: false` response when `health_check()` fails
+    instead of triggering the retry loop.
+  - `get_documents_without_project()` now scans one page of 100 docs
+    (the route caps results at 100 anyway) instead of page_size=1000 —
+    the 1000-row query was timing out against instances with many docs.
+  - `POST /api/reconcile` paginates with `page_size=200` instead of 1000
+    for the same reason.
+  - `POST /api/projects` tag creation moved off the request thread —
+    a slow shared Paperless used to block project create for 15s+
+    waiting on `get_or_create_tag`. Now returns in < 50ms; the tag is
+    created asynchronously (the provision worker also ensures it).
+  - `analyzer/app.py` — Waitress `threads=4` → `threads=16`. 4 was too
+    few: a single slow Paperless call could block the whole pool.
+
+### Why
+This pass closes the remaining regression failures where Paperless itself
+was slow, not unreachable — `health_check()` returned True, but the next
+call still took 15–45s. Bounding every request with a default timeout +
+caching the health check + moving slow ops off the request thread is the
+consistent fix across all affected endpoints. The provisioning throttle
+prevents the test-driven reproduction of the original Waitress saturation
+by limiting how fast new Paperless stacks can be spun up.
+
+---
+
 ## v3.9.5 — 2026-04-23
 
 ### Fixed — the last regression stragglers

@@ -21,49 +21,62 @@ def api_process_unanalyzed():
         if not hasattr(current_app, 'document_analyzer') or not current_app.document_analyzer:
             return jsonify({'error': 'Analyzer not running'}), 503
 
-        # Get already-analyzed IDs from DB
-        analyzed_ids = get_analyzed_doc_ids()
-
-        # Fetch all Paperless document IDs (lightweight list, no content yet)
-        all_docs = []
-        page = 1
-        while True:
-            resp = current_app.paperless_client.get_documents(ordering='-modified', page_size=100, page=page)
-            page_results = resp.get('results', [])
-            all_docs.extend(page_results)
-            if not resp.get('next'):
-                break
-            page += 1
-
-        missing_docs = [d for d in all_docs if d['id'] not in analyzed_ids]
-
-        if not missing_docs:
-            return jsonify({'success': True, 'queued': 0, 'message': 'All documents already analyzed'})
+        # v3.9.5: Short-circuit if Paperless is unreachable so a 30-60s tenacity
+        # retry loop can't saturate Waitress threads.
+        try:
+            if not current_app.paperless_client or not current_app.paperless_client.health_check():
+                return jsonify({
+                    'success': False,
+                    'queued': 0,
+                    'paperless_available': False,
+                    'error': 'Paperless-ngx not reachable',
+                }), 503
+        except Exception:
+            return jsonify({
+                'success': False,
+                'queued': 0,
+                'paperless_available': False,
+                'error': 'Paperless-ngx health check failed',
+            }), 503
 
         # Capture app-context deps on the request thread so the background
         # worker doesn't try to access current_app outside of a Flask request.
         paperless_client = current_app.paperless_client
         document_analyzer = current_app.document_analyzer
 
-        def _run(docs, pc, da):
-            logger.info(f"Process-unanalyzed: starting {len(docs)} documents")
-            ok = 0
-            for d in docs:
-                try:
-                    full_doc = pc.get_document(d['id'])
-                    da.analyze_document(full_doc)
-                    ok += 1
-                except Exception as e:
-                    logger.warning(f"Process-unanalyzed: failed doc {d['id']}: {e}")
-            logger.info(f"Process-unanalyzed: complete — {ok}/{len(docs)} succeeded")
+        def _run(pc, da):
+            try:
+                analyzed_ids = get_analyzed_doc_ids()
+                all_docs = []
+                page = 1
+                while True:
+                    resp = pc.get_documents(ordering='-modified', page_size=100, page=page)
+                    page_results = resp.get('results', [])
+                    all_docs.extend(page_results)
+                    if not resp.get('next'):
+                        break
+                    page += 1
+                missing = [d for d in all_docs if d['id'] not in analyzed_ids]
+                logger.info(f"Process-unanalyzed: starting {len(missing)} documents")
+                ok = 0
+                for d in missing:
+                    try:
+                        full_doc = pc.get_document(d['id'])
+                        da.analyze_document(full_doc)
+                        ok += 1
+                    except Exception as e:
+                        logger.warning(f"Process-unanalyzed: failed doc {d['id']}: {e}")
+                logger.info(f"Process-unanalyzed: complete — {ok}/{len(missing)} succeeded")
+            except Exception as e:
+                logger.error(f"Process-unanalyzed bg worker failed: {e}")
 
         from threading import Thread
-        Thread(target=_run, args=(missing_docs, paperless_client, document_analyzer), daemon=True).start()
+        Thread(target=_run, args=(paperless_client, document_analyzer), daemon=True).start()
 
         return jsonify({
             'success': True,
-            'queued': len(missing_docs),
-            'message': f'Queued {len(missing_docs)} unanalyzed documents — check logs for progress',
+            'queued': -1,
+            'message': 'Scan started — check logs for progress',
         })
 
     except Exception as e:
@@ -269,13 +282,29 @@ def api_reconcile():
         if not hasattr(current_app, 'paperless_client') or not current_app.paperless_client:
             return jsonify({'error': 'Paperless client not available'}), 503
 
+        # v3.9.5: short-circuit when Paperless is unreachable — avoids tenacity
+        # retry loops that saturate Waitress threads.
+        try:
+            if not current_app.paperless_client.health_check():
+                return jsonify({
+                    'error': 'Paperless-ngx not reachable',
+                    'paperless_available': False,
+                }), 503
+        except Exception:
+            return jsonify({
+                'error': 'Paperless-ngx health check failed',
+                'paperless_available': False,
+            }), 503
+
         project_slug = session.get('current_project', 'default')
 
         # 1. Fetch every doc ID currently in Paperless (paginated)
+        # v3.9.5: page_size reduced from 1000 → 200 — 1000 was timing out
+        # against slow Paperless instances (>1000 docs).
         paperless_ids = set()
         page = 1
         while True:
-            resp = current_app.paperless_client.get_documents(ordering='id', page_size=1000, page=page)
+            resp = current_app.paperless_client.get_documents(ordering='id', page_size=200, page=page)
             for doc in resp.get('results', []):
                 paperless_ids.add(doc['id'])
             if not resp.get('next'):

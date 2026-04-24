@@ -20,6 +20,10 @@ Public surface (imported by routes/projects.py):
 """
 import logging
 import os
+import threading
+import time
+from collections import deque
+from typing import Optional
 
 from flask import current_app
 
@@ -32,6 +36,120 @@ _migration_status: dict = {}
 
 # In-memory provisioning state: {slug: {status, phase, error}}
 _provision_status: dict = {}
+
+# ── v3.9.5: provision throttling ─────────────────────────────────────────────
+# Spinning up a dedicated Paperless stack (web + consumer + postgres + redis)
+# costs a lot of CPU/RAM during the first minute. Back-to-back provisions from
+# rapid-fire project creation (e.g. regression tests) can saturate the host,
+# cause timeouts on live traffic, and starve earlier stacks before they finish
+# warming up.
+#
+# Policy:
+#   - First project after boot may start immediately.
+#   - Every subsequent project waits PROVISION_MIN_INTERVAL_SECS (default 180s)
+#     after the previous provision *started*.
+#   - Requests arriving during the cooldown are queued. A single worker thread
+#     drains the queue sequentially, sleeping as needed.
+#
+# Status is exposed via _provision_status[slug] so the UI can display:
+#   {'status': 'queued_waiting', 'queue_position': N, 'eta_seconds': S, ...}
+
+PROVISION_MIN_INTERVAL_SECS = int(os.environ.get('PROVISION_MIN_INTERVAL_SECS', '180'))
+
+_provision_queue: "deque[str]" = deque()
+_provision_queue_lock = threading.Lock()
+_provision_queue_cv = threading.Condition(_provision_queue_lock)
+_last_provision_start_at: float = 0.0
+_provision_worker_started = False
+
+
+def _eta_for_position(position: int) -> int:
+    """Seconds until the Nth-in-line request will start provisioning."""
+    now = time.time()
+    head_ready_at = max(now, _last_provision_start_at + PROVISION_MIN_INTERVAL_SECS)
+    return max(0, int(head_ready_at - now) + (position - 1) * PROVISION_MIN_INTERVAL_SECS)
+
+
+def _refresh_queue_eta_locked() -> None:
+    """Update eta_seconds and queue_position for every slug currently queued.
+    Caller must hold _provision_queue_lock."""
+    for idx, s in enumerate(list(_provision_queue), start=1):
+        st = _provision_status.get(s)
+        if st and st.get('status') == 'queued_waiting':
+            st['queue_position'] = idx
+            st['eta_seconds'] = _eta_for_position(idx)
+
+
+def _provision_worker() -> None:
+    """Single background worker: pop slugs off the queue and provision them,
+    enforcing the cooldown between starts."""
+    global _last_provision_start_at
+    while True:
+        with _provision_queue_cv:
+            while not _provision_queue:
+                _provision_queue_cv.wait()
+            # Refresh ETAs first so UI sees accurate countdowns
+            _refresh_queue_eta_locked()
+            slug = _provision_queue[0]
+            wait = max(0.0, (_last_provision_start_at + PROVISION_MIN_INTERVAL_SECS) - time.time())
+        if wait > 0:
+            logger.info(f"Provision throttle: waiting {wait:.0f}s before starting {slug}")
+            # Sleep in 5s chunks so eta_seconds in status stays live
+            end_at = time.time() + wait
+            while time.time() < end_at:
+                with _provision_queue_lock:
+                    _refresh_queue_eta_locked()
+                time.sleep(min(5.0, end_at - time.time()))
+        with _provision_queue_cv:
+            # Re-check: the slug could have been cancelled
+            if not _provision_queue or _provision_queue[0] != slug:
+                continue
+            _provision_queue.popleft()
+            _last_provision_start_at = time.time()
+            _refresh_queue_eta_locked()
+        # Provision synchronously inside the worker — serializes the heavy work.
+        try:
+            _provision_project_paperless(slug)
+        except Exception as e:
+            logger.error(f"Provision worker: {slug} failed: {e}")
+
+
+def _ensure_worker_started() -> None:
+    global _provision_worker_started
+    if _provision_worker_started:
+        return
+    with _provision_queue_lock:
+        if _provision_worker_started:
+            return
+        t = threading.Thread(target=_provision_worker, daemon=True, name='provision-worker')
+        t.start()
+        _provision_worker_started = True
+
+
+def enqueue_provision(slug: str) -> dict:
+    """Public API: request provisioning for `slug`. Respects the cooldown and
+    queues if necessary. Returns the status dict the route should echo back.
+
+    On return, _provision_status[slug] is always populated so the UI poll works.
+    """
+    _ensure_worker_started()
+    with _provision_queue_cv:
+        position = len(_provision_queue) + 1
+        eta = _eta_for_position(position)
+        _provision_queue.append(slug)
+        _provision_status[slug] = {
+            'status': 'queued_waiting' if eta > 0 else 'queued',
+            'phase': (
+                f'Waiting {eta}s behind {position - 1} other project(s)'
+                if eta > 0 else 'Queued'
+            ),
+            'error': None,
+            'queue_position': position,
+            'eta_seconds': eta,
+        }
+        _refresh_queue_eta_locked()
+        _provision_queue_cv.notify()
+        return dict(_provision_status[slug])
 
 
 def _get_docker_client():

@@ -43,11 +43,15 @@ def api_status():
             court_count = 0
 
         paperless_total = chroma_count
+        awaiting_ocr = awaiting_ai = 0
         try:
             _pc = _get_project_client(project_slug)
-            paperless_total = _pc.get_project_document_count(project_slug)
-            awaiting_ocr = get_pending_ocr_count(project_slug)
-            awaiting_ai = max(0, paperless_total - chroma_count - awaiting_ocr)
+            # v3.9.5: skip Paperless calls when the server is unreachable —
+            # avoids a 15-45s tenacity retry loop blocking /api/status.
+            if _pc and _pc.health_check():
+                paperless_total = _pc.get_project_document_count(project_slug)
+                awaiting_ocr = get_pending_ocr_count(project_slug)
+                awaiting_ai = max(0, paperless_total - chroma_count - awaiting_ocr)
         except Exception:
             awaiting_ocr = awaiting_ai = 0
 

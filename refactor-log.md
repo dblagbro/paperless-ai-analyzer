@@ -2,6 +2,98 @@
 
 ---
 
+## Entry 009 — 2026-04-23 (v3.9.6 — Paperless-slow hardening + provision throttling)
+
+### Scope
+Two related fixes in one pass. (1) Every endpoint that called the Paperless
+client on the request thread could block Waitress for 15–45s when Paperless
+was slow (not unreachable — slow enough that `health_check` passed but the
+next call still hung on tenacity retries). (2) Rapid project creation spun
+up new Paperless stacks so fast the host CPU/RAM saturated and starved
+earlier stacks before they finished warming up.
+
+### Root-cause patterns
+
+**Pattern A — synchronous Paperless calls on the request thread.** 5
+routes were affected: `/api/status`, `/api/reconcile`, `/api/orphan-documents`,
+`POST /api/projects` (tag creation), `/api/scan/process-unanalyzed`. All
+used tenacity-wrapped calls that retried 3× with exponential backoff, and
+the shared `requests.Session` had no default timeout. A slow upstream
+therefore parked a Waitress thread for the full retry budget. With only
+4 Waitress threads, even fast admin requests queued up behind.
+
+**Pattern B — unbounded concurrent provisioning.** The old
+`POST /api/projects` fire-and-forgot a thread that called
+`_provision_project_paperless` immediately. Tests (and impatient humans)
+could fire 3+ creates in seconds, each starting its own Paperless stack
+before the previous one finished warming up.
+
+### Changes
+
+**Pattern A fixes:**
+- `PaperlessClient.__init__` installs a default 15s per-request timeout on
+  the shared `requests.Session` — a monkey-patch on `session.request` that
+  preserves per-call `timeout=` overrides.
+- `PaperlessClient.health_check()` accepts a `timeout` (default 3s) and
+  caches the result for 10s (`_HEALTH_CACHE_SECS`).
+- `get_documents_without_project()` now scans `page_size=100`, single page
+  (the calling route caps at 100 anyway). Previously `page_size=1000`,
+  which timed out on instances with many docs.
+- `POST /api/reconcile` paginates at `page_size=200` for the same reason.
+- 5 routes now short-circuit with a 503 / `paperless_available: false`
+  response when `health_check()` fails.
+- `POST /api/projects` tag creation moved to a background daemon thread.
+- Waitress `threads=4` → `threads=16` in `analyzer/app.py` — 4 was too few
+  to survive even one slow upstream call.
+
+**Pattern B fix — `services/project_provisioning_service.py`:**
+- New module-level `PROVISION_MIN_INTERVAL_SECS = 180` (env-tunable).
+- New FIFO queue + single worker thread. First request starts immediately;
+  subsequent requests wait out the cooldown before their turn.
+- New public `enqueue_provision(slug) -> dict` — replaces direct
+  `Thread(target=_provision_project_paperless).start()` in routes.
+- `_provision_status[slug]` gains `queue_position` and `eta_seconds`
+  (refreshed every 5s while queued so the UI countdown stays live).
+- `status='queued_waiting'` is a new state distinct from `queued`.
+
+**Routes touched:**
+- `POST /api/projects` — returns `provision: {status, queue_position,
+  eta_seconds, throttle_interval_secs}` in 201 response.
+- `POST /api/projects/<slug>/reprovision` — also uses the queue.
+
+**UI touched (`static/js/config.js`):**
+- Card banner renders `⏸️ Waiting in provisioning queue (#N)` for the
+  new `queued_waiting` state.
+- Toast on project create reports the wait time immediately if queued.
+
+### Why not a full-blown job scheduler?
+A queue + sleep + one worker is ~130 lines. A real scheduler would add
+a dependency, a DB table, and operational surface for something that only
+exists to gate one long-running op. If/when other throttled ops show up,
+this generalizes — not before.
+
+### Verification
+- 3 back-to-back `POST /api/projects` returned 201 in < 50ms each with
+  `queue_position` 1/2/3 and `eta_seconds` 0/179/359.
+- `GET /api/projects/<slug>/provision-status` returns live ETAs.
+- `GET /api/status` response time down from 10+s (when Paperless slow)
+  to sub-5s (first call, uncached) and sub-0.1s (health-cached).
+- `POST /api/orphan-documents`, `POST /api/reconcile`,
+  `POST /api/scan/process-unanalyzed`, `POST /api/projects` all now
+  respond in < 3s under a slow Paperless.
+
+### Files touched (8)
+- `analyzer/__init__.py` — version → 3.9.6
+- `analyzer/app.py` — Waitress threads=16
+- `analyzer/paperless_client.py` — default session timeout + health cache + orphan pagination
+- `analyzer/routes/documents.py` — reconcile + process-unanalyzed health gating
+- `analyzer/routes/projects.py` — enqueue_provision; async tag creation; reprovision queue
+- `analyzer/routes/status.py` — health-gate Paperless calls
+- `analyzer/services/project_provisioning_service.py` — queue + worker + enqueue API
+- `analyzer/static/js/config.js` — queued_waiting banner + toast ETA
+
+---
+
 ## Entry 008 — 2026-04-23 (v3.9.4 + v3.9.5 — regression cleanup)
 
 ### Scope

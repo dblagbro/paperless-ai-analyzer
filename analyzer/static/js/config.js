@@ -621,7 +621,14 @@
                 loadProjectSelector();
                 // If new project was created, start background card-level provision polling
                 if (!_projEditSlug && data.slug) {
-                    showToast('Project created — provisioning Paperless instance in the background…', 'info', 6000);
+                    const prov = data.provision || {};
+                    if (prov.eta_seconds && prov.eta_seconds > 0) {
+                        const mins = Math.ceil(prov.eta_seconds / 60);
+                        const pos = prov.queue_position || 1;
+                        showToast(`Project created — queued for Paperless provisioning (#${pos} in line, starts in ~${mins} min). Host is throttled to one stack at a time.`, 'info', 10000);
+                    } else {
+                        showToast('Project created — provisioning Paperless instance in the background…', 'info', 6000);
+                    }
                     _startCardProvisionPoll(data.slug);
                 }
             } catch (e) {
@@ -773,7 +780,13 @@
             const st = d.status || 'idle';
             if (st === 'idle') { el.style.display = 'none'; return; }
             el.style.display = 'block';
-            if (st === 'queued' || st === 'running') {
+            if (st === 'queued_waiting') {
+                const eta = d.eta_seconds || 0;
+                const pos = d.queue_position || 1;
+                const mins = Math.ceil(eta / 60);
+                el.style.background = '#f1f5f9'; el.style.borderColor = '#cbd5e1'; el.style.color = '#334155';
+                el.innerHTML = `<span style="display:inline-block;">⏸️</span> Waiting in provisioning queue (#${pos}). Starting in ~${mins} min${mins !== 1 ? 's' : ''} <em style="font-weight:500;">— host throttled to one Paperless stack at a time.</em>`;
+            } else if (st === 'queued' || st === 'running') {
                 el.style.background = '#fefce8'; el.style.borderColor = '#fde047'; el.style.color = '#92400e';
                 el.innerHTML = `<span style="animation:spin 1s linear infinite;display:inline-block;">⏳</span> Provisioning Paperless instance… <em style="font-weight:500;">${d.phase || ''}</em>`;
             } else if (st === 'complete') {
@@ -793,6 +806,8 @@
                     const d = await r.json();
                     _updateCardBanner(slug, d);
                     const st = d.status || 'idle';
+                    // queued_waiting is a transient state — keep polling until it
+                    // transitions to running/complete/error.
                     if (st === 'complete' || st === 'error' || st === 'idle') {
                         clearInterval(_cardProvisionTimers[slug]);
                         delete _cardProvisionTimers[slug];

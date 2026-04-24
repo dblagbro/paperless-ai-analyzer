@@ -18,6 +18,8 @@ from analyzer.services.project_provisioning_service import (
     _provision_log, _migration_log,
     _provision_project_paperless,
     _migrate_project_to_own_paperless,
+    enqueue_provision,
+    PROVISION_MIN_INTERVAL_SECS,
 )
 
 
@@ -92,23 +94,33 @@ def api_create_project():
             metadata=data.get('metadata')
         )
 
+        # v3.9.5: Paperless tag creation moved off the request thread — a slow
+        # shared Paperless used to block POST /api/projects for 15s+ waiting on
+        # get_or_create_tag. It now happens asynchronously so the UI gets an
+        # instant 201. The provision worker also creates this tag as part of
+        # setup; no functional loss.
         if current_app.paperless_client:
-            try:
-                current_app.paperless_client.get_or_create_tag(
-                    f"project:{slug}",
-                    color=project.get('color', '#3498db')
-                )
-            except Exception as tag_err:
-                logger.warning(f"Could not create Paperless tag for project {slug}: {tag_err}")
+            _color = project.get('color', '#3498db')
+            _pc = current_app.paperless_client
+            import threading as _threading
+            def _bg_create_tag(pc, slug_, color_):
+                try:
+                    pc.get_or_create_tag(f"project:{slug_}", color=color_)
+                except Exception as tag_err:
+                    logger.warning(f"Async tag creation failed for {slug_}: {tag_err}")
+            _threading.Thread(target=_bg_create_tag, args=(_pc, slug, _color), daemon=True).start()
 
-        import threading
-        _provision_status[slug] = {'status': 'queued', 'phase': 'Queued', 'error': None}
-        threading.Thread(
-            target=_provision_project_paperless, args=(slug,), daemon=True
-        ).start()
+        provision_state = enqueue_provision(slug)
 
         logger.info(f"Created project: {slug}")
-        return jsonify(project), 201
+        payload = dict(project)
+        payload['provision'] = {
+            'status': provision_state.get('status'),
+            'queue_position': provision_state.get('queue_position'),
+            'eta_seconds': provision_state.get('eta_seconds'),
+            'throttle_interval_secs': PROVISION_MIN_INTERVAL_SECS,
+        }
+        return jsonify(payload), 201
 
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
@@ -462,13 +474,17 @@ def api_reprovision(slug):
             return jsonify({'error': 'Project not found'}), 404
 
         existing = _provision_status.get(slug, {})
-        if existing.get('status') == 'running':
-            return jsonify({'error': 'Provisioning already in progress'}), 409
+        if existing.get('status') in ('running', 'queued_waiting'):
+            return jsonify({'error': 'Provisioning already in progress or queued'}), 409
 
-        _provision_status[slug] = {'status': 'queued', 'phase': 'Queued', 'error': None}
-        from threading import Thread
-        Thread(target=_provision_project_paperless, args=(slug,), daemon=True).start()
-        return jsonify({'success': True, 'message': f'Provisioning started for project {slug}'})
+        provision_state = enqueue_provision(slug)
+        return jsonify({
+            'success': True,
+            'message': f'Provisioning queued for project {slug}',
+            'queue_position': provision_state.get('queue_position'),
+            'eta_seconds': provision_state.get('eta_seconds'),
+            'throttle_interval_secs': PROVISION_MIN_INTERVAL_SECS,
+        })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -663,9 +679,36 @@ def api_list_orphan_documents():
     if not current_app.paperless_client:
         return jsonify({'error': 'Paperless client not available'}), 503
 
+    # v3.9.5: Short-circuit if Paperless is unreachable — avoids a 30-60s
+    # tenacity retry loop on every call. health_check() has a 3s timeout.
+    try:
+        if not current_app.paperless_client.health_check():
+            return jsonify({
+                'orphans': [],
+                'count': 0,
+                'paperless_available': False,
+                'detail': 'Paperless-ngx not reachable; returning empty list',
+            })
+    except Exception:
+        return jsonify({
+            'orphans': [],
+            'count': 0,
+            'paperless_available': False,
+            'detail': 'Paperless-ngx health check failed; returning empty list',
+        })
+
     try:
         orphans = current_app.paperless_client.get_documents_without_project()
+    except Exception as e:
+        logger.warning(f"Paperless unreachable for orphan listing: {str(e)[:120]}")
+        return jsonify({
+            'orphans': [],
+            'count': 0,
+            'paperless_available': False,
+            'detail': 'Paperless-ngx not reachable; returning empty list',
+        })
 
+    try:
         orphan_list = []
         for doc in orphans[:100]:
             orphan_list.append({
@@ -675,11 +718,9 @@ def api_list_orphan_documents():
                 'correspondent': doc.get('correspondent'),
                 'tags': [t['name'] for t in doc.get('tags', [])]
             })
-
         return jsonify({'orphans': orphan_list, 'count': len(orphan_list)})
-
     except Exception as e:
-        logger.error(f"Failed to get orphan documents: {e}")
+        logger.error(f"Failed to serialize orphan documents: {e}")
         return jsonify({'error': str(e)}), 500
 
 
