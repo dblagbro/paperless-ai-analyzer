@@ -4,6 +4,32 @@ All notable changes to Paperless AI Analyzer are documented here.
 
 ---
 
+## v3.9.8 — 2026-04-23
+
+### Refactored — three large files split (see refactor-log Entry 011)
+- **`static/js/config.js` (2,361 lines) → `static/js/config/` package** —
+  4 modules: `core.js` (465), `projects.js` (905), `search.js` (285),
+  `profiles_ai.js` (705). Loaded sequentially via `<script>` tags; shared
+  top-level `let`/`const` state continues to work across classic scripts.
+- **`static/js/ci.js` (2,229 lines) → `static/js/ci/` package** —
+  5 modules: `setup.js` (755), `goal_assist.js` (650), `specialists.js` (365),
+  `tier5.js` (385), `report.js` (70).
+- **`case_intelligence/web_researcher.py` (1,362 lines) → `case_intelligence/web_researchers/` mixin package** —
+  7 files: `constants.py`, `http_utils.py`, `base.py`, `providers_legal.py`,
+  `providers_general.py`, `providers_entities.py`, `__init__.py`. Main class
+  composes 3 provider mixins + 1 base mixin. `web_researcher.py` kept as a
+  2-line re-export shim so every `from analyzer.case_intelligence.web_researcher
+  import WebResearcher` continues to work.
+
+### Why
+All three files were above the "one edit reloads the whole file" threshold
+for AI-assisted work. After v3.9.7 + v3.9.8, no file in the codebase exceeds
+1,400 lines; the largest remaining single file is the CI `managers_mixin.py`
+at 1,004 lines, which is cohesive (one concern: the Manager phase of the CI
+pipeline) and deferred until it crosses ~1,500 lines.
+
+---
+
 ## v3.9.7 — 2026-04-23
 
 ### Refactored — maintainability pass

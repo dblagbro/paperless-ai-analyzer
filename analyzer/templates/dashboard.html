@@ -851,7 +851,12 @@ window.APP_CONFIG = {
 </script>
 <script src="{{ url_for('static', filename='js/utils.js') }}"></script>
 <script src="{{ url_for('static', filename='js/overview.js') }}"></script>
-<script src="{{ url_for('static', filename='js/config.js') }}"></script>
+<!-- v3.9.8: config.js split into cohesive modules under static/js/config/.
+     Load order matters — core.js defines shared state consumed by later files. -->
+<script src="{{ url_for('static', filename='js/config/core.js') }}"></script>
+<script src="{{ url_for('static', filename='js/config/projects.js') }}"></script>
+<script src="{{ url_for('static', filename='js/config/search.js') }}"></script>
+<script src="{{ url_for('static', filename='js/config/profiles_ai.js') }}"></script>
 <script src="{{ url_for('static', filename='js/chat.js') }}"></script>
 <script src="{{ url_for('static', filename='js/upload.js') }}"></script>
 <script src="{{ url_for('static', filename='js/users.js') }}"></script>
@@ -865,7 +870,13 @@ window.APP_CONFIG = {
 
 
 
-    <script src="{{ url_for('static', filename='js/ci.js') }}"></script>
+    <!-- v3.9.8: ci.js split into static/js/ci/ package. Load order matters — setup.js defines
+         shared helpers (elapsed timer, tier state) used by later files. -->
+    <script src="{{ url_for('static', filename='js/ci/setup.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/ci/goal_assist.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/ci/specialists.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/ci/tier5.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/ci/report.js') }}"></script>
     {% endif %}
 
     {% if COURT_IMPORT_ENABLED %}
