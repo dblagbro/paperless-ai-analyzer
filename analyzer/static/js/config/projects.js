@@ -34,6 +34,7 @@
                         <div style="font-size:13px; color:#6b7280; margin-bottom:6px;">${p.description || '<em style="color:#aaa;">No description</em>'}</div>
                         <div style="font-size:12px; color:#9ca3af;">
                             📄 <strong style="color:#374151;">${p.document_count}</strong> analyzed &nbsp;·&nbsp;
+                            ${p.ci_finding_count > 0 ? `🧠 <strong style="color:#374151;">${p.ci_finding_count}</strong> CI findings &nbsp;·&nbsp; ` : ''}
                             ${p.court_doc_count > 0 ? `🏛️ <strong style="color:#374151;">${p.court_doc_count}</strong> court &nbsp;·&nbsp; ` : ''}
                             💾 ${(p.storage_size_mb||0).toFixed(2)} MB &nbsp;·&nbsp;
                             📅 ${new Date(p.created_at).toLocaleDateString()} &nbsp;·&nbsp;
@@ -52,6 +53,8 @@
                                 style="padding:6px 11px; border:1px solid #d1d5db; border-radius:6px; background:#fff; cursor:pointer; font-size:13px;">🗄️ Archive</button>`}
                         <button onclick="analyzeProjectMissing('${p.slug}')" title="Scan for unanalyzed docs"
                             style="padding:6px 11px; border:1px solid #93c5fd; border-radius:6px; background:#fff; cursor:pointer; font-size:13px; color:#1d4ed8;">🔍 Analyze Missing</button>
+                        <button onclick="cleanupStaleEmbeddings('${p.slug}')" title="Purge vector store entries for docs deleted from Paperless"
+                            style="padding:6px 11px; border:1px solid #fcd34d; border-radius:6px; background:#fff; cursor:pointer; font-size:13px; color:#b45309;">🧹 Clean Stale</button>
                         <button onclick="openPaperlessModal('${p.slug}')" title="Configure Paperless instance"
                             style="padding:6px 11px; border:1px solid ${p.paperless_configured ? '#bbf7d0' : '#d1d5db'}; border-radius:6px; background:${p.paperless_configured ? '#f0fdf4' : '#fff'}; cursor:pointer; font-size:13px; color:${p.paperless_configured ? '#15803d' : '#374151'};">⚙️ Paperless</button>
                         ${p.slug !== 'default'
@@ -264,6 +267,33 @@
                 const data = await res.json();
                 if (!res.ok) throw new Error(data.error || 'Request failed');
                 showToast('Scanning for unanalyzed documents… check logs for progress.', 'info');
+            } catch (e) {
+                showToast('Error: ' + e.message, 'error');
+            }
+        }
+
+        // ── Clean Stale Embeddings (v3.9.11) ───────────────────────────────
+        // Purges vector-store rows whose doc no longer exists in Paperless.
+        // Fixes "Document not found" symptom on Search & Analysis when a
+        // Paperless doc was deleted but the Chroma row was never purged.
+
+        async function cleanupStaleEmbeddings(slug) {
+            if (!confirm(`Purge vector store entries for documents deleted from Paperless in project "${slug}"?\n\n` +
+                         `This only removes entries whose Paperless document ID no longer exists. ` +
+                         `Case Intelligence findings are not affected.`)) {
+                return;
+            }
+            showToast('Scanning for stale embeddings…', 'info');
+            try {
+                const res = await apiFetch(apiUrl(`/api/projects/${slug}/cleanup-stale-embeddings`), {method: 'POST'});
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Request failed');
+                showToast(
+                    `Purged ${data.purged} stale entries. Project now has ${data.docs_after} analyzed docs ` +
+                    `(Paperless: ${data.paperless_count}).`,
+                    data.purged > 0 ? 'success' : 'info'
+                );
+                if (typeof loadProjectsList === 'function') loadProjectsList();
             } catch (e) {
                 showToast('Error: ' + e.message, 'error');
             }
