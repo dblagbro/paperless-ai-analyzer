@@ -28,6 +28,15 @@ WORKDIR /app
 
 # Copy requirements and install Python dependencies
 COPY requirements.txt .
+
+# v3.9.10: install CPU-only torch FIRST so the transitive torch dep pulled by
+# unstructured[pdf] → timm / torchvision / effdet is satisfied without the
+# default CUDA wheel. This CPU-only server never runs GPU inference; dropping
+# CUDA eliminates the `nvidia-*` packages (~2.7 GB), `triton` (~640 MB), and
+# shrinks `torch` itself (~1.2 GB → ~250 MB). Net image size drops ~4.5 GB.
+RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu \
+    torch torchvision
+
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Force-upgrade onnxruntime to >=1.16.0 to fix "cannot enable executable stack" crash
