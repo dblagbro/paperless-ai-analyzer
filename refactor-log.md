@@ -2,6 +2,87 @@
 
 ---
 
+## Entry 008 — 2026-04-23 (v3.9.4 + v3.9.5 — regression cleanup)
+
+### Scope
+Not a structural refactor — this is a bug-fix pass that clears the 20 known
+regression failures from v3.8.2 documented in
+`project_paperless_regression_state.md`. Bundled together because most share
+two root-cause patterns worth fixing systematically: (a) Flask's
+`request.get_json()` returning non-dict types, and (b) `current_app` accessed
+from background threads outside request context.
+
+### Added
+
+- **`analyzer.app.safe_json_body()`** — one-line helper that returns `{}`
+  when the request body isn't a JSON object. Replaces 55 instances of
+  `request.json or {}` / `request.get_json() or {}` across 18 route modules.
+
+### Fixed (19 of 20 regression items)
+
+| Test ID | Fix |
+|---------|-----|
+| 34.2 / 15.10 / 15.12 / 34.x | Malformed-JSON → 400 (was 500) via `safe_json_body` |
+| 14.8 | `PATCH /api/users/<bad_uid>` → 404 (was 200) |
+| 4.15 | `POST /api/reprocess/<bad_id>` → 404 (was 500 `AnalyzerState` attr error) |
+| 23.14 | `GET /api/court/docket/pacer/<case>` → 400 with supported-systems hint (was 500) |
+| 26.5 | `POST /api/ci/runs auto_start=true` → 201 (was 500 `current_app` import) |
+| 21.4 | `POST /api/upload/from-url` upstream fail → 502 (was 500) |
+| 4.18 | `POST /api/scan/process-unanalyzed` background thread captures deps |
+| 3.6 | `/api/status` aliases `total_documents` / `analyzed_documents` / `analyzed_count` |
+| 9.4 / 9.13 | `POST /api/vector/delete-document` string `doc_id` → 400 (was 500 int-cast) |
+| 19.1 | `POST /api/chat/sessions/<id>/share` accepts `uid` or `username` (was only username) |
+| System-health | Probes capture `current_app` deps on request thread (was always `error`) |
+| Stale embeddings | `check_stale_embeddings` skips non-numeric CI composite IDs |
+| 25.11 / 25.12 / 25.25 | Goal-assistant stale import `_fetch_url_text` from `routes.chat` (moved to services/ in v3.9.1) |
+| 8.2 | `/api/active/duplicates` O(n²) similarity-scan gated to `?deep=1` for > 500 profiles |
+| 8.11 | `POST /api/active/duplicates/remove` missing `safe_json_body` import |
+| 34.9 | Zero-byte file upload → 400 "File is empty" (was 500 upstream) |
+
+### Remaining (1 of 20 — test-hygiene only)
+
+- **36.6 / 36.7 cleanup race** — regression tests create `pw-*` test artifacts
+  and assert they don't remain at the end. Flagged `is_bug=False` in the
+  suite. Minor race between DELETE and the next GET under high concurrency.
+  Not a product defect.
+
+### Patterns applied
+
+**Pattern A — Background-thread app-context capture:**
+```python
+# Before (crashes outside request context):
+def _run():
+    current_app.document_analyzer.do_work()
+
+# After:
+da = current_app.document_analyzer
+def _run(document_analyzer):
+    document_analyzer.do_work()
+Thread(target=_run, args=(da,)).start()
+```
+Applied to 3 call sites: system-health probes, vector/reembed-stale,
+scan/process-unanalyzed.
+
+**Pattern B — JSON body validation:**
+```python
+# Before (crashes on valid-but-non-object JSON):
+data = request.json or {}
+x = data.get('x')  # AttributeError: 'str' object has no attribute 'get'
+
+# After (via shared helper):
+data = safe_json_body()
+x = data.get('x')  # always safe — helper returns {} for non-dicts
+```
+Applied to 55 call sites across 18 route files.
+
+### Verification
+- Full `/tmp/full_regression_v2.py` run: 19/20 of the targeted failures
+  resolved. The remaining 1 (cleanup race) is tagged `is_bug=False`.
+- Medium-test pass rate: 37/43 → 40/43 on dev.
+- No new regressions introduced by the fixes.
+
+---
+
 ## Entry 007 — 2026-04-23 (v3.9.3 — final trio: main.py, routes/ci.py, routes/chat.py)
 
 ### Scope
