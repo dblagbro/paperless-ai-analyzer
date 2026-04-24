@@ -1,0 +1,888 @@
+    <div id="tab-case-intelligence" class="tab-content">
+        <div class="tab-help-panel" id="help-ci">
+            <strong>⚖️ Case Intelligence AI</strong> — Proactive, evidence-grounded legal case analysis. Switch sub-tabs to see context-specific help.
+            <ul style="margin:8px 0 0 0; padding-left:18px;">
+                <li><strong>Setup</strong> — Configure budget, orchestration tiers (Director/Managers/Workers), and notifications. Director LLM plans all domain assignments.</li>
+                <li><strong>Findings</strong> — 6 finding domains: Entities · Timeline · Financial · Contradictions · Theories · Authorities. Each finding cites source doc + page.</li>
+                <li>Report Builder: Director synthesizes a 12-section scientific paper (Sections I–IX + Appendices A–C) → PDF download.</li>
+            </ul>
+            <div style="margin-top:6px; font-size:11px; color:#888;">Requires <code>CASE_INTELLIGENCE_ENABLED=true</code> in the container environment.</div>
+        </div>
+
+        <!-- CI sub-tab help panels — hidden by default; _refreshHelpPanel() shows the active one -->
+        <div class="tab-help-panel" id="help-ci-setup" style="display:none;">
+            <strong>🔧 CI Setup</strong> — Configure and launch an analysis run.
+            <ul style="margin:8px 0 0 0; padding-left:18px;">
+                <li><strong>Role</strong> — Plaintiff / Defendant / Neutral — shapes how the Director frames analysis and theories. CI also generates <em>opposing-side</em> theories automatically so you see what you're up against.</li>
+                <li><strong>Jurisdiction</strong> — choose a template or leave blank for auto-detect from documents.</li>
+                <li><strong>Goal / Case Description</strong> — what to find. Click <strong>✨ Refine with AI</strong> to chat with an assistant that helps craft a precise, effective goal.</li>
+                <li><strong>Budget (USD)</strong> — per-run spending cap. Run pauses if exceeded; override button shown. More documents = proportionally more spend; budget is a ceiling, not a target.</li>
+                <li><strong>Orchestration Tiers</strong>: Director = 1 (fixed, plans all work); Managers = Auto (min(6, docs÷20)) or 1–10; Workers/Manager = Auto (budget-scaled) or 1–20.</li>
+                <li><strong>Progress bar</strong>: shows stage · docs processed · active managers/workers · tokens used · elapsed time · ETA (after 10% complete).</li>
+                <li><strong>Notifications</strong>: Email on run complete + every 10% budget checkpoint. Recipient pre-filled from your 👤 My Profile email.</li>
+                <li>Click <strong>▶ Start Analysis</strong> → Director generates clarifying questions → answer or check "Proceed with assumptions".</li>
+            </ul>
+            <div style="margin-top:8px; font-size:12px;"><a href="{{ request.script_root }}/docs/case-intelligence#ci-setup" target="_blank" style="color:#5dade2;">📖 CI Setup manual →</a></div>
+        </div>
+
+        <div class="tab-help-panel" id="help-ci-findings" style="display:none;">
+            <strong>📋 CI Findings</strong> — Browse run results and generate reports.
+            <ul style="margin:8px 0 0 0; padding-left:18px;">
+                <li>Select a run from the dropdown; live progress shows while running (Cancel button available).</li>
+                <li><strong>Run metadata header</strong> — who ran it, when, duration, role, document count, and AI cost.</li>
+                <li><strong>6 finding domains</strong>: Entities · Timeline · Financial · Contradictions · Theories · Authorities. Every finding cites source document + page. Theories include both your role's perspective and the opposing side's strongest arguments.</li>
+                <li><strong>AI Chat integration</strong>: CI findings are embedded into the project's vector store after each run — ask AI Chat questions and it will cite CI findings alongside document excerpts.</li>
+                <li><strong>👥 Share</strong> — share a run with another Advanced or Admin user by username. Shared users can view all findings and download the report.</li>
+                <li><strong>🗑 Delete Run</strong> — permanently removes a completed run and all its findings.</li>
+                <li><strong>Report Builder</strong>: Director synthesizes a 12-section scientific paper (Executive Summary → Discovery Gaps + Appendices A–C) → PDF download.</li>
+            </ul>
+            <div style="margin-top:8px; font-size:12px;"><a href="{{ request.script_root }}/docs/case-intelligence#ci-findings" target="_blank" style="color:#5dade2;">📖 CI Findings manual →</a></div>
+        </div>
+
+        <!-- Sub-tab navigation -->
+        <div class="ci-sub-nav">
+            <button class="ci-sub-btn active" onclick="ciSwitchSub('setup')">🔧 Setup</button>
+            <button class="ci-sub-btn" onclick="ciSwitchSub('findings')">📋 Findings</button>
+        </div>
+
+        <!-- ── Setup Sub-tab ─────────────────────────────────────────── -->
+        <div id="ci-sub-setup" class="ci-sub-content active">
+
+            <div id="ci-status-bar">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                    <span id="ci-stage-label" style="font-weight:600; font-size:13px;">Ready</span>
+                    <span id="ci-cost-label" style="font-size:12px; color:#666;">$0.00 / $10.00</span>
+                </div>
+                <div class="ci-progress-bar"><div class="ci-progress-fill" id="ci-progress-fill" style="width:0%"></div></div>
+                <div style="font-size:11px; color:#888; margin-top:3px; display:flex; flex-wrap:wrap; gap:8px;">
+                    <span id="ci-docs-label">0 / 0 docs</span>
+                    <span id="ci-workers-label" style="display:none">&nbsp;·&nbsp;<span id="ci-workers-val"></span></span>
+                    <span id="ci-tokens-label" style="display:none">&nbsp;·&nbsp;<span id="ci-tokens-val"></span> tok</span>
+                    <span id="ci-elapsed-label" style="display:none">&nbsp;·&nbsp;<span id="ci-elapsed-val"></span></span>
+                    <span id="ci-eta-label"    style="display:none">&nbsp;·&nbsp;~<span id="ci-eta-val"></span> left</span>
+                    <span id="ci-status-label">—</span>
+                </div>
+            </div>
+
+            <div class="ci-form-row">
+                <div class="ci-form-group" style="flex:0 0 200px;">
+                    <label>ROLE</label>
+                    <select id="ci-role" onchange="ciUpdateWrRoleLabel()">
+                        <option value="neutral">Neutral</option>
+                        <option value="defense">Defense</option>
+                        <option value="plaintiff">Plaintiff</option>
+                        <option value="prosecution">Prosecution</option>
+                    </select>
+                </div>
+                <div class="ci-form-group">
+                    <label>JURISDICTION PROFILE</label>
+                    <select id="ci-jurisdiction-select" onchange="ciLoadJurisdiction()">
+                        <option value="">— Select template —</option>
+                    </select>
+                    <div id="ci-jd-detect-status" style="margin-top:5px; font-size:12px; color:#888; min-height:16px;"></div>
+                </div>
+            </div>
+
+            <div class="ci-form-row" id="ci-jurisdiction-details" style="display:none;">
+                <div class="ci-form-group">
+                    <label>Court</label>
+                    <input type="text" id="ci-jd-court" placeholder="e.g. NYS Supreme Court">
+                </div>
+                <div class="ci-form-group" style="flex:0 0 180px;">
+                    <label>County</label>
+                    <input type="text" id="ci-jd-county" placeholder="e.g. New York">
+                </div>
+                <div class="ci-form-group" style="flex:0 0 160px;">
+                    <label>Judge/Part</label>
+                    <input type="text" id="ci-jd-part" placeholder="e.g. Part 61">
+                </div>
+            </div>
+
+            <div class="ci-form-group" style="margin-bottom:14px;">
+                <label style="display:flex; align-items:center; justify-content:space-between;">
+                    <span>GOAL / CASE DESCRIPTION</span>
+                    <button type="button" onclick="ciOpenGoalAssistant()" style="background:none; border:1px solid #8e44ad; color:#8e44ad; border-radius:5px; padding:2px 10px; font-size:11px; cursor:pointer; font-weight:600;">✨ Refine with AI</button>
+                </label>
+                <textarea id="ci-goal" placeholder="Describe the case goal and what you want the AI to focus on...&#10;e.g. Analyze all documents for evidence of financial fraud and identify key exhibits."></textarea>
+            </div>
+
+            <div class="ci-section-card">
+                <h4>BUDGET &amp; MODEL ROUTING</h4>
+                <div class="ci-budget-row">
+                    <div class="ci-form-group" style="flex:0 0 160px;">
+                        <label>Budget per run (USD)</label>
+                        <input type="number" id="ci-budget" value="10.00" step="1.00" min="1.00" max="500.00" oninput="ciUpdateCostEstimate()">
+                    </div>
+                    <div class="ci-form-group" style="flex:1; min-width:200px;">
+                        <label>Estimated cost: <span id="ci-cost-estimate" style="color:#27ae60; font-weight:700;">—</span></label>
+                        <div id="ci-cost-breakdown" style="font-size:11px; color:#888; margin-top:2px;"></div>
+                    </div>
+                </div>
+                <div style="display:flex; flex-direction:column; gap:6px; margin-top:8px; font-size:13px;">
+                    <label style="display:flex; align-items:center; gap:8px; cursor:pointer;" title="Budget is a goal; the run is blocked at 120% of budget if exceeded.">
+                        <input type="checkbox" id="ci-allow-overage" onchange="ciOveragePolicyChanged()">
+                        Allow up to 20% overage — budget is a goal, hard stop at 120%
+                    </label>
+                    <label style="display:flex; align-items:center; gap:8px; cursor:pointer;" title="Budget is informational only; the run will never be blocked regardless of cost.">
+                        <input type="checkbox" id="ci-allow-unlimited" onchange="ciOveragePolicyChanged()">
+                        Allow unlimited overage — budget is a goal only, never blocked
+                    </label>
+                </div>
+            </div>
+
+            <!-- ── 5-TIER ANALYSIS LEVEL SELECTOR ──────────────────── -->
+            <div class="ci-section-card">
+                <h4>ANALYSIS LEVEL</h4>
+                <!-- Hidden input stores selected tier value -->
+                <input type="hidden" id="ci-max-tier" value="3">
+                <div style="display:grid; grid-template-columns:repeat(5,1fr); gap:8px; margin-bottom:10px;" id="ci-tier-cards">
+                    <div class="ci-tier-card" data-tier="1" onclick="ciSelectTier(1)">
+                        <div class="ci-tier-num">1</div>
+                        <div class="ci-tier-name">Junior Associate</div>
+                        <div class="ci-tier-sub">Extraction only</div>
+                        <div class="ci-tier-detail">Entities, timeline, financial</div>
+                        <div class="ci-tier-cost">$0.05–1</div>
+                        <div class="ci-tier-time">5–30 min</div>
+                    </div>
+                    <div class="ci-tier-card" data-tier="2" onclick="ciSelectTier(2)">
+                        <div class="ci-tier-num">2</div>
+                        <div class="ci-tier-name">Senior Associate</div>
+                        <div class="ci-tier-sub">+ Contradictions</div>
+                        <div class="ci-tier-detail">+ Basic theories, free web</div>
+                        <div class="ci-tier-cost">$0.50–5</div>
+                        <div class="ci-tier-time">15–60 min</div>
+                    </div>
+                    <div class="ci-tier-card ci-tier-recommended" data-tier="3" onclick="ciSelectTier(3)">
+                        <div class="ci-tier-badge">★ RECOMMENDED</div>
+                        <div class="ci-tier-num">3</div>
+                        <div class="ci-tier-name">Partner</div>
+                        <div class="ci-tier-sub">+ Forensic + Discovery</div>
+                        <div class="ci-tier-detail">+ Adversarial testing</div>
+                        <div class="ci-tier-cost">$5–50</div>
+                        <div class="ci-tier-time">30–120 min</div>
+                    </div>
+                    <div class="ci-tier-card" data-tier="4" onclick="ciSelectTier(4)">
+                        <div class="ci-tier-num">4</div>
+                        <div class="ci-tier-name">Senior Partner</div>
+                        <div class="ci-tier-sub">+ Witnesses + War Room</div>
+                        <div class="ci-tier-detail">+ Senior partner review</div>
+                        <div class="ci-tier-cost">$25–200</div>
+                        <div class="ci-tier-time">1–4 hrs</div>
+                    </div>
+                    <div class="ci-tier-card" data-tier="5" onclick="ciSelectTier(5)">
+                        <div class="ci-tier-num">5</div>
+                        <div class="ci-tier-name">White Glove</div>
+                        <div class="ci-tier-sub">+ Multi-model</div>
+                        <div class="ci-tier-detail">+ Trial strategy, settlement</div>
+                        <div class="ci-tier-cost">$100–500</div>
+                        <div class="ci-tier-time">2–8 hrs</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ── ORCHESTRATION TIERS ─────────────────────────────── -->
+            <div class="ci-section-card">
+                <h4>ORCHESTRATION TIERS</h4>
+                <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:10px; font-size:13px; margin-bottom:8px;">
+                    <div class="ci-form-group">
+                        <label>Director</label>
+                        <input type="text" value="1" disabled
+                               style="background:#e9ecef; color:#666; cursor:not-allowed;">
+                        <div style="font-size:11px; color:#888; margin-top:2px;">Fixed at 1</div>
+                    </div>
+                    <div class="ci-form-group">
+                        <label>Managers</label>
+                        <select id="ci-manager-count">
+                            <option value="">Auto</option>
+                            <option value="1">1</option>
+                            <option value="2">2</option>
+                            <option value="3">3</option>
+                            <option value="4">4</option>
+                            <option value="5">5</option>
+                            <option value="6">6</option>
+                            <option value="7">7</option>
+                            <option value="8">8</option>
+                            <option value="9">9</option>
+                            <option value="10">10</option>
+                        </select>
+                    </div>
+                    <div class="ci-form-group">
+                        <label>Workers / Manager</label>
+                        <select id="ci-workers-per-mgr">
+                            <option value="">Auto</option>
+                            <option value="1">1</option>
+                            <option value="2">2</option>
+                            <option value="3">3</option>
+                            <option value="4">4</option>
+                            <option value="5">5</option>
+                            <option value="6">6</option>
+                            <option value="8">8</option>
+                            <option value="10">10</option>
+                            <option value="12">12</option>
+                            <option value="15">15</option>
+                            <option value="20">20</option>
+                        </select>
+                    </div>
+                </div>
+                <div style="font-size:11px; color:#888;">
+                    ℹ️ Auto mode scales to your budget. Managers: min(6, ceil(docs÷20)). Workers: budget-aware auto-scaling.
+                </div>
+            </div>
+
+            <!-- ── NOTIFICATIONS ──────────────────────────────────── -->
+            <div class="ci-section-card">
+                <h4>NOTIFICATIONS</h4>
+                <div style="display:flex; flex-direction:column; gap:8px; font-size:13px;">
+                    <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+                        <input type="checkbox" id="ci-notify-complete" checked>
+                        Email when run completes
+                    </label>
+                    <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+                        <input type="checkbox" id="ci-notify-budget" checked>
+                        Email budget updates at 50%, 70%, and URGENT at 80% &amp; 90%
+                    </label>
+                    <div class="ci-form-group" style="max-width:320px; margin-top:4px;">
+                        <label>Recipient email</label>
+                        <input type="email" id="ci-notification-email"
+                               placeholder="your@email.com"
+                               value="{{ current_user.email | default('') | e }}">
+                    </div>
+                </div>
+            </div>
+
+            <!-- ── WEB RESEARCH ────────────────────────────────────── -->
+            <div class="ci-section-card">
+                <h4 style="cursor:pointer; user-select:none;" onclick="ciToggleWebResearch(this)">
+                    🌐 WEB RESEARCH
+                    <span id="ci-wr-toggle" style="float:right; font-size:12px; color:#888;">▲ hide</span>
+                </h4>
+                <div id="ci-wr-body">
+                    <div style="font-size:12px; color:#666; margin-bottom:10px; line-height:1.5;">
+                        Augment analysis with live data sources: case law, public records, background checks,
+                        news, and AI-powered search — beyond the LLM's training data. Results are injected into
+                        theory generation and authority retrieval.
+                        Role-aware: searches bias toward your position as <strong id="ci-wr-role-label">the selected role</strong>.
+                    </div>
+
+                    <!-- Master enable toggle -->
+                    <label style="display:flex; align-items:center; gap:8px; margin-bottom:12px; cursor:pointer; font-size:13px; font-weight:600;">
+                        <input type="checkbox" id="ci-wr-enabled" onchange="ciUpdateWrRoleLabel()" style="accent-color:#2c3e50; width:16px; height:16px;">
+                        Enable Phase W — Web Research
+                    </label>
+
+                    <div id="ci-wr-all-opts" style="opacity:0.5; pointer-events:none;">
+
+                    <!-- ── SECTION 1: Case Law Sources ──────────────────────── -->
+                    <details class="ci-wr-section" open>
+                        <summary style="font-weight:700; color:#2c3e50; font-size:12px; padding:5px 0; cursor:pointer; list-style:none; display:flex; align-items:center; gap:6px; user-select:none;">
+                            ⚖️ Case Law Sources
+                        </summary>
+                        <div style="margin:6px 0 4px 16px;">
+                            <label style="display:flex; align-items:center; gap:6px; margin-bottom:4px; font-size:12px; cursor:pointer;">
+                                <input type="checkbox" id="ci-wr-courtlistener" checked>
+                                CourtListener — federal opinions &amp; party history
+                                <span style="color:#27ae60; font-size:10px;">FREE</span>
+                            </label>
+                            <label style="display:flex; align-items:center; gap:6px; margin-bottom:4px; font-size:12px; cursor:pointer;">
+                                <input type="checkbox" id="ci-wr-caselaw" checked>
+                                Harvard Caselaw Access — 6.7M US cases
+                                <span style="color:#27ae60; font-size:10px;">FREE</span>
+                            </label>
+                            <!-- Docket Alarm -->
+                            <div style="display:flex; align-items:center; gap:6px; margin-bottom:4px; flex-wrap:wrap;">
+                                <input type="checkbox" id="ci-wr-docket-cb">
+                                <label for="ci-wr-docket-cb" style="min-width:160px; font-size:12px; cursor:pointer;">
+                                    Docket Alarm — 675M fed+state dockets
+                                    <span style="color:#e67e22; font-size:10px;">$99/mo</span>
+                                </label>
+                                <input type="text" id="ci-wr-docket-user" placeholder="username"
+                                       style="padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; width:110px;">
+                                <input type="password" id="ci-wr-docket-pass" placeholder="password"
+                                       style="padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; width:110px;">
+                                <a href="#" onclick="openApiKeyGuide('docket'); return false;" style="font-size:11px; color:#3498db; white-space:nowrap;">🔑 get access</a>
+                            </div>
+                            <!-- UniCourt -->
+                            <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+                                <input type="checkbox" id="ci-wr-unicourt-cb">
+                                <label for="ci-wr-unicourt-cb" style="min-width:160px; font-size:12px; cursor:pointer;">
+                                    UniCourt — normalized fed+state cases
+                                    <span style="color:#e67e22; font-size:10px;">$49-299/mo</span>
+                                </label>
+                                <input type="text" id="ci-wr-unicourt-id" placeholder="client ID"
+                                       style="padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; width:110px;">
+                                <input type="password" id="ci-wr-unicourt-secret" placeholder="client secret"
+                                       style="padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; width:110px;">
+                                <a href="#" onclick="openApiKeyGuide('unicourt'); return false;" style="font-size:11px; color:#3498db; white-space:nowrap;">🔑 get access</a>
+                            </div>
+                        </div>
+                    </details>
+
+                    <!-- ── SECTION 2: Web Search ───────────────────────────── -->
+                    <details class="ci-wr-section" open>
+                        <summary style="font-weight:700; color:#2c3e50; font-size:12px; padding:5px 0; cursor:pointer; list-style:none; display:flex; align-items:center; gap:6px; user-select:none;">
+                            🔍 Web Search
+                        </summary>
+                        <div style="margin:6px 0 4px 16px;">
+                            <label style="display:flex; align-items:center; gap:6px; margin-bottom:4px; font-size:12px; cursor:pointer;">
+                                <input type="checkbox" id="ci-wr-general" checked>
+                                DuckDuckGo — general web search
+                                <span style="color:#27ae60; font-size:10px;">FREE</span>
+                            </label>
+                            <!-- Brave -->
+                            <div style="display:flex; align-items:center; gap:6px; margin-bottom:4px;">
+                                <input type="checkbox" id="ci-wr-brave-cb">
+                                <label for="ci-wr-brave-cb" style="min-width:160px; font-size:12px; cursor:pointer;">
+                                    Brave Search — independent index
+                                    <span style="color:#e67e22; font-size:10px;">$5/1k</span>
+                                </label>
+                                <input type="password" id="ci-wr-brave-key" placeholder="API key"
+                                       style="padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; width:180px;">
+                                <a href="#" onclick="openApiKeyGuide('brave'); return false;" style="font-size:11px; color:#3498db; white-space:nowrap;">🔑 get key</a>
+                            </div>
+                            <!-- Google CSE -->
+                            <div style="display:flex; align-items:center; gap:6px; margin-bottom:4px; flex-wrap:wrap;">
+                                <input type="checkbox" id="ci-wr-gcse-cb">
+                                <label for="ci-wr-gcse-cb" style="min-width:160px; font-size:12px; cursor:pointer;">
+                                    Google Custom Search
+                                    <span style="color:#27ae60; font-size:10px;">100/day free</span>
+                                </label>
+                                <input type="password" id="ci-wr-gcse-key" placeholder="API key"
+                                       style="padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; width:120px;">
+                                <input type="text" id="ci-wr-gcse-cx" placeholder="CX engine ID"
+                                       style="padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; width:130px;">
+                                <a href="#" onclick="openApiKeyGuide('gcse'); return false;" style="font-size:11px; color:#3498db; white-space:nowrap;">🔑 get key</a>
+                            </div>
+                            <!-- Exa AI -->
+                            <div style="display:flex; align-items:center; gap:6px; margin-bottom:4px;">
+                                <input type="checkbox" id="ci-wr-exa-cb">
+                                <label for="ci-wr-exa-cb" style="min-width:160px; font-size:12px; cursor:pointer;">
+                                    Exa AI — neural/semantic search
+                                    <span style="color:#e67e22; font-size:10px;">$7/1k</span>
+                                </label>
+                                <input type="password" id="ci-wr-exa-key" placeholder="API key"
+                                       style="padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; width:180px;">
+                                <a href="#" onclick="openApiKeyGuide('exa'); return false;" style="font-size:11px; color:#3498db; white-space:nowrap;">🔑 get key</a>
+                            </div>
+                            <!-- Perplexity -->
+                            <div style="display:flex; align-items:center; gap:6px; margin-bottom:4px;">
+                                <input type="checkbox" id="ci-wr-perplexity-cb">
+                                <label for="ci-wr-perplexity-cb" style="min-width:160px; font-size:12px; cursor:pointer;">
+                                    Perplexity Sonar — AI answers + citations
+                                    <span style="color:#e67e22; font-size:10px;">~$5/1k</span>
+                                </label>
+                                <input type="password" id="ci-wr-perplexity-key" placeholder="pplx-…"
+                                       style="padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; width:180px;">
+                                <a href="#" onclick="openApiKeyGuide('perplexity'); return false;" style="font-size:11px; color:#3498db; white-space:nowrap;">🔑 get key</a>
+                            </div>
+                            <!-- Tavily -->
+                            <div style="display:flex; align-items:center; gap:6px; margin-bottom:4px;">
+                                <input type="checkbox" id="ci-wr-tavily-cb">
+                                <label for="ci-wr-tavily-cb" style="min-width:160px; font-size:12px; cursor:pointer;">
+                                    Tavily AI — optimized search
+                                    <span style="color:#27ae60; font-size:10px;">1k/mo free</span>
+                                </label>
+                                <input type="password" id="ci-wr-tavily-key" placeholder="tvly-…"
+                                       style="padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; width:180px;">
+                                <a href="#" onclick="openApiKeyGuide('tavily'); return false;" style="font-size:11px; color:#3498db; white-space:nowrap;">🔑 get key</a>
+                            </div>
+                            <!-- Serper -->
+                            <div style="display:flex; align-items:center; gap:6px;">
+                                <input type="checkbox" id="ci-wr-serper-cb">
+                                <label for="ci-wr-serper-cb" style="min-width:160px; font-size:12px; cursor:pointer;">
+                                    Serper.dev — Google results API
+                                    <span style="color:#e67e22; font-size:10px;">$50/50k</span>
+                                </label>
+                                <input type="password" id="ci-wr-serper-key" placeholder="API key"
+                                       style="padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; width:180px;">
+                                <a href="#" onclick="openApiKeyGuide('serper'); return false;" style="font-size:11px; color:#3498db; white-space:nowrap;">🔑 get key</a>
+                            </div>
+                        </div>
+                    </details>
+
+                    <!-- ── SECTION 3: Public Records & Background ──────────── -->
+                    <details class="ci-wr-section" open>
+                        <summary style="font-weight:700; color:#2c3e50; font-size:12px; padding:5px 0; cursor:pointer; list-style:none; display:flex; align-items:center; gap:6px; user-select:none;">
+                            🔎 Public Records &amp; Background
+                        </summary>
+                        <div style="margin:6px 0 4px 16px;">
+                            <label style="display:flex; align-items:center; gap:6px; margin-bottom:4px; font-size:12px; cursor:pointer;">
+                                <input type="checkbox" id="ci-wr-entity" checked>
+                                Entity background research — court history &amp; web news
+                                <span style="color:#27ae60; font-size:10px;">FREE</span>
+                            </label>
+                            <label style="display:flex; align-items:center; gap:6px; margin-bottom:4px; font-size:12px; cursor:pointer;">
+                                <input type="checkbox" id="ci-wr-bop" checked>
+                                BOP Federal Inmate Locator — criminal history since 1982
+                                <span style="color:#27ae60; font-size:10px;">FREE</span>
+                            </label>
+                            <label style="display:flex; align-items:center; gap:6px; margin-bottom:4px; font-size:12px; cursor:pointer;">
+                                <input type="checkbox" id="ci-wr-ofac" checked>
+                                OFAC/Treasury Sanctions list — SDN + consolidated
+                                <span style="color:#27ae60; font-size:10px;">FREE</span>
+                            </label>
+                            <label style="display:flex; align-items:center; gap:6px; margin-bottom:4px; font-size:12px; cursor:pointer;">
+                                <input type="checkbox" id="ci-wr-sec" checked>
+                                SEC EDGAR — securities filings &amp; enforcement actions
+                                <span style="color:#27ae60; font-size:10px;">FREE</span>
+                            </label>
+                            <!-- FEC -->
+                            <div style="display:flex; align-items:center; gap:6px; margin-bottom:4px;">
+                                <input type="checkbox" id="ci-wr-fec-cb">
+                                <label for="ci-wr-fec-cb" style="min-width:160px; font-size:12px; cursor:pointer;">
+                                    FEC — campaign finance donations
+                                    <span style="color:#27ae60; font-size:10px;">FREE key</span>
+                                </label>
+                                <input type="text" id="ci-wr-fec-key" placeholder="api.open.fec.gov key"
+                                       style="padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; width:200px;">
+                                <a href="#" onclick="openApiKeyGuide('fec'); return false;" style="font-size:11px; color:#3498db; white-space:nowrap;">🔑 get free key</a>
+                            </div>
+                            <!-- OpenSanctions -->
+                            <div style="display:flex; align-items:center; gap:6px; margin-bottom:4px;">
+                                <input type="checkbox" id="ci-wr-opensanctions-cb">
+                                <label for="ci-wr-opensanctions-cb" style="min-width:160px; font-size:12px; cursor:pointer;">
+                                    OpenSanctions — sanctions &amp; PEP database
+                                    <span style="color:#e67e22; font-size:10px;">~€0.10/call</span>
+                                </label>
+                                <input type="password" id="ci-wr-opensanctions-key" placeholder="API key"
+                                       style="padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; width:180px;">
+                                <a href="#" onclick="openApiKeyGuide('opensanctions'); return false;" style="font-size:11px; color:#3498db; white-space:nowrap;">🔑 get key</a>
+                            </div>
+                            <!-- OpenCorporates -->
+                            <div style="display:flex; align-items:center; gap:6px; margin-bottom:4px;">
+                                <input type="checkbox" id="ci-wr-opencorp-cb">
+                                <label for="ci-wr-opencorp-cb" style="min-width:160px; font-size:12px; cursor:pointer;">
+                                    OpenCorporates — 200M business entities
+                                    <span style="color:#c0392b; font-size:10px;">paid key</span>
+                                </label>
+                                <input type="password" id="ci-wr-opencorp-key" placeholder="API token"
+                                       style="padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; width:180px;">
+                                <a href="#" onclick="openApiKeyGuide('opencorp'); return false;" style="font-size:11px; color:#3498db; white-space:nowrap;">🔑 get token</a>
+                            </div>
+                            <!-- CLEAR -->
+                            <div style="display:flex; align-items:center; gap:6px;">
+                                <input type="checkbox" id="ci-wr-clear-cb">
+                                <label for="ci-wr-clear-cb" style="min-width:160px; font-size:12px; cursor:pointer;">
+                                    CLEAR (Thomson Reuters) — comprehensive background
+                                    <span style="color:#c0392b; font-size:10px;">enterprise</span>
+                                </label>
+                                <input type="password" id="ci-wr-clear-key" placeholder="API key"
+                                       style="padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; width:180px;">
+                                <a href="#" onclick="openApiKeyGuide('clear'); return false;" style="font-size:11px; color:#3498db; white-space:nowrap;">🔑 get access</a>
+                            </div>
+                        </div>
+                    </details>
+
+                    <!-- ── SECTION 4: News & Media ─────────────────────────── -->
+                    <details class="ci-wr-section" open>
+                        <summary style="font-weight:700; color:#2c3e50; font-size:12px; padding:5px 0; cursor:pointer; list-style:none; display:flex; align-items:center; gap:6px; user-select:none;">
+                            📰 News &amp; Media
+                        </summary>
+                        <div style="margin:6px 0 4px 16px;">
+                            <label style="display:flex; align-items:center; gap:6px; margin-bottom:4px; font-size:12px; cursor:pointer;">
+                                <input type="checkbox" id="ci-wr-gdelt" checked>
+                                GDELT — global news events (real-time, 65+ languages)
+                                <span style="color:#27ae60; font-size:10px;">FREE</span>
+                            </label>
+                            <!-- NewsAPI -->
+                            <div style="display:flex; align-items:center; gap:6px;">
+                                <input type="checkbox" id="ci-wr-newsapi-cb">
+                                <label for="ci-wr-newsapi-cb" style="min-width:160px; font-size:12px; cursor:pointer;">
+                                    NewsAPI — 150k-source news archive
+                                    <span style="color:#c0392b; font-size:10px;">$449/mo</span>
+                                </label>
+                                <input type="password" id="ci-wr-newsapi-key" placeholder="API key"
+                                       style="padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; width:180px;">
+                                <a href="#" onclick="openApiKeyGuide('newsapi'); return false;" style="font-size:11px; color:#3498db; white-space:nowrap;">🔑 get key</a>
+                            </div>
+                        </div>
+                    </details>
+
+                    <!-- ── SECTION 5: Enterprise Legal Research ────────────── -->
+                    <details class="ci-wr-section">
+                        <summary style="font-weight:700; color:#2c3e50; font-size:12px; padding:5px 0; cursor:pointer; list-style:none; display:flex; align-items:center; gap:6px; user-select:none;">
+                            💼 Enterprise Legal Research
+                        </summary>
+                        <div style="margin:6px 0 4px 16px;">
+                            <!-- Lexis-Nexis -->
+                            <div style="display:flex; align-items:center; gap:6px; margin-bottom:4px;">
+                                <input type="checkbox" id="ci-wr-lexis-cb">
+                                <label for="ci-wr-lexis-cb" style="min-width:160px; font-size:12px; cursor:pointer;">
+                                    Lexis-Nexis — enterprise case law API
+                                    <span style="color:#c0392b; font-size:10px;">enterprise</span>
+                                </label>
+                                <input type="password" id="ci-wr-lexis-key" placeholder="Bearer token"
+                                       style="padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; width:180px;">
+                                <a href="#" onclick="openApiKeyGuide('lexis'); return false;" style="font-size:11px; color:#3498db; white-space:nowrap;">🔑 get access</a>
+                            </div>
+                            <!-- vLex -->
+                            <div style="display:flex; align-items:center; gap:6px; margin-bottom:4px;">
+                                <input type="checkbox" id="ci-wr-vlex-cb">
+                                <label for="ci-wr-vlex-cb" style="min-width:160px; font-size:12px; cursor:pointer;">
+                                    vLex — global case law, 100+ countries
+                                    <span style="color:#c0392b; font-size:10px;">subscription</span>
+                                </label>
+                                <input type="password" id="ci-wr-vlex-key" placeholder="API key"
+                                       style="padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; width:180px;">
+                                <a href="#" onclick="openApiKeyGuide('vlex'); return false;" style="font-size:11px; color:#3498db; white-space:nowrap;">🔑 get access</a>
+                            </div>
+                            <!-- Westlaw -->
+                            <div style="display:flex; align-items:center; gap:6px;">
+                                <input type="checkbox" id="ci-wr-westlaw-cb">
+                                <label for="ci-wr-westlaw-cb" style="min-width:160px; font-size:12px; cursor:pointer;">
+                                    Westlaw Edge (Thomson Reuters)
+                                    <span style="color:#c0392b; font-size:10px;">enterprise</span>
+                                </label>
+                                <input type="password" id="ci-wr-westlaw-key" placeholder="API key"
+                                       style="padding:3px 6px; border:1px solid #ddd; border-radius:4px; font-size:12px; width:180px;">
+                                <a href="#" onclick="openApiKeyGuide('westlaw'); return false;" style="font-size:11px; color:#3498db; white-space:nowrap;">🔑 get access</a>
+                            </div>
+                        </div>
+                    </details>
+
+                    </div><!-- /ci-wr-all-opts -->
+
+                    <div id="ci-wr-note" style="display:none; margin-top:10px; padding:7px 10px;
+                         background:#eafaf1; border:1px solid #a9dfbf; border-radius:5px;
+                         font-size:12px; color:#1e8449;">
+                        ✅ Web research enabled — Phase W will run between extraction and synthesis.
+                        Entity background, public records, news, and case law will be injected into theory generation.
+                    </div>
+                </div>
+            </div>
+
+            <!-- Authority Corpus card -->
+            <div class="ci-section-card" id="ci-authority-corpus-card">
+                <h4 style="cursor:pointer; user-select:none;" onclick="ciToggleAuthorityCorpus(this)">
+                    📚 AUTHORITY CORPUS
+                    <span id="ci-ac-toggle" style="float:right; font-size:12px; color:#888;">▲ hide</span>
+                </h4>
+                <div id="ci-ac-body">
+                    <div style="font-size:12px; color:#555; margin-bottom:10px; line-height:1.5;">
+                        The authority corpus is a local ChromaDB index of statutes, regulations, and case law.
+                        It must be populated at least once before the AI can cite legal authorities.
+                        Uses <strong>Cohere embeddings</strong> — requires <code>COHERE_API_KEY</code> in the environment
+                        (<a href="#" onclick="openApiKeyGuide('cohere'); return false;" style="color:#3498db;">🔑 get Cohere key</a>).
+                        Free sources require no additional API keys.
+                    </div>
+
+                    <div id="ci-ac-status" style="background:#f8f9fa; border:1px solid #dee2e6; border-radius:5px;
+                         padding:8px 12px; font-size:12px; margin-bottom:10px;">
+                        <span id="ci-ac-status-text" style="color:#666;">⏳ Loading corpus status…</span>
+                    </div>
+
+                    <div style="margin-bottom:10px;">
+                        <div style="font-size:12px; font-weight:600; color:#555; margin-bottom:6px;">Sources to ingest:</div>
+                        <label style="display:flex; align-items:center; gap:6px; font-size:12px; margin-bottom:4px; cursor:pointer;">
+                            <input type="checkbox" id="ci-ac-nysenate" checked>
+                            NYS Senate Open Legislation (statutes) — free
+                            <a href="#" onclick="openApiKeyGuide('nysenate'); return false;" style="font-size:11px; color:#3498db; white-space:nowrap;">🔑 register for token</a>
+                        </label>
+                        <label style="display:flex; align-items:center; gap:6px; font-size:12px; margin-bottom:4px; cursor:pointer;">
+                            <input type="checkbox" id="ci-ac-ecfr" checked>
+                            eCFR federal regulations (Title 18 criminal + Title 26 tax) — free
+                        </label>
+                        <label style="display:flex; align-items:center; gap:6px; font-size:12px; cursor:pointer;">
+                            <input type="checkbox" id="ci-ac-courtlistener">
+                            CourtListener case law opinions — free, may be slow
+                            <a href="#" onclick="openApiKeyGuide('courtlistener'); return false;" style="font-size:11px; color:#3498db; white-space:nowrap;">🔑 get token</a>
+                        </label>
+                    </div>
+
+                    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                        <button class="btn btn-sm" onclick="ciIngestAuthority()" id="ci-ac-ingest-btn"
+                                style="background:#2c3e50; color:white;">
+                            ⚡ Populate / Update Corpus
+                        </button>
+                        <button class="btn btn-sm" onclick="ciLoadAuthorityStatus()"
+                                style="background:#7f8c8d; color:white;">
+                            ↺ Refresh Status
+                        </button>
+                    </div>
+
+                    <div id="ci-ac-ingest-status" style="display:none; margin-top:10px; padding:8px 12px;
+                         background:#eafaf1; border:1px solid #a9dfbf; border-radius:5px; font-size:12px; color:#1e8449;">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Clarifying questions section -->
+            <div id="ci-questions-section" style="display:none;" class="ci-section-card">
+                <h4>📋 SYSTEM QUESTIONS <span id="ci-q-count" style="color:#e74c3c;"></span></h4>
+                <div id="ci-questions-list"></div>
+                <div style="margin-top:10px; display:flex; gap:8px;">
+                    <button class="btn btn-sm" onclick="ciSaveAnswers()" style="background:#27ae60; color:white;">Save Answers</button>
+                    <button class="btn btn-sm" onclick="ciProceedWithAssumptions()" style="background:#f39c12; color:white;">Skip / Proceed with Assumptions</button>
+                </div>
+            </div>
+
+            {% if is_advanced %}
+            <div style="margin-top:16px; display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                <button class="btn" onclick="ciStartRun()" id="ci-run-btn" style="background:#2c3e50; color:white; padding:10px 22px; font-size:14px;">
+                    🚀 Run Case Intelligence AI
+                </button>
+                <button class="btn btn-sm" onclick="ciSaveDraft()" id="ci-save-btn" style="background:#2980b9; color:white;">
+                    💾 Save Config
+                </button>
+                <button class="btn btn-sm" onclick="ciCancelRun()" id="ci-cancel-btn" style="display:none; background:#e74c3c; color:white;">
+                    ✕ Cancel Run
+                </button>
+            </div>
+            {% else %}
+            <div style="margin-top:12px; padding:10px 14px; background:#fef3e2; border-radius:6px; color:#e67e22; font-size:13px;">
+                ⚠️ Advanced or Admin role required to create and run Case Intelligence analyses.
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- ── Findings Sub-tab ───────────────────────────────────────── -->
+        <div id="ci-sub-findings" class="ci-sub-content">
+
+            <div style="display:flex; gap:10px; align-items:center; margin-bottom:14px; flex-wrap:wrap;">
+                <select id="ci-run-selector" class="ci-run-selector" onchange="ciLoadFindings()">
+                    <option value="">— Select a run —</option>
+                </select>
+                <button class="btn btn-sm" onclick="ciRefreshRuns()" style="background:#3498db; color:white;">↻ Refresh</button>
+                {% if is_advanced %}
+                <button class="btn btn-sm" onclick="ciSwitchSub('setup'); ciStartNewRun()" style="background:#27ae60; color:white;">+ New Run</button>
+                <button class="btn btn-sm" id="ci-share-run-btn" onclick="ciOpenShareModal()" style="background:#8e44ad; color:white; display:none;">👥 Share</button>
+                <button class="btn btn-sm" id="ci-delete-run-btn" onclick="ciDeleteSelectedRun()" style="background:#e74c3c; color:white; display:none;">🗑 Delete Run</button>
+                {% endif %}
+            </div>
+
+            <!-- Run progress (shown while running) -->
+            <div id="ci-findings-status" style="display:none;" class="ci-section-card">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                    <span id="ci-f-stage" style="font-weight:600;">Running...</span>
+                    <span style="display:flex; gap:12px; align-items:center; font-size:12px; color:#666;">
+                        <span id="ci-f-elapsed" style="font-variant-numeric:tabular-nums; color:#2c3e50; font-weight:600;">0:00</span>
+                        <span id="ci-f-cost"></span>
+                    </span>
+                </div>
+                <div class="ci-progress-bar"><div class="ci-progress-fill" id="ci-f-progress" style="width:0%"></div></div>
+                <div style="font-size:11px; color:#888; margin-top:4px; display:flex; align-items:center; gap:8px;">
+                    <span id="ci-f-docs"></span>
+                    {% if is_advanced %}
+                    <button class="btn btn-sm" onclick="ciCancelRunFromFindings()" style="background:#e74c3c; color:white; padding:2px 8px; font-size:11px;">✕ Cancel</button>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Run Metadata Header -->
+            <div id="ci-run-meta-header" style="display:none; background:#f8f9fb; border:1px solid #dde3ec; border-radius:8px; padding:14px 18px; margin-bottom:14px; font-size:12px; color:#555;">
+                <div style="font-weight:700; font-size:13px; color:#1a2535; margin-bottom:8px;">📋 Run Details</div>
+                <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap:6px 20px;">
+                    <div><span style="color:#888;">Run by:</span> <span id="ci-meta-run-by" style="color:#222; font-weight:600;"></span></div>
+                    <div><span style="color:#888;">Started:</span> <span id="ci-meta-started"></span></div>
+                    <div><span style="color:#888;">Duration:</span> <span id="ci-meta-duration"></span></div>
+                    <div><span style="color:#888;">Role:</span> <span id="ci-meta-role" style="text-transform:capitalize;"></span></div>
+                    <div><span style="color:#888;">Documents:</span> <span id="ci-meta-docs"></span></div>
+                    <div><span style="color:#888;">AI Cost:</span> <span id="ci-meta-cost" style="color:#27ae60; font-weight:600;"></span></div>
+                </div>
+                <div style="margin-top:8px;"><span style="color:#888;">Goal:</span> <span id="ci-meta-goal" style="color:#2c3e50; font-style:italic;"></span></div>
+            </div>
+
+            <!-- Key Findings and Rulings -->
+            <div id="ci-key-findings-section" style="display:none;">
+                <div class="ci-accordion-header" onclick="ciToggleSection('ci-key-findings-body')">
+                    <span>📌 KEY FINDINGS AND RULINGS</span><span id="ci-key-findings-count"></span>
+                </div>
+                <div class="ci-accordion-body" id="ci-key-findings-body">
+                    <div id="ci-key-findings-list"></div>
+                </div>
+
+                <div class="ci-accordion-header" onclick="ciToggleSection('ci-timeline-body')">
+                    <span>📅 CHRONOLOGY</span><span id="ci-timeline-count"></span>
+                </div>
+                <div class="ci-accordion-body" id="ci-timeline-body">
+                    <div id="ci-timeline-list"></div>
+                </div>
+
+                <div class="ci-accordion-header" onclick="ciToggleSection('ci-entities-body')">
+                    <span>👥 ENTITIES / CAST OF CHARACTERS</span><span id="ci-entities-count"></span>
+                </div>
+                <div class="ci-accordion-body" id="ci-entities-body">
+                    <div id="ci-entities-list"></div>
+                </div>
+
+                <div class="ci-accordion-header" onclick="ciToggleSection('ci-disputed-body')">
+                    <span>⚖️ DISPUTED FACTS MATRIX</span><span id="ci-disputed-count"></span>
+                </div>
+                <div class="ci-accordion-body" id="ci-disputed-body">
+                    <div id="ci-disputed-list"></div>
+                </div>
+
+                <div class="ci-accordion-header" onclick="ciToggleSection('ci-contradictions-body')">
+                    <span>⚡ CONTRADICTIONS</span><span id="ci-contradictions-count"></span>
+                </div>
+                <div class="ci-accordion-body" id="ci-contradictions-body">
+                    <div id="ci-contradictions-list"></div>
+                </div>
+
+                <div class="ci-accordion-header" onclick="ciToggleSection('ci-theories-body')">
+                    <span>🔬 THEORY LEDGER</span><span id="ci-theories-count"></span>
+                </div>
+                <div class="ci-accordion-body" id="ci-theories-body">
+                    <div id="ci-theories-list"></div>
+                </div>
+
+                <div class="ci-accordion-header" onclick="ciToggleSection('ci-authorities-body')">
+                    <span>📚 LEGAL AUTHORITIES</span><span id="ci-authorities-count"></span>
+                </div>
+                <div class="ci-accordion-body" id="ci-authorities-body">
+                    <div id="ci-authorities-list"></div>
+                </div>
+
+                <div id="ci-web-research-accordion" style="display:none;">
+                    <div class="ci-accordion-header" onclick="ciToggleSection('ci-webresearch-body')">
+                        <span>🌐 WEB RESEARCH</span><span id="ci-webresearch-count"></span>
+                    </div>
+                    <div class="ci-accordion-body" id="ci-webresearch-body">
+                        <div id="ci-webresearch-list"></div>
+                    </div>
+                </div>
+
+                <!-- ── FORENSIC ACCOUNTING (Tier 3+) ────────────────── -->
+                <div id="ci-forensic-accordion" style="display:none;">
+                    <div class="ci-accordion-header" onclick="ciToggleSection('ci-forensic-body')">
+                        <span>💰 FORENSIC ACCOUNTING</span><span id="ci-forensic-count"></span>
+                    </div>
+                    <div class="ci-accordion-body" id="ci-forensic-body">
+                        <div id="ci-forensic-summary" style="padding:10px 0; font-size:13px; color:#444; line-height:1.6; border-bottom:1px solid #eee; margin-bottom:10px;"></div>
+                        <div id="ci-forensic-flagged"></div>
+                        <div id="ci-forensic-cashflow"></div>
+                    </div>
+                </div>
+
+                <!-- ── DISCOVERY GAP ANALYSIS (Tier 3+) ─────────────── -->
+                <div id="ci-discovery-accordion" style="display:none;">
+                    <div class="ci-accordion-header" onclick="ciToggleSection('ci-discovery-body')">
+                        <span>🔍 DISCOVERY STRATEGY</span><span id="ci-discovery-count"></span>
+                    </div>
+                    <div class="ci-accordion-body" id="ci-discovery-body">
+                        <div id="ci-discovery-summary" style="padding:10px 0; font-size:13px; color:#444; line-height:1.6; border-bottom:1px solid #eee; margin-bottom:10px;"></div>
+                        <div id="ci-discovery-rfp" style="margin-bottom:10px;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                                <strong style="font-size:12px; color:#2c3e50;">REQUESTS FOR PRODUCTION</strong>
+                                <button class="btn btn-sm" onclick="ciCopyRFPs()" style="font-size:11px; padding:2px 8px; background:#2c3e50; color:white;">Copy RFP List</button>
+                            </div>
+                            <div id="ci-discovery-rfp-list"></div>
+                        </div>
+                        <div id="ci-discovery-gaps"></div>
+                        <div id="ci-discovery-spoliation"></div>
+                    </div>
+                </div>
+
+                <!-- ── WITNESS INTELLIGENCE (Tier 4+) ───────────────── -->
+                <div id="ci-witnesses-accordion" style="display:none;">
+                    <div class="ci-accordion-header" onclick="ciToggleSection('ci-witnesses-body')">
+                        <span>👤 WITNESS INTELLIGENCE</span><span id="ci-witnesses-count"></span>
+                    </div>
+                    <div class="ci-accordion-body" id="ci-witnesses-body">
+                        <div id="ci-witnesses-list"></div>
+                    </div>
+                </div>
+
+                <!-- ── WAR ROOM (Tier 4+) ────────────────────────────── -->
+                <div id="ci-warroom-accordion" style="display:none;">
+                    <div class="ci-accordion-header" onclick="ciToggleSection('ci-warroom-body')">
+                        <span>⚔️ WAR ROOM</span><span id="ci-warroom-badge" style="font-size:11px; padding:2px 6px; border-radius:3px; margin-left:8px;"></span>
+                    </div>
+                    <div class="ci-accordion-body" id="ci-warroom-body">
+                        <div id="ci-warroom-opposing" style="margin-bottom:14px;"></div>
+                        <div id="ci-warroom-arguments" style="margin-bottom:14px;"></div>
+                        <div id="ci-warroom-vulnerabilities" style="margin-bottom:14px;"></div>
+                        <div id="ci-warroom-settlement" style="margin-bottom:14px;"></div>
+                        <div id="ci-warroom-occ" style="display:none; margin-bottom:14px;"></div>
+                        <div id="ci-warroom-senior-notes" style="display:none; margin-bottom:14px;"></div>
+                    </div>
+                </div>
+
+                <!-- ── DEEP FINANCIAL FORENSICS (Tier 5) ─────────────── -->
+                <div id="ci-deepforensics-accordion" style="display:none;">
+                    <div class="ci-accordion-header" onclick="ciToggleSection('ci-deepforensics-body')">
+                        <span>🔬 DEEP FINANCIAL FORENSICS</span><span id="ci-deepforensics-badge" style="font-size:10px; background:#6c3483; color:#fff; padding:2px 7px; border-radius:8px; margin-left:8px; font-weight:700;">WHITE GLOVE</span>
+                    </div>
+                    <div class="ci-accordion-body" id="ci-deepforensics-body">
+                        <div id="ci-deepforensics-benfords" style="margin-bottom:14px;"></div>
+                        <div id="ci-deepforensics-roundtrips" style="margin-bottom:14px;"></div>
+                        <div id="ci-deepforensics-shells" style="margin-bottom:14px;"></div>
+                        <div id="ci-deepforensics-layering" style="margin-bottom:14px;"></div>
+                        <div id="ci-deepforensics-summary" style="padding:10px 0; font-size:13px; color:#444; line-height:1.6;"></div>
+                    </div>
+                </div>
+
+                <!-- ── TRIAL STRATEGY (Tier 5) ───────────────────────── -->
+                <div id="ci-trialstrategy-accordion" style="display:none;">
+                    <div class="ci-accordion-header" onclick="ciToggleSection('ci-trialstrategy-body')">
+                        <span>⚖️ TRIAL STRATEGY</span><span id="ci-trialstrategy-badge" style="font-size:10px; background:#6c3483; color:#fff; padding:2px 7px; border-radius:8px; margin-left:8px; font-weight:700;">WHITE GLOVE</span>
+                    </div>
+                    <div class="ci-accordion-body" id="ci-trialstrategy-body">
+                        <div id="ci-trialstrategy-theme" style="margin-bottom:14px;"></div>
+                        <div id="ci-trialstrategy-witnesses" style="margin-bottom:14px;"></div>
+                        <div id="ci-trialstrategy-exhibits" style="margin-bottom:14px;"></div>
+                        <div id="ci-trialstrategy-mils" style="margin-bottom:14px;"></div>
+                        <div id="ci-trialstrategy-memo" style="padding:10px 0; font-size:13px; color:#444; line-height:1.6;"></div>
+                    </div>
+                </div>
+
+                <!-- ── MULTI-MODEL COMPARISON (Tier 5) ───────────────── -->
+                <div id="ci-multimodel-accordion" style="display:none;">
+                    <div class="ci-accordion-header" onclick="ciToggleSection('ci-multimodel-body')">
+                        <span>🤖 MULTI-MODEL ANALYSIS</span><span id="ci-multimodel-badge" style="font-size:10px; background:#6c3483; color:#fff; padding:2px 7px; border-radius:8px; margin-left:8px; font-weight:700;">WHITE GLOVE</span>
+                    </div>
+                    <div class="ci-accordion-body" id="ci-multimodel-body">
+                        <div id="ci-multimodel-agreed" style="margin-bottom:14px;"></div>
+                        <div id="ci-multimodel-unique" style="margin-bottom:14px;"></div>
+                        <div id="ci-multimodel-disagreements" style="margin-bottom:14px;"></div>
+                        <div id="ci-multimodel-summary" style="padding:10px 0; font-size:13px; color:#444; line-height:1.6;"></div>
+                    </div>
+                </div>
+
+                <!-- ── SETTLEMENT VALUATION (Tier 5) ─────────────────── -->
+                <div id="ci-settlement-accordion" style="display:none;">
+                    <div class="ci-accordion-header" onclick="ciToggleSection('ci-settlement-body')">
+                        <span>💰 SETTLEMENT VALUATION</span><span id="ci-settlement-badge" style="font-size:10px; background:#6c3483; color:#fff; padding:2px 7px; border-radius:8px; margin-left:8px; font-weight:700;">WHITE GLOVE</span>
+                    </div>
+                    <div class="ci-accordion-body" id="ci-settlement-body">
+                        <div id="ci-settlement-exposure" style="margin-bottom:14px;"></div>
+                        <div id="ci-settlement-damages" style="margin-bottom:14px;"></div>
+                        <div id="ci-settlement-recommendation" style="margin-bottom:14px;"></div>
+                        <div id="ci-settlement-leverage" style="margin-bottom:14px;"></div>
+                        <div id="ci-settlement-mediation" style="margin-bottom:14px;"></div>
+                        <div id="ci-settlement-memo" style="padding:10px 0; font-size:13px; color:#444; line-height:1.6;"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- No findings yet -->
+            <div id="ci-no-findings" style="color:#888; font-size:13px; padding:20px 0; text-align:center;">
+                Select a completed run above to view findings, or go to Setup to start a new run.
+            </div>
+
+            {% if is_advanced %}
+            <!-- Report Builder -->
+            <div id="ci-report-builder" style="display:none; margin-top:20px;" class="ci-section-card">
+                <h4>📝 REPORT BUILDER</h4>
+                <textarea id="ci-report-instructions" rows="4" placeholder="Instructions for the report&#10;e.g. Create a defense memo for counsel. Include top contradictions, key exhibit list, and financial discrepancy timeline. Format as headings with bullets. Exclude speculation."></textarea>
+                <div style="display:flex; gap:8px; align-items:center; margin-top:8px; flex-wrap:wrap;">
+                    <select id="ci-report-template" style="padding:6px 10px; border:1px solid #ddd; border-radius:5px; font-size:13px;">
+                        <option value="attorney_memo">Attorney Memo</option>
+                        <option value="chronology">Case Chronology</option>
+                        <option value="financial">Financial Analysis</option>
+                        <option value="deposition">Deposition Guide</option>
+                        <option value="custom">Custom</option>
+                    </select>
+                    <button class="btn btn-sm" onclick="ciGenerateReport()" style="background:#2c3e50; color:white;">Generate Report</button>
+                </div>
+                <div id="ci-report-status" style="display:none; margin-top:8px; font-size:12px; color:#888;"></div>
+                <div id="ci-report-preview-section" style="display:none; margin-top:10px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                        <span style="font-size:12px; font-weight:600;">PREVIEW</span>
+                        <a id="ci-report-pdf-link" href="#" style="display:none; font-size:12px; color:#2980b9;">📥 Download PDF</a>
+                    </div>
+                    <div class="ci-report-preview" id="ci-report-preview"></div>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
