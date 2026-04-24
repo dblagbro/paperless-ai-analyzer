@@ -117,7 +117,15 @@ paperless-ai-analyzer/
 │   │   │   ├── analysis.py          # entities, timeline, contradictions, theories
 │   │   │   ├── authorities.py       # authority corpus ingestion + embedding
 │   │   │   └── reports.py           # report CRUD
-│   │   ├── web_researcher.py        # WebResearcher: web search + page fetching
+│   │   ├── web_researcher.py        # Re-export shim (v3.9.8) → web_researchers/
+│   │   ├── web_researchers/         # Split from 1,362-line web_researcher.py (v3.9.8)
+│   │   │   ├── __init__.py                 # WebResearcher class: composes mixins + 3 orchestration methods (~210 lines)
+│   │   │   ├── constants.py                # _RATE, _STATE_TO_CL, _ROLE_* mappings (~75 lines)
+│   │   │   ├── http_utils.py               # _http_get, _http_post_json helpers (~60 lines)
+│   │   │   ├── base.py                     # WebResearcherBaseMixin: __init__, throttle, jur helpers, dedup (~65 lines)
+│   │   │   ├── providers_legal.py          # CourtListener + Caselaw + Lexis + vLex + Westlaw + Docket Alarm + UniCourt (~365 lines)
+│   │   │   ├── providers_general.py        # DDG + GDELT + Brave + Google CSE + Exa + Perplexity + NewsAPI + Tavily + Serper (~330 lines)
+│   │   │   └── providers_entities.py       # BOP + OFAC + SEC EDGAR + FEC + OpenSanctions + OpenCorporates + CLEAR (~285 lines)
 │   │   ├── war_room.py              # WarRoom + TrialStrategist
 │   │   ├── deep_financial_forensics.py
 │   │   ├── multi_model_synthesis.py
@@ -187,10 +195,19 @@ paperless-ai-analyzer/
 │       └── js/
 │           ├── utils.js             # Shared: apiFetch, apiUrl, showToast, escapeHtml
 │           ├── overview.js          # Overview tab + stats
-│           ├── config.js            # Config tab: vector store, AI config, LLM, profiles
+│           ├── config/              # Config tab — split from 2,361-line config.js (v3.9.8)
+│           │   ├── core.js                 # Sub-tabs, tools, AI usage, vector store, SMTP (~465 lines)
+│           │   ├── projects.js             # Projects CRUD + Paperless modal + provisioning (~905 lines)
+│           │   ├── search.js               # Search & Analysis tab (~285 lines)
+│           │   └── profiles_ai.js          # LLM profiles + AI config management (~705 lines)
 │           ├── chat.js              # Chat tab: sessions, messages, branching, compare
 │           ├── upload.js            # Upload tab: file/URL/cloud/court import
-│           ├── ci.js                # Case Intelligence tab
+│           ├── ci/                  # Case Intelligence tab — split from 2,229-line ci.js (v3.9.8)
+│           │   ├── setup.js                # Tier selector, 5-tier config, findings + elapsed timer (~755 lines)
+│           │   ├── goal_assist.js          # Goal Assistant, meta header, web research (~650 lines)
+│           │   ├── specialists.js          # Forensic, Discovery, Witnesses, War Room (~365 lines)
+│           │   ├── tier5.js                # Deep Forensics, Trial Strategy, Multi-Model, Settlement (~385 lines)
+│           │   └── report.js               # Report builder + tab open hook (~70 lines)
 │           ├── users.js             # Users admin panel
 │           ├── ai_form_filler.js    # AIFormFiller reusable widget
 │           └── init.js              # DOMContentLoaded init, global tab switching
@@ -298,35 +315,32 @@ Historical splits (all shipped):
 - ✅ `routes/projects.py` — 5-file package under `routes/projects/` (v3.9.7)
 - ✅ `templates/dashboard.html` — tab-config, tab-upload, tab-case-intelligence
   extracted to `templates/partials/` (v3.9.7)
+- ✅ `static/js/config.js` — 4-file package under `static/js/config/` (v3.9.8)
+- ✅ `static/js/ci.js` — 5-file package under `static/js/ci/` (v3.9.8)
+- ✅ `case_intelligence/web_researcher.py` — 7-file mixin package under
+  `case_intelligence/web_researchers/` (v3.9.8); original file kept as a
+  2-line re-export shim for backward compatibility.
 
 Outstanding candidates (ranked by current size vs. cost to split):
 
-1. **`static/js/config.js` — 2,361 lines** (highest remaining priority).
-   9 distinct responsibilities, editing any one pulls in the full file. Plan:
-   split into `static/js/config/` package — `core.js` (sub-tab switch + tools
-   + vector store + smtp), `projects.js` (CRUD + modals + Paperless), `llm_usage.js`
-   (cost chart), `profiles_and_ai.js` (LLM settings + AI config mgmt), `search.js`
-   (search tab). Load sequentially via `<script>` tags in `dashboard.html`.
-   Risk: shared top-level `let`/`const` state works across scripts today — need
-   to verify no accidental module-scoping when splitting.
+1. **`case_intelligence/ci_phases/managers_mixin.py` — 1,004 lines.** Cohesive
+   (all methods implement the "Manager phase" of the CI pipeline and share
+   extensive `self.*` state). Revisit only if it crosses ~1,500 lines.
 
-2. **`static/js/ci.js` — 2,229 lines.** Clean banner-comment sections per tier.
-   Split along tier boundaries once config.js pattern is proven.
+2. **`analyzer/paperless_client.py` — 680 lines.** Single class with method
+   groups (docs, tags, documents, polling). Not urgent; split only if it
+   passes ~1,000 lines.
 
-3. **`case_intelligence/web_researcher.py` — 1,362 lines.** `WebResearcher`
-   orchestrator class + 25+ provider methods (CourtListener, PACER, GDELT, SEC,
-   FEC, Brave, Google, Exa, Perplexity, NewsAPI, OpenSanctions, OpenCorporates,
-   Tavily, Serper, LexisNexis, vLex, Westlaw, CLEAR, Docket Alarm, UniCourt, …).
-   Follow `ci_phases/` mixin pattern: `web_researchers/` package with
-   `providers_legal_mixin.py`, `providers_general_mixin.py`, `providers_entities_mixin.py`,
-   `base_mixin.py` (constants + throttle + HTTP helpers). Main class composes mixins.
+3. **`analyzer/routes/court.py` — 847 lines.** Not touched in current refactor
+   cycle. Could be split into the same pattern as `routes/projects/` if court
+   functionality continues to grow.
 
-4. **`case_intelligence/ci_phases/managers_mixin.py` — 1,004 lines.** Still the
-   largest remaining CI mixin. `_manager_theories` (226 lines) and `_run_all_managers`
-   (169 lines) are the extractable helpers.
+4. **`analyzer/poller.py` — 623 lines.** Similar — single class, one concern.
 
-5. **`routes/projects/` core.py — 280 lines** after the v3.9.7 split. Healthy
-   size; split again only if a single concern balloons.
+No file in the code base is currently above 1,400 lines after the v3.9.7 +
+v3.9.8 passes. The next split pass should be triggered by either (a) a file
+passing 1,200 lines, or (b) a single file having five-plus distinct
+responsibilities (e.g. the old `routes/chat.py`).
 
 ---
 

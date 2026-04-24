@@ -2,6 +2,96 @@
 
 ---
 
+## Entry 011 — 2026-04-23 (v3.9.8 — config.js, ci.js, web_researcher splits)
+
+### Scope
+Completes the maintainability pass kicked off in Entry 010. Three of the last
+four large-file refactor targets shipped; the fourth (`managers_mixin.py`) is
+still cohesive and deferred.
+
+### Changes
+
+**`static/js/config.js` (2,361 lines) → `static/js/config/` package (4 files):**
+
+| File | Lines | Concern |
+|------|-------|---------|
+| `core.js`        |  465 | Sub-tab switcher, Tools panel, AI usage + chart, vector store, SMTP |
+| `projects.js`    |  905 | Projects CRUD, new/edit modal, Paperless modal, auto-provisioning, delete/move modals |
+| `search.js`      |  285 | Search & Analysis tab |
+| `profiles_ai.js` |  705 | LLM settings, profile CRUD, AI config management |
+
+**`static/js/ci.js` (2,229 lines) → `static/js/ci/` package (5 files):**
+
+| File | Lines | Concern |
+|------|-------|---------|
+| `setup.js`        | 755 | 5-tier selector, tier config, findings subtab, elapsed timer helpers |
+| `goal_assist.js`  | 650 | Goal Assistant, run metadata header, web research panel |
+| `specialists.js`  | 365 | Forensic, Discovery, Witnesses, War Room panels |
+| `tier5.js`        | 385 | Deep Forensics, Trial Strategy, Multi-Model Compare, Settlement |
+| `report.js`       |  70 | Final report builder + tab-open hook |
+
+Both JS splits rely on classic-script globals: `let`/`const` at top level is
+shared across sequentially-loaded classic scripts (not `type="module"`), so
+cross-file state (e.g. `vsAllDocs`, tier selector state) continues to work
+without any `window.` globals or module exports. Load order is preserved in
+`dashboard.html`: `core.js` first (it defines shared state), then siblings.
+
+**`case_intelligence/web_researcher.py` (1,362 lines) → `case_intelligence/web_researchers/` mixin package (7 files):**
+
+| File | Lines | Concern |
+|------|-------|---------|
+| `__init__.py`             | 210 | `WebResearcher` class composes 4 mixins + 3 public methods (`search_legal_authorities`, `research_entity`, `search_general`) |
+| `constants.py`            |  75 | `_RATE`, `_STATE_TO_CL`, `_ROLE_AUTHORITY_PREFIX`, `_ROLE_ENTITY_*` |
+| `http_utils.py`           |  60 | `_http_get`, `_http_post_json` — requests → urllib fallback |
+| `base.py`                 |  65 | `WebResearcherBaseMixin`: `__init__`, `_throttle`, `_jur_to_cl`, `_jur_to_caselaw`, `_dedup` |
+| `providers_legal.py`      | 365 | `LegalProvidersMixin`: CourtListener, Harvard Caselaw, Lexis-Nexis, vLex, Westlaw, Docket Alarm, UniCourt |
+| `providers_general.py`    | 330 | `GeneralSearchProvidersMixin`: DDG, GDELT, Brave, Google CSE, Exa, Perplexity, NewsAPI, Tavily, Serper |
+| `providers_entities.py`   | 285 | `EntityResearchProvidersMixin`: BOP, OFAC, SEC EDGAR, FEC, OpenSanctions, OpenCorporates, CLEAR |
+
+`web_researcher.py` kept as a 2-line re-export shim so existing callers
+(`from analyzer.case_intelligence.web_researcher import WebResearcher`) keep
+working unchanged. MRO is `WebResearcher → LegalProvidersMixin →
+GeneralSearchProvidersMixin → EntityResearchProvidersMixin →
+WebResearcherBaseMixin → object`.
+
+### Why the mixin pattern
+`WebResearcher` is one logical class — `search_legal_authorities` calls into
+provider methods, provider methods call into `_throttle` and `_http_get`.
+Splitting into separate non-mixin classes would have required either pushing
+all state to a context object or duplicating orchestration. Mixins preserve
+the single-class API while letting each provider group live in its own file.
+This mirrors the `ci_phases/` pattern shipped in v3.9.2.
+
+### Deferred
+**`case_intelligence/ci_phases/managers_mixin.py` (1,004 lines)** — every
+method implements the same architectural concept (the "Manager phase" of the
+CI pipeline) and shares extensive `self.*` state. Splitting would not reduce
+edit context meaningfully — whoever touches `_manager_theories` will often
+need to cross-reference `_run_manager` and `_run_worker` anyway. Revisit only
+if the file crosses ~1,500 lines.
+
+### Verification
+- Python import smoke: `WebResearcher({})` constructs; all provider methods
+  discoverable via `hasattr`; MRO matches expected order.
+- HTTP smoke (after restart): dashboard 200, `/api/status` 200, `/api/ci/runs`
+  200, `/api/orphan-documents` 200, all 9 new JS files serve 200, old
+  monolithic `config.js` and `ci.js` return 404.
+
+### Files touched
+- `analyzer/__init__.py` — version → 3.9.8
+- `analyzer/case_intelligence/web_researcher.py` — **rewritten as 2-line shim**
+- `analyzer/case_intelligence/web_researchers/` — new package (7 files)
+- `analyzer/static/js/config.js` — **deleted** (replaced by package)
+- `analyzer/static/js/config/` — new directory (4 files)
+- `analyzer/static/js/ci.js` — **deleted** (replaced by package)
+- `analyzer/static/js/ci/` — new directory (5 files)
+- `analyzer/templates/dashboard.html` — script tags updated
+- `architecture.md` — tree + next-targets updated
+- `refactor-log.md` — this entry
+- `CHANGELOG.md` — v3.9.8 entry
+
+---
+
 ## Entry 010 — 2026-04-23 (v3.9.7 — projects route package + dashboard partials)
 
 ### Scope
