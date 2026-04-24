@@ -1,0 +1,47 @@
+        <h1 class="page-title">LLM Usage &amp; Cost</h1>
+        <p class="subtitle">Track every AI API call, monitor token consumption, and estimate costs by provider and model.</p>
+
+        <h2 id="where-to-find">Where to find it</h2>
+        <p>LLM usage data is available in two places:</p>
+        <ul>
+            <li><strong>Configuration → AI Usage</strong> — a daily bar chart of cost and call volume, visible at a glance every time you open Configuration.</li>
+            <li><strong>This page (LLM Usage &amp; Cost)</strong> — detailed per-call history, provider breakdown, and pricing reference.</li>
+        </ul>
+        <p>Admin users see usage across all activity; basic users see only their own session's usage.</p>
+
+        <h2 id="usage-metrics">Usage metrics</h2>
+        <table>
+            <tr><th>Metric</th><th>Description</th></tr>
+            <tr><td>Total API calls</td><td>Cumulative number of LLM API requests made.</td></tr>
+            <tr><td>Tokens in / Tokens out</td><td>Input (prompt) and output (completion) token counts.</td></tr>
+            <tr><td>Estimated cost</td><td>Computed from token counts × current pricing per provider/model.</td></tr>
+            <tr><td>Provider breakdown</td><td>Usage split between OpenAI, Anthropic, and Cohere.</td></tr>
+            <tr><td>Recent calls</td><td>Timeline of the last N API calls with prompt excerpt, model, and token count.</td></tr>
+        </table>
+
+        <h2 id="pricing">Pricing reference</h2>
+        <p>The system uses built-in pricing data that is periodically updated. Actual costs may differ slightly from your provider invoice depending on pricing tier, discounts, or date of the call. Always verify costs against your provider's billing dashboard.</p>
+        <table>
+            <tr><th>Provider / Model</th><th>Input (per 1M tokens)</th><th>Output (per 1M tokens)</th></tr>
+            <tr><td>OpenAI gpt-4o</td><td>$2.50</td><td>$10.00</td></tr>
+            <tr><td>OpenAI gpt-4o-mini</td><td>$0.15</td><td>$0.60</td></tr>
+            <tr><td>Anthropic claude-3-5-sonnet</td><td>$3.00</td><td>$15.00</td></tr>
+            <tr><td>Anthropic claude-3-haiku</td><td>$0.25</td><td>$1.25</td></tr>
+            <tr><td>Cohere embed-english-v3.0</td><td>$0.10 (per 1M tokens)</td><td>—</td></tr>
+        </table>
+        <div class="callout callout-tip">
+            <strong>Cost control tip:</strong> Use a lower-cost model for document analysis (e.g., gpt-4o-mini) and reserve the full gpt-4o for AI Chat where response quality matters most. Configure this split in <a href="{{ url_prefix }}/docs/configuration#ai-settings">AI Settings</a>.
+        </div>
+
+        <h2 id="reducing-cost">Reducing costs</h2>
+        <ul>
+            <li>Set the <strong>Analysis Model</strong> to a smaller, cheaper model (e.g., <code>gpt-4o-mini</code>) for bulk document processing.</li>
+            <li>Increase the <strong>Poll Interval</strong> to reduce how frequently the analyzer checks for new documents.</li>
+            <li>Avoid <strong>Reprocess All</strong> unless necessary — it re-analyzes every document with LLM calls.</li>
+            <li>Use <strong>Process Unanalyzed Only</strong> instead of Reprocess All when you only need to catch missed documents.</li>
+            <li>Vision AI (PDF image extraction) uses more tokens than standard text analysis — it is only triggered when OCR quality is very poor.</li>
+        </ul>
+
+{# ═══════════════════════════════════════════════════════════════════ #}
+{# API REFERENCE                                                       #}
+{# ═══════════════════════════════════════════════════════════════════ #}

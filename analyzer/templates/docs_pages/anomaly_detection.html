@@ -1,0 +1,63 @@
+        <h1 class="page-title">Anomaly Detection</h1>
+        <p class="subtitle">Two-layer detection: deterministic checks (no AI cost) plus AI-powered analysis for nuanced issues.</p>
+
+        <h2 id="detection-layers">Detection layers</h2>
+        <p>Every document passes through two independent detection layers:</p>
+        <ol>
+            <li><strong>Deterministic checks</strong> (run by the companion <em>paperless-anomaly-detector</em> container) — mathematical verification of balances, counts, and patterns with no AI cost.</li>
+            <li><strong>AI analysis</strong> — the LLM reads the document and flags nuanced issues like unusual transaction descriptions, inactive accounts, or missing context.</li>
+        </ol>
+
+        <h2 id="anomaly-tags">Anomaly tags</h2>
+        <p>When an issue is detected, a tag is written back to Paperless. Tags use two namespaces:</p>
+        <ul>
+            <li><span class="tag-example tag-anomaly">anomaly:*</span> — set by the deterministic checker.</li>
+            <li><span class="tag-example tag-ai">aianomaly:*</span> — set by the LLM analysis step.</li>
+        </ul>
+
+        <h3>Deterministic anomaly tags</h3>
+        <table>
+            <tr><th>Tag</th><th>Meaning</th><th>Risk level</th></tr>
+            <tr><td><code>anomaly:balance_mismatch</code></td><td>Beginning balance + credits − debits ≠ ending balance. Indicates potential missing transactions or altered figures.</td><td><span class="badge badge-red">High</span></td></tr>
+            <tr><td><code>anomaly:missing_transactions</code></td><td>Transaction list is absent or suspiciously short for the stated balance change.</td><td><span class="badge badge-red">High</span></td></tr>
+            <tr><td><code>anomaly:no_transactions</code></td><td>Statement shows zero transaction activity — may indicate a suppressed page or redacted document.</td><td><span class="badge badge-orange">Medium</span></td></tr>
+            <tr><td><code>anomaly:duplicate_amounts</code></td><td>Two or more transactions share the exact same amount on the same date.</td><td><span class="badge badge-orange">Medium</span></td></tr>
+            <tr><td><code>anomaly:forensic_risk_high</code></td><td>Composite risk score ≥ 70. Document has multiple or serious issues.</td><td><span class="badge badge-red">High</span></td></tr>
+            <tr><td><code>anomaly:forensic_risk_medium</code></td><td>Risk score 40–69. Minor issues detected, warrants review.</td><td><span class="badge badge-orange">Medium</span></td></tr>
+            <tr><td><code>anomaly:forensic_risk_low</code></td><td>Risk score &lt;40. No significant issues but flagged for review.</td><td><span class="badge badge-green">Low</span></td></tr>
+        </table>
+
+        <h3 id="ai-anomaly-tags">AI anomaly tags</h3>
+        <table>
+            <tr><th>Tag</th><th>Meaning</th></tr>
+            <tr><td><code>aianomaly:zero_transactions</code></td><td>AI confirms the statement period has no recorded transactions.</td></tr>
+            <tr><td><code>aianomaly:inactive_account</code></td><td>Account appears dormant — no activity over an extended period.</td></tr>
+            <tr><td><code>aianomaly:nodatapresent</code></td><td>Document appears to contain no meaningful financial data.</td></tr>
+            <tr><td><code>aianomaly:norecordedtransactions</code></td><td>Document header suggests a statement period but no transactions are listed.</td></tr>
+            <tr><td><code>aianomaly:balance_inconsistency</code></td><td>AI detected inconsistent balance references within the document text.</td></tr>
+            <tr><td><code>aianomaly:vision_ai_extracted</code></td><td>OCR was poor; Vision AI was used to extract text from PDF images.</td></tr>
+            <tr><td><code>aianomaly:potentialtestdocument</code></td><td>AI suspects the document is a test or placeholder, not a real financial record.</td></tr>
+        </table>
+
+        <h2 id="risk-score">Risk score (0–100)</h2>
+        <p>Each document receives a composite forensic risk score calculated from the number and severity of detected anomalies. The score is displayed on every result card and used to sort high-risk documents to the top.</p>
+        <table>
+            <tr><th>Score range</th><th>Label</th><th>Meaning</th></tr>
+            <tr><td>70–100</td><td><span class="badge badge-red">High Risk</span></td><td>Multiple or serious anomalies detected. Immediate review recommended.</td></tr>
+            <tr><td>40–69</td><td><span class="badge badge-orange">Medium Risk</span></td><td>Minor issues or single anomaly. Review when possible.</td></tr>
+            <tr><td>0–39</td><td><span class="badge badge-green">Low Risk</span></td><td>No significant issues detected.</td></tr>
+        </table>
+
+        <h2 id="view-evidence">Viewing evidence</h2>
+        <p>Click the <strong>View Evidence</strong> button on any anomaly result card to expand specific values that triggered the detection:</p>
+        <ul>
+            <li>For <code>balance_mismatch</code>: beginning balance, total credits, total debits, calculated ending balance, stated ending balance, and the discrepancy amount.</li>
+            <li>For <code>duplicate_amounts</code>: the duplicate transaction dates and amounts.</li>
+        </ul>
+
+        <h2 id="needs-profile">Document profiling</h2>
+        <p>If no YAML profile matches a document, it is tagged <span class="tag-example">needs_profile:unmatched</span> and a <em>staging profile</em> is generated automatically. Staging profiles appear in <strong>Configuration → Profiles</strong> and can be reviewed and activated by an admin. Once activated, future documents of that type will use the refined profile.</p>
+
+{# ═══════════════════════════════════════════════════════════════════ #}
+{# DEBUG & TOOLS                                                       #}
+{# ═══════════════════════════════════════════════════════════════════ #}

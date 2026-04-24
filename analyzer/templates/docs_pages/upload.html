@@ -1,0 +1,84 @@
+        <h1 class="page-title">Smart Upload</h1>
+        <p class="subtitle">Three ways to add documents: local file, direct URL, or cloud share link — with optional AI metadata extraction and project assignment.</p>
+
+        <h2 id="upload-modes">Upload modes</h2>
+        <table>
+            <tr><th>Mode</th><th>When to use</th></tr>
+            <tr><td><strong>File</strong></td><td>You have the document on your computer. Drag it into the drop zone or click to browse. Supports PDF, PNG, JPG, DOCX, HEIC.</td></tr>
+            <tr><td><strong>URL</strong></td><td>You have a direct HTTPS link to the document. The server downloads and forwards it to Paperless. Supports optional Basic Auth or Bearer token.</td></tr>
+            <tr><td><strong>Cloud Link</strong></td><td>You have a share link from Google Drive, Google Docs, Dropbox, or OneDrive. The system auto-detects the service and generates a direct download URL.</td></tr>
+        </table>
+
+        <h2 id="project-assignment">Assigning to a project at upload</h2>
+        <p>The <strong>Project</strong> dropdown near the top of the upload form lets you choose which project the document belongs to. When a project is selected:</p>
+        <ol>
+            <li>The <code>project:{slug}</code> tag is applied to the document in Paperless immediately when it is consumed.</li>
+            <li>The analyzer routes the document to that project's ChromaDB collection when it analyzes it (~30 seconds after OCR completes).</li>
+            <li>The project's document count is incremented.</li>
+        </ol>
+        <p>Leave the project as <em>Default Project</em> if the document does not belong to a specific matter.</p>
+
+        <h2 id="smart-metadata">Smart Metadata (AI pre-analysis)</h2>
+        <p>Enable the <strong>Smart Metadata</strong> toggle to let the AI inspect the document before it goes to Paperless. The AI extracts:</p>
+        <ul>
+            <li>Suggested <strong>title</strong></li>
+            <li>Document <strong>date</strong></li>
+            <li>Document <strong>type</strong> (bank statement, court order, invoice, etc.)</li>
+            <li>Suggested <strong>project</strong> (if the AI can match it from existing project names)</li>
+        </ul>
+        <p>You review and confirm (or edit) the suggestions in a metadata preview panel before the final upload is submitted to Paperless.</p>
+        <div class="callout callout-tip">
+            <strong>Tip:</strong> Smart Metadata is most useful for bulk uploads where you want AI to categorize documents automatically. For single documents where you already know the project, you can skip it.
+        </div>
+
+        <h2 id="file-upload">File upload</h2>
+        <ol>
+            <li>Select <strong>File</strong> mode.</li>
+            <li>Drag a file onto the drop zone or click <em>Browse</em>.</li>
+            <li>Optionally enable Smart Metadata.</li>
+            <li>Select a project.</li>
+            <li>Click <strong>Upload to Paperless</strong>.</li>
+        </ol>
+        <p>Supported formats: <code>PDF</code>, <code>PNG</code>, <code>JPG/JPEG</code>, <code>DOCX</code>, <code>HEIC</code>.</p>
+
+        <h2 id="url-upload">URL upload</h2>
+        <ol>
+            <li>Select <strong>URL</strong> mode.</li>
+            <li>Paste any direct HTTPS URL.</li>
+            <li>If the resource requires authentication, expand <em>Advanced</em> and choose:
+                <ul>
+                    <li><strong>Basic Auth</strong> — username and password.</li>
+                    <li><strong>Bearer Token</strong> — API token or OAuth bearer token.</li>
+                </ul>
+            </li>
+            <li>Optionally, click <strong>Scan URL for Files</strong> if the URL points to a directory listing — the system returns a list of files you can select for batch upload.</li>
+        </ol>
+
+        <h2 id="cloud-links">Cloud share links</h2>
+        <table>
+            <tr><th>Service</th><th>Supported URL pattern</th><th>Transform performed</th></tr>
+            <tr><td>Google Drive (file)</td><td><code>drive.google.com/file/d/{id}/view</code></td><td>Converts to direct download URL</td></tr>
+            <tr><td>Google Docs / Sheets</td><td><code>docs.google.com/document/d/{id}/</code></td><td>Exports as PDF</td></tr>
+            <tr><td>Dropbox</td><td><code>dropbox.com/s/{key}?dl=0</code></td><td>Changes <code>dl=0</code> → <code>dl=1</code></td></tr>
+            <tr><td>OneDrive (1drv.ms)</td><td><code>1drv.ms/b/{key}</code></td><td>Follows redirect to direct URL</td></tr>
+        </table>
+        <p>Paste the share link and click <strong>Transform &amp; Upload</strong>. The system resolves the URL and submits the file to Paperless in one step.</p>
+
+        <div class="callout callout-warn">
+            <strong>Google Drive privacy note:</strong> Files must be shared as "Anyone with the link can view" for the direct download to work. Drive files restricted to specific accounts cannot be fetched server-side.
+        </div>
+
+        <h2 id="upload-history">Upload history</h2>
+        <p>The lower section of the Upload tab shows your personal upload history (last 20 items). Each row shows the filename, source, project, upload timestamp, and status. Successful imports show a <strong>🔗 View</strong> link to open the document directly in Paperless-ngx. Failed imports show <strong>❌</strong> — hover over it to see the error message.</p>
+
+        <h2 id="after-upload">What happens after upload</h2>
+        <ol>
+            <li>Document is queued in Paperless-ngx for OCR (typically completes in 10–60 seconds depending on file size).</li>
+            <li>The analyzer polls Paperless every ~30 seconds. When it finds the new document, it runs the full analysis pipeline.</li>
+            <li>Analysis results appear in the <em>Recent Analyses</em> list on the Overview tab.</li>
+            <li>The document is embedded in the project's vector store and becomes searchable via AI Chat and Search.</li>
+        </ol>
+
+{# ═══════════════════════════════════════════════════════════════════ #}
+{# AI CHAT                                                             #}
+{# ═══════════════════════════════════════════════════════════════════ #}

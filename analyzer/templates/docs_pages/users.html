@@ -1,0 +1,73 @@
+        <h1 class="page-title">User Management</h1>
+        <p class="subtitle">Create, edit, and manage user accounts. Admin role required.</p>
+
+        <div class="callout callout-info">
+            User management is in <strong>Configuration → Users</strong> and is visible only to <span class="badge badge-blue">Admin</span> users.
+        </div>
+
+        <h2 id="roles">User roles</h2>
+        <table>
+            <tr><th>Role</th><th>Permissions</th></tr>
+            <tr><td><span class="badge badge-blue">Admin</span></td><td>Full access: manage users, view all chat sessions, change system settings, manage projects, access all configuration sub-tabs.</td></tr>
+            <tr><td><span class="badge badge-patch" style="background:#8e44ad;">Advanced</span></td><td>All Basic permissions plus: run Case Intelligence analyses, use Report Builder, access power-user features. Cannot access Configuration or manage other users.</td></tr>
+            <tr><td><span class="badge badge-gray">Basic</span></td><td>Can analyze documents, upload, search, use AI Chat (own sessions + shared), manage own profile. Cannot access Configuration or other users' data.</td></tr>
+        </table>
+        <p>Role is assigned at user creation and can be changed by an Admin via <strong>Configuration → Users → Edit</strong> (pencil icon).</p>
+
+        <h2 id="create-user">Creating a user</h2>
+        <ol>
+            <li>Go to <strong>Configuration → Users</strong>.</li>
+            <li>Click <strong>+ Add User</strong>.</li>
+            <li>Fill in the required fields: Username, Display Name, Email, Password, Role.</li>
+            <li>Optionally fill the profile fields (phone, job title, etc.).</li>
+            <li>Click <strong>Create User</strong>.</li>
+        </ol>
+        <p>If SMTP is configured, a welcome email is automatically sent to the new user's email address with login instructions.</p>
+
+        <h2 id="user-fields">User fields reference</h2>
+        <table>
+            <tr><th>Field</th><th>Required</th><th>Notes</th></tr>
+            <tr><td>Username</td><td>Yes</td><td>Login identifier. Lowercase alphanumeric. Cannot be changed after creation.</td></tr>
+            <tr><td>Display Name</td><td>Yes</td><td>Full name shown in the UI and email notifications.</td></tr>
+            <tr><td>Email</td><td>Yes</td><td>Used for SMTP notifications and welcome emails.</td></tr>
+            <tr><td>Password</td><td>Yes</td><td>Set on creation. Can be reset by an admin at any time via Edit.</td></tr>
+            <tr><td>Role</td><td>Yes</td><td><em>Admin</em>, <em>Advanced</em>, or <em>Basic</em>. Set at creation; an admin can change it at any time via Edit.</td></tr>
+            <tr><td>Job Title</td><td>No</td><td>Included in welcome emails and user profile.</td></tr>
+            <tr><td>Phone</td><td>No</td><td>Contact number — stored in user profile.</td></tr>
+            <tr><td>Address</td><td>No</td><td>Mailing address — stored in user profile.</td></tr>
+            <tr><td>Timezone</td><td>No</td><td>User's local timezone (e.g., <code>America/New_York</code>).</td></tr>
+            <tr><td>GitHub</td><td>No</td><td>GitHub profile URL or username.</td></tr>
+            <tr><td>LinkedIn</td><td>No</td><td>LinkedIn profile URL.</td></tr>
+            <tr><td>Facebook</td><td>No</td><td>Facebook profile URL.</td></tr>
+            <tr><td>Instagram</td><td>No</td><td>Instagram handle.</td></tr>
+            <tr><td>Other handles</td><td>No</td><td>Any other social/contact handles.</td></tr>
+        </table>
+
+        <h2 id="edit-user">Editing a user</h2>
+        <p>Click the <strong>Edit</strong> (pencil) icon next to any user in the table. The Edit dialog lets you change:</p>
+        <ul>
+            <li>Display Name, Email, Role, Job Title — any time.</li>
+            <li>Password — leave blank to keep current password; enter a new value to reset it.</li>
+            <li>All profile fields (phone, address, social handles, timezone).</li>
+        </ul>
+
+        <h2 id="deactivate-user">Deactivating a user</h2>
+        <p>Click the <strong>Deactivate</strong> (trash) icon. The user account is soft-deleted — they can no longer log in, but their chat sessions and upload history are preserved. Deactivated users appear with a strikethrough in the users table. Click <strong>Reactivate</strong> to restore access.</p>
+
+        <div class="callout callout-warn">
+            <strong>You cannot deactivate your own account.</strong> At least one Admin account must remain active at all times.
+        </div>
+
+        <h2 id="my-profile">My Profile</h2>
+        <p>Any user can view and update their own profile: click the <strong>👤 My Profile</strong> button in the top-right corner of the dashboard. The profile modal lets you edit:</p>
+        <ul>
+            <li><strong>Full Name</strong> — display name shown in the UI and email notifications.</li>
+            <li><strong>Email</strong> — used for SMTP notifications, welcome emails, and CI run notification emails.</li>
+            <li><strong>Phone, Address, Job Title</strong> — optional contact details stored in your profile.</li>
+        </ul>
+        <p>To change your password, expand the <strong>Change Password</strong> section within the same modal — enter your current password, the new password, and confirm. Password and profile fields are saved separately.</p>
+        <p>Users cannot change their own username or role. Admins can change any user's role via <strong>Configuration → Users → Edit</strong>.</p>
+
+{# ═══════════════════════════════════════════════════════════════════ #}
+{# LLM USAGE                                                           #}
+{# ═══════════════════════════════════════════════════════════════════ #}

@@ -1,0 +1,120 @@
+        <h1 class="page-title">Case Intelligence AI</h1>
+        <p class="subtitle">Proactive, evidence-grounded legal analysis across all documents in a project — powered by a Director → Manager → Worker LLM orchestrator.</p>
+
+        <div class="callout callout-warn">
+            Case Intelligence is always enabled — no environment variable is required. It is available to users with an <span class="badge badge-patch" style="background:#8e44ad;">Advanced</span> or <span class="badge badge-blue">Admin</span> role.
+        </div>
+
+        <h2 id="ci-what">What is Case Intelligence?</h2>
+        <p>Case Intelligence (CI) reads every document in a project — not one at a time, but as a coordinated group — and produces a structured legal analysis covering entities, timeline, finances, contradictions, legal theories, and authority citations. The analysis is grounded in the actual documents: every finding cites a source document and page.</p>
+        <p>Use CI to:</p>
+        <ul>
+            <li>Build a comprehensive case chronology from dozens of fragmented documents.</li>
+            <li>Identify contradictions across witness statements, bank records, and contracts.</li>
+            <li>Extract every person, company, and account referenced in the document set.</li>
+            <li>Find relevant legal authorities cited or implied in the documents.</li>
+            <li>Generate a litigation-ready report in scientific paper format.</li>
+        </ul>
+
+        <h2 id="ci-architecture">Architecture</h2>
+        <p>CI runs use a three-tier orchestrator:</p>
+        <table>
+            <tr><th>Tier</th><th>Count</th><th>Role</th></tr>
+            <tr><td><strong>Director</strong></td><td>1 (fixed)</td><td>Reads the run config and all document summaries; plans domain assignments; synthesizes the final report; writes findings back to Paperless.</td></tr>
+            <tr><td><strong>Managers</strong></td><td>Auto (1–10)</td><td>Each manager owns one analysis domain. Receives a list of documents and instructions from the Director; splits work across workers; aggregates worker results into a domain report.</td></tr>
+            <tr><td><strong>Workers</strong></td><td>Auto (1–20 per manager)</td><td>Each worker processes 1–3 documents with targeted extraction instructions. Returns structured JSON with mandatory provenance citations.</td></tr>
+        </table>
+        <p><strong>Six analysis domains:</strong> Entities · Timeline · Financial · Contradictions · Theories · Authorities</p>
+        <p><strong>Two-phase execution with war room briefing:</strong> Phase 1 (Entities, Timeline, Financial) runs first. Before Phase 2 starts, the orchestrator builds a <em>war room briefing</em> — a compact summary of all Phase 1 findings — and injects it into every Phase 2 manager's context. This means the Contradictions, Theories, and Authorities managers all start with full awareness of what Phase 1 extracted, rather than having to re-derive facts from raw documents.</p>
+        <p><strong>Opposing theory pass:</strong> After generating theories for your configured role, CI automatically generates theories from the opposing perspective (e.g. defense theories if your role is plaintiff). This lets you see the strongest counter-arguments before they are raised in proceedings.</p>
+        <p><strong>Auto scaling:</strong> Managers = min(6, ceil(doc_count ÷ 20)). Workers = budget-scaled. Both are adjustable in Setup.</p>
+
+        <h2 id="ci-rag">AI Chat integration</h2>
+        <p>When a CI run completes, all findings — entities, timeline events, contradictions, theories, authorities, and disputed facts — are automatically embedded into the project's vector store. This means:</p>
+        <ul>
+            <li>AI Chat queries will surface CI findings alongside document excerpts when relevant.</li>
+            <li>On subsequent CI runs on the same project, the Director is aware of prior CI findings and focuses analysis on new angles rather than re-extracting already-known facts.</li>
+        </ul>
+        <p>No configuration needed — embedding happens automatically if vector search is enabled for the project.</p>
+
+        <h2 id="ci-setup">Setup tab walkthrough</h2>
+
+        <h3>Role, Jurisdiction &amp; Goal</h3>
+        <ul>
+            <li><strong>Role</strong> — Plaintiff / Defendant / Neutral. Shapes how the Director frames the analysis and which facts it emphasizes.</li>
+            <li><strong>Jurisdiction</strong> — Optional. Auto-detected from documents if left blank; or choose manually from the dropdown.</li>
+            <li><strong>Goal / Case Description</strong> — Free-text description of what you want to find. Be as specific as possible: the more context the Director has, the more targeted the analysis.</li>
+        </ul>
+        <p>Click <strong>✨ Refine with AI</strong> next to the Goal field to open the <em>Goal Assistant</em> — an AI chat that asks clarifying questions about your matter and then produces a structured goal statement you can apply with one click.</p>
+
+        <h3>Budget</h3>
+        <p>Set a per-run USD cap. The run pauses if the budget is exceeded mid-analysis; an override button is shown so you can approve extra spend or cancel the run.</p>
+
+        <h3>Orchestration Tiers</h3>
+        <table>
+            <tr><th>Setting</th><th>Options</th><th>Auto logic</th></tr>
+            <tr><td>Director</td><td>1 (fixed)</td><td>Always 1</td></tr>
+            <tr><td>Managers</td><td>Auto or 1–10</td><td>min(6, ceil(doc_count ÷ 20))</td></tr>
+            <tr><td>Workers/Manager</td><td>Auto or 1–20</td><td>Budget-scaled; recalculated every 10%</td></tr>
+        </table>
+
+        <h3>Notifications</h3>
+        <p>Toggle <em>Email when run completes</em> and <em>Email budget updates (every 10%)</em>. The recipient email is pre-filled from your user profile; change it here if needed. Requires SMTP to be configured by an admin.</p>
+
+        <h2 id="ci-clarifying">Clarifying questions</h2>
+        <p>After clicking <strong>Run Analysis</strong>, the Director generates 3–5 clarifying questions about the case. For each question you can:</p>
+        <ul>
+            <li>Type an answer to refine the analysis direction.</li>
+            <li>Leave it blank to let the Director infer from the documents.</li>
+            <li>Check <strong>Proceed with assumptions</strong> to skip all questions and start immediately.</li>
+        </ul>
+
+        <h2 id="ci-findings">Findings tab</h2>
+        <p>Select a completed (or in-progress) run from the dropdown. The header shows the run status, document count, total cost, and elapsed time. A <strong>Cancel</strong> button is shown while the run is active.</p>
+
+        <h3>Sharing runs</h3>
+        <p>Click <strong>👥 Share</strong> to open the share modal. Enter another user's username and click <strong>Add</strong>. Shared users see the run in their dropdown annotated with your name. Admins always see all runs regardless of sharing.</p>
+
+        <h3>Finding domains</h3>
+        <p>Switch between the six domain tabs to explore findings. Each finding includes:</p>
+        <ul>
+            <li>The extracted data (entity, event, amount, contradiction, theory, or citation).</li>
+            <li>A source reference: document title + page number.</li>
+            <li>Confidence level and analyst notes where applicable.</li>
+        </ul>
+
+        <h2 id="ci-report">Report Builder</h2>
+        <p>In the Findings tab, click <strong>Build Report</strong> (or the Report Builder sub-tab). Choose a template:</p>
+        <table>
+            <tr><th>Template</th><th>Focus</th></tr>
+            <tr><td>Attorney Memo</td><td>Legal analysis, key findings, recommended next steps</td></tr>
+            <tr><td>Chronology</td><td>Timeline-first narrative with all dated events in order</td></tr>
+            <tr><td>Financial Summary</td><td>All monetary figures, accounts, and financial flows</td></tr>
+            <tr><td>Custom</td><td>Write your own instructions — the Director follows them exactly</td></tr>
+        </table>
+        <p>The Director synthesizes a <strong>scientific paper format report</strong> with 12 sections:</p>
+        <ol>
+            <li>Executive Summary</li>
+            <li>Key Findings</li>
+            <li>Cast of Characters</li>
+            <li>Chronology</li>
+            <li>Financial Analysis</li>
+            <li>Contested Facts Matrix</li>
+            <li>Factual &amp; Legal Theories</li>
+            <li>Legal Framework &amp; Authorities</li>
+            <li>Discovery Gaps &amp; Next Steps</li>
+            <li>Appendix A: Document Index &amp; Bates References</li>
+            <li>Appendix B: Contradictions Catalog</li>
+            <li>Appendix C: Full Authority Citations</li>
+        </ol>
+        <p>Click <strong>Download PDF</strong> to export the report as a formatted PDF.</p>
+
+        <h2 id="ci-cost">Cost management</h2>
+        <p>Every CI run has a hard budget cap. Budget checkpoints fire at 10%, 20%, … 100% completion:</p>
+        <ul>
+            <li><strong>Under budget</strong> — projected total is below the cap; worker count may increase.</li>
+            <li><strong>On track</strong> — projected total is within 10% of the cap; no change.</li>
+            <li><strong>Over budget</strong> — projected total exceeds the cap; worker count is reduced. Email alert sent if notifications are on.</li>
+        </ul>
+        <p>Cost is driven primarily by worker count and document length. Use <em>Auto</em> tier settings to let the system optimize within your budget, or set fixed counts if you need predictable throughput.</p>
+

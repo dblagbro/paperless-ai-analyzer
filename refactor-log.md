@@ -2,6 +2,85 @@
 
 ---
 
+## Entry 012 — 2026-04-23 (v3.9.9 — docs.html pages + routes/court package)
+
+### Scope
+Last two maintainability splits worth doing. Every file in the codebase is
+now well under 1,000 lines except for cohesive large files that would not
+benefit from splitting.
+
+### Changes
+
+**`templates/docs.html` (1,820 lines) → 591-line shell + 14 page partials:**
+`docs.html` kept the sidebar, layout, AI help widget, and final scripts; each
+`{% elif page == 'X' %}` branch now reads `{% include 'docs_pages/X.html' %}`.
+Per-page files:
+
+| Page | Lines |
+|------|------:|
+| overview | 68 |
+| getting_started | 55 |
+| projects | 175 |
+| upload | 84 |
+| chat | 110 |
+| search | 56 |
+| anomaly_detection | 63 |
+| tools | 89 |
+| configuration | 108 |
+| users | 73 |
+| llm_usage | 47 |
+| api | 101 |
+| case_intelligence | 120 |
+| court_import | 77 |
+
+**`routes/court.py` (847 lines) → `routes/court/` package (5 files):**
+
+| File | Lines | Concern |
+|------|-------|---------|
+| `__init__.py`    |  22 | Blueprint + side-effect imports |
+| `helpers.py`     | 400 | `_court_gate`, `_build_court_connector`, `_post_import_analyze`, `_analyze_missing_for_project`, `_run_court_import` (import job worker) |
+| `credentials.py` | 243 | save / list / test / delete / paste-parse |
+| `search.py`      |  97 | search + docket fetch |
+| `imports.py`     | 145 | start / status / cancel / history + analyze-missing |
+
+Pattern matches `routes/chat/`, `routes/ci/`, `routes/projects/`: `__init__.py`
+defines the blueprint, submodules import `bp` and register routes via
+side-effect decorators.
+
+### Verification
+- All 14 `/docs/<slug>` URLs return 200 with expected content.
+- `/api/court/credentials` GET 200, `/api/court/import/history` GET 200,
+  `/api/court/search` POST (empty body) 400 (expected validation).
+- Playwright UI smoke: login + all 8 tabs + 4 config sub-tabs + every doc
+  page; no real console errors (one pre-existing 404 on `/x` is unrelated
+  to the refactor).
+
+### State after 4 consecutive refactor passes (v3.9.7 → v3.9.9)
+| File | Before | After |
+|------|-------:|------:|
+| `templates/dashboard.html` | 2,994 | ~1,100 |
+| `templates/docs.html` | 1,820 | 591 |
+| `static/js/config.js` | 2,361 | 4-file package |
+| `static/js/ci.js` | 2,229 | 5-file package |
+| `routes/projects.py` | 988 | 5-file package |
+| `routes/court.py` | 847 | 5-file package |
+| `case_intelligence/web_researcher.py` | 1,362 | 6-line shim + 7-file package |
+
+Largest single file now: `case_intelligence/ci_phases/managers_mixin.py` at
+1,004 lines (cohesive — one concern, revisit > 1,500).
+
+### Files touched
+- `analyzer/__init__.py` — version → 3.9.9
+- `analyzer/routes/court.py` — **deleted** (replaced by package)
+- `analyzer/routes/court/` — new package (5 files)
+- `analyzer/templates/docs.html` — 1,820 → 591 lines
+- `analyzer/templates/docs_pages/` — new directory (14 files)
+- `architecture.md` — tree + next-targets updated
+- `refactor-log.md` — this entry
+- `CHANGELOG.md` — v3.9.9 entry
+
+---
+
 ## Entry 011 — 2026-04-23 (v3.9.8 — config.js, ci.js, web_researcher splits)
 
 ### Scope

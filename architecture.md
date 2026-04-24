@@ -181,11 +181,26 @@ paperless-ai-analyzer/
 │   │
 │   ├── templates/
 │   │   ├── dashboard.html           # Single-page app shell (~1,100 lines after v3.9.7 partial extraction)
-│   │   ├── partials/                # Tab-specific includes — extracted from dashboard.html (v3.9.7)
-│   │   │   ├── tab_config.html            # Config tab (~625 lines: AI settings, profiles, vector store, SMTP, LLM proxy, users)
+│   │   ├── partials/                # Dashboard tab includes — extracted from dashboard.html (v3.9.7)
+│   │   │   ├── tab_config.html            # Config tab (~625 lines)
 │   │   │   ├── tab_upload.html            # Smart Upload tab + Court Import wizard (~395 lines)
 │   │   │   └── tab_case_intelligence.html # CI tab — Setup / Findings / Specialists / Tier 5 (~890 lines)
-│   │   ├── docs.html
+│   │   ├── docs.html                # User-manual shell (~590 lines after v3.9.9 page extraction)
+│   │   ├── docs_pages/              # Per-page manual content — extracted from docs.html (v3.9.9)
+│   │   │   ├── overview.html              # 68 lines
+│   │   │   ├── getting_started.html       # 55
+│   │   │   ├── projects.html              # 175
+│   │   │   ├── upload.html                # 84
+│   │   │   ├── chat.html                  # 110
+│   │   │   ├── search.html                # 56
+│   │   │   ├── anomaly_detection.html     # 63
+│   │   │   ├── tools.html                 # 89
+│   │   │   ├── configuration.html         # 108
+│   │   │   ├── users.html                 # 73
+│   │   │   ├── llm_usage.html             # 47
+│   │   │   ├── api.html                   # 101
+│   │   │   ├── case_intelligence.html     # 120
+│   │   │   └── court_import.html          # 77
 │   │   ├── login.html
 │   │   └── chat_export.html
 │   │
@@ -320,6 +335,8 @@ Historical splits (all shipped):
 - ✅ `case_intelligence/web_researcher.py` — 7-file mixin package under
   `case_intelligence/web_researchers/` (v3.9.8); original file kept as a
   2-line re-export shim for backward compatibility.
+- ✅ `templates/docs.html` — 14 page partials under `templates/docs_pages/` (v3.9.9)
+- ✅ `routes/court.py` — 5-file package under `routes/court/` (v3.9.9)
 
 Outstanding candidates (ranked by current size vs. cost to split):
 
@@ -331,9 +348,8 @@ Outstanding candidates (ranked by current size vs. cost to split):
    groups (docs, tags, documents, polling). Not urgent; split only if it
    passes ~1,000 lines.
 
-3. **`analyzer/routes/court.py` — 847 lines.** Not touched in current refactor
-   cycle. Could be split into the same pattern as `routes/projects/` if court
-   functionality continues to grow.
+3. ~~`analyzer/routes/court.py` — 847 lines.~~ **Done v3.9.9** — now a
+   5-file package at `routes/court/`.
 
 4. **`analyzer/poller.py` — 623 lines.** Similar — single class, one concern.
 

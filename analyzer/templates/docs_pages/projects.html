@@ -1,0 +1,175 @@
+        <h1 class="page-title">Projects</h1>
+        <p class="subtitle">Organize documents into isolated workspaces — each project maintains its own AI vector store for scoped search and chat.</p>
+
+        <div class="callout callout-info">
+            <strong>What is a project?</strong> A project is a named workspace (e.g., "Robinhood Fonda Case", "Client ABC Matter") that groups documents via a Paperless tag (<code>project:slug</code>). AI Chat and Search operate within the selected project only, ensuring answers never mix documents from different matters.
+        </div>
+
+        <h2 id="how-projects-work">How projects work</h2>
+        <p>When a document is uploaded with a project selected, or assigned to a project later, the analyzer adds a Paperless tag <span class="tag-example tag-project">project:slug</span> to the document. The analysis pipeline then embeds the document into that project's dedicated ChromaDB collection (<code>paperless_docs_{slug}</code>) rather than the default collection.</p>
+        <ul>
+            <li><strong>Isolated vector store</strong> — each project gets its own ChromaDB collection. Chat and search never see documents from other projects.</li>
+            <li><strong>Paperless tag synced</strong> — the <code>project:slug</code> tag is visible in Paperless-ngx so documents can be found by project even outside the analyzer.</li>
+            <li><strong>Default project</strong> — documents without a project tag go into <em>Default Project</em>. This cannot be deleted.</li>
+        </ul>
+
+        <h2 id="create-project">Creating a project</h2>
+        <div class="step">
+            <div class="step-num">1</div>
+            <div class="step-body">
+                <h4>Open Manage Projects</h4>
+                <p>Click the <strong>Manage Projects</strong> tab in the dashboard.</p>
+            </div>
+        </div>
+        <div class="step">
+            <div class="step-num">2</div>
+            <div class="step-body">
+                <h4>Click + New Project</h4>
+                <p>The creation modal opens. Fill in:</p>
+                <ul>
+                    <li><strong>Project Name</strong> — display name (e.g., "Robinhood Fonda v. Fairbridge")</li>
+                    <li><strong>Slug</strong> — auto-generated from the name. Must be lowercase alphanumeric with dashes/underscores, 2–50 characters. Once set, cannot be changed.</li>
+                    <li><strong>Description</strong> — optional free-text description.</li>
+                    <li><strong>Color</strong> — used for the project tag badge in Paperless and UI accents.</li>
+                </ul>
+            </div>
+        </div>
+        <div class="step">
+            <div class="step-num">3</div>
+            <div class="step-body">
+                <h4>Save</h4>
+                <p>The project is created in the local database and the corresponding <code>project:{slug}</code> tag is created in Paperless-ngx immediately.</p>
+            </div>
+        </div>
+
+        <h2 id="switch-project">Switching the current project</h2>
+        <p>The <strong>Current Project</strong> dropdown in the top header controls the scope of AI Chat and Search. Select any project to switch. The change takes effect immediately — no page reload required.</p>
+        <ul>
+            <li>AI Chat sessions created while a project is active are associated with that project's collection.</li>
+            <li>Search results only show documents from the current project's vector store.</li>
+            <li>The Overview tab always shows stats across all documents regardless of the current project.</li>
+        </ul>
+
+        <h2 id="assign-documents">Assigning documents to a project</h2>
+        <p>Documents can be assigned at upload time (preferred) or after the fact:</p>
+        <ul>
+            <li><strong>At upload</strong> — select the project in the Smart Upload tab's <em>Project</em> dropdown before uploading. The <code>project:slug</code> tag is applied immediately.</li>
+            <li><strong>After upload</strong> — in <em>Manage Projects</em>, click <strong>Assign Documents</strong> on a project card. Search for documents by title or tag and assign them individually or in bulk.</li>
+        </ul>
+
+        <h2 id="migrate-documents">Migrating documents between projects</h2>
+        <p>Click the <strong>📦 Move</strong> button on a project card to open the Move Documents dialog. Select the source and destination projects, choose whether to move all documents or specify individual document IDs, then click <strong>Move Documents</strong>.</p>
+        <p>The migration runs in the background and:</p>
+        <ul>
+            <li>Moves each document's ChromaDB vector embedding to the destination collection immediately (no re-embed needed).</li>
+            <li>Updates all <code>processed_documents</code> records to the new project slug.</li>
+            <li>Migrates all AI Chat sessions (and their messages) from the source project to the destination.</li>
+            <li>Updates the Paperless <code>project:old-slug</code> tag → <code>project:new-slug</code> on each document in Paperless.</li>
+            <li>Refreshes the cached document count on both projects when done.</li>
+        </ul>
+        <div class="callout callout-info">
+            Moving documents is logged: look for <code>Migration completed: N docs moved to &lt;slug&gt;, E errors</code> in the analyzer log. Any document that fails its Paperless tag update is counted as an error but does not block the rest of the migration.
+        </div>
+
+        <h2 id="archive-project">Archiving vs. deleting</h2>
+        <table>
+            <tr><th>Action</th><th>Effect</th><th>Reversible?</th></tr>
+            <tr><td><strong>Archive</strong></td><td>Project hidden from the active list. Documents and vector store preserved. Tag stays in Paperless.</td><td>Yes — Unarchive restores it.</td></tr>
+            <tr><td><strong>Delete</strong></td><td>Project record removed from database. Vector store collection NOT automatically purged — documents remain in Paperless with their <code>project:</code> tag.</td><td>No — use with caution.</td></tr>
+        </table>
+
+        <div class="callout callout-warn">
+            <strong>The Default Project cannot be deleted.</strong> It serves as the catch-all for documents without a project tag and ensures backward compatibility.
+        </div>
+
+        <h2 id="orphan-documents">Orphan documents</h2>
+        <p>Documents in Paperless that have no <code>project:</code> tag are called <em>orphans</em>. Click <strong>View Orphan Documents</strong> in the Manage Projects tab to see them and bulk-assign them to a project.</p>
+
+        <h2 id="manage-projects-stats">Project statistics</h2>
+        <p>Each project card on the Manage Projects tab shows:</p>
+        <ul>
+            <li><strong>Documents</strong> — live count from the ChromaDB collection (always current).</li>
+            <li><strong>Created / Last Analyzed</strong> — timestamps from the project database.</li>
+            <li><strong>Storage</strong> — approximate disk size of the vector store.</li>
+        </ul>
+
+        <h2 id="per-project-paperless">Per-Project Paperless-ngx Instances (v3.6.1)</h2>
+        <p>By default, all projects share a single Paperless-ngx instance with <code>project:{slug}</code> tags for separation.
+        v3.6.0 added support for dedicated instances; v3.6.1 makes provisioning fully automated — no manual Docker, nginx, or SQL steps required.</p>
+
+        <h3 id="auto-provision">Auto-Provisioning (v3.6.1, Recommended)</h3>
+        <p>When a new project is created, provisioning starts automatically in the background. You can also trigger it manually for any existing project:</p>
+        <ol>
+            <li>Click <strong>⚙️ Paperless</strong> on the project card to open the Configure Paperless modal.</li>
+            <li>Click <strong>⚡ Auto-Provision Now</strong> in the Provision tab.</li>
+            <li>A live progress banner shows each step. Provisioning typically takes 1–3 minutes.</li>
+            <li>On completion, the banner shows "✅ Provisioning complete" with an <strong>Open Paperless →</strong> link. The project is immediately wired to its new instance.</li>
+        </ol>
+        <p>The provisioner performs all these steps automatically:</p>
+        <ul>
+            <li>Reads shared config (DB password, timezone) from the running <code>paperless-web</code> container via Docker SDK</li>
+            <li>Assigns the next free Redis DB index (scans running <code>paperless-web-*</code> containers)</li>
+            <li>Generates a strong random <code>secret_key</code> and <code>admin_password</code></li>
+            <li>Creates the per-project Postgres database on <code>paperless-postgres</code> (idempotent)</li>
+            <li>Creates host directories under <code>/mnt/s/documents/paperless-{slug}/</code></li>
+            <li>Starts <code>paperless-web-{slug}</code> and <code>paperless-consumer-{slug}</code> containers with <code>unless-stopped</code> restart</li>
+            <li>Waits for the web container to become ready (up to 3 minutes)</li>
+            <li>Obtains an API token and writes the nginx location block to <code>projects-locations.d/paperless-{slug}.conf</code></li>
+            <li>Reloads nginx and saves all credentials (AES-256-GCM encrypted) to the project DB</li>
+        </ul>
+
+        <div class="callout callout-tip">
+            <strong>Prerequisites:</strong> The nginx service must mount <code>./config/nginx/projects-locations.d:/etc/nginx/projects-locations.d:rw</code> and the analyzer container must mount the same directory at <code>/app/nginx-projects-locations.d:rw</code>. The nginx.conf 443 server block must include <code>include /etc/nginx/projects-locations.d/*.conf;</code>. These are one-time host setup steps (already done on this server as of v3.6.1).
+        </div>
+
+        <h3 id="provision-instance">Manual Provisioning (Advanced)</h3>
+        <p>If you need to provision manually (e.g., on a different host), click <strong>⚙️ Paperless → Provision → Manual Setup Snippets</strong> to expand the compose and nginx snippets, then:</p>
+        <ol>
+            <li>Copy the Docker Compose snippet into your <code>docker-compose.yml</code>.</li>
+            <li>Copy the nginx block into your server's nginx config.</li>
+            <li>Run: <code>sudo docker compose up -d paperless-web-{slug} paperless-consumer-{slug}</code></li>
+            <li>Open the public URL, create the admin user, and generate an API token from Admin → Auth Tokens.</li>
+            <li>Switch to the <strong>Connect</strong> tab and enter the URL + token manually.</li>
+        </ol>
+
+        <h3 id="connect-instance">Connect tab</h3>
+        <ol>
+            <li>Switch to the <strong>Connect</strong> tab in the Configure Paperless modal.</li>
+            <li>Enter the <strong>Internal Container URL</strong> — the Docker-internal address, e.g. <code>http://paperless-web-robinhoodproperties:8000</code>.</li>
+            <li>Enter the <strong>API Token</strong> from the new instance.</li>
+            <li>Enter the <strong>Public Base URL</strong> — the nginx-proxied public URL, e.g. <code>https://home.example.com/paperless-robin</code>. This is used for "View in Paperless" links throughout the UI.</li>
+            <li>Click <strong>Test Connection</strong> to verify, then <strong>Save</strong>.</li>
+        </ol>
+        <p>From this point on, the project's Paperless API calls (analyze-missing, delete, upload, poll) all route to the dedicated instance. A dedicated polling thread also starts automatically on the next container restart.</p>
+
+        <h3 id="migrate-documents-new">Step 3 — Migrate existing documents</h3>
+        <p>If you previously used the shared Paperless instance for this project, use the <strong>Migrate</strong> tab to move all existing documents:</p>
+        <ol>
+            <li>Click <strong>📦 Start Migration</strong>.</li>
+            <li>The migration downloads each document from the shared instance, uploads it to the new instance, waits for OCR to complete, then:
+                <ul>
+                    <li>Re-keys ChromaDB embeddings to the new document ID.</li>
+                    <li>Updates <code>processed_documents</code> in SQLite.</li>
+                    <li>Patches <code>chat_messages</code> that reference old document IDs.</li>
+                    <li>Updates <code>court_imported_docs</code> entries.</li>
+                </ul>
+            </li>
+            <li>A live progress bar shows <code>N / total documents migrated</code>.</li>
+            <li>After migration completes, the old <code>project:{slug}</code> tags in the shared instance are no longer used as a data source for that project.</li>
+        </ol>
+        <div class="callout callout-tip">
+            <strong>Note:</strong> The migration does <em>not</em> delete documents from the shared instance. You can remove them manually after verifying the migration was successful.
+        </div>
+
+        <h3 id="view-in-paperless">View in Paperless links</h3>
+        <p>Once a <strong>Public Base URL</strong> is configured for a project, the UI shows clickable links throughout:</p>
+        <ul>
+            <li><strong>Manage Projects → Docs table</strong> — an <em>↗ View</em> button next to each document.</li>
+            <li><strong>Search / Analysis tab</strong> — document IDs become clickable links.</li>
+            <li><strong>AI Chat</strong> — <code>[Document #NNN]</code> and <code>Document #NNN</code> references in assistant responses are automatically linkified.</li>
+            <li><strong>Case Intelligence</strong> — evidence card document titles become links.</li>
+        </ul>
+
+{# ═══════════════════════════════════════════════════════════════════ #}
+{# SMART UPLOAD                                                        #}
+{# ═══════════════════════════════════════════════════════════════════ #}

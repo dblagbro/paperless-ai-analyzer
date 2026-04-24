@@ -4,6 +4,28 @@ All notable changes to Paperless AI Analyzer are documented here.
 
 ---
 
+## v3.9.9 — 2026-04-23
+
+### Refactored — two more splits (see refactor-log Entry 012)
+- **`templates/docs.html` (1,820 lines) → 591-line shell + 14 page partials**
+  in `templates/docs_pages/` (`overview.html`, `getting_started.html`,
+  `projects.html`, `upload.html`, `chat.html`, `search.html`,
+  `anomaly_detection.html`, `tools.html`, `configuration.html`,
+  `users.html`, `llm_usage.html`, `api.html`, `case_intelligence.html`,
+  `court_import.html`). Each page < 200 lines.
+- **`routes/court.py` (847 lines) → `routes/court/` package** —
+  5 files: `__init__.py` (blueprint), `helpers.py` (400 — internal job worker
+  + credential gate + connector builder), `credentials.py` (243), `search.py`
+  (97), `imports.py` (145).
+
+### Why
+After v3.9.8 all files below 1,400 lines; these two were the next biggest
+editing-friction hotspots. The docs.html split was especially high-value for
+AI work: touching a single doc page no longer requires loading 1,800 lines
+of sibling pages.
+
+---
+
 ## v3.9.8 — 2026-04-23
 
 ### Refactored — three large files split (see refactor-log Entry 011)
