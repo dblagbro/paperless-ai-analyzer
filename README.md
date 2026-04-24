@@ -10,6 +10,40 @@ Advanced AI-powered anomaly detection and risk analysis microservice for [Paperl
 
 ---
 
+## What's New in v3.9.7 – v3.9.9
+
+Three consecutive maintainability refactor passes. No user-visible behavior
+changes; pure reorganisation aimed at AI-edit efficiency and feature velocity.
+
+**v3.9.7 — projects route package + dashboard partials**
+- `analyzer/routes/projects.py` (988 lines) → `analyzer/routes/projects/`
+  package with 5 cohesive modules (core CRUD, Paperless config, provisioning,
+  migration, documents). Drive-by fix: `GET /api/orphan-documents` no longer
+  500s on malformed Paperless results.
+- `analyzer/templates/dashboard.html` (2,994 lines) → 1,089-line shell + 3
+  Jinja partials (`tab_config`, `tab_upload`, `tab_case_intelligence`).
+
+**v3.9.8 — config.js, ci.js, and web_researcher splits**
+- `analyzer/static/js/config.js` (2,361) → 4-file package (`core.js`,
+  `projects.js`, `search.js`, `profiles_ai.js`).
+- `analyzer/static/js/ci.js` (2,229) → 5-file package (`setup.js`,
+  `goal_assist.js`, `specialists.js`, `tier5.js`, `report.js`).
+- `analyzer/case_intelligence/web_researcher.py` (1,362) → 7-file mixin
+  package at `web_researchers/` (constants, http_utils, base, providers_legal,
+  providers_general, providers_entities, orchestration `__init__`). The
+  original `web_researcher.py` kept as a 2-line re-export shim so existing
+  callers keep working unchanged.
+
+**v3.9.9 — docs.html + routes/court splits**
+- `analyzer/templates/docs.html` (1,820) → 591-line shell + 14 per-page
+  partials under `templates/docs_pages/` (one file per sidebar section).
+- `analyzer/routes/court.py` (847) → `analyzer/routes/court/` package with
+  5 modules (helpers, credentials, search, imports, plus `__init__.py`).
+
+After these passes, no file in the codebase exceeds ~1,100 lines.
+
+---
+
 ## What's New in v3.9.6
 
 ### Paperless-slow hardening + project provision throttling
