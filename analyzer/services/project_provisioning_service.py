@@ -286,6 +286,103 @@ def _provision_log(slug: str, phase: str, status: str = None):
     logger.info(f"[Provision:{slug}] {phase}")
 
 
+def deprovision_project_paperless(slug: str) -> dict:
+    """Tear down per-project Paperless resources during project deletion.
+
+    Counterpart to _provision_project_paperless(). Idempotent — safe to call
+    when only a subset of resources exist (e.g. nginx block but no container).
+
+    Removes (best-effort, in order):
+      1. paperless-web-<slug> + paperless-consumer-<slug> containers
+      2. The postgres database paperless_<slug-underscored>
+      3. The auto-managed nginx <paperless-project slug="..."> block + reload nginx
+
+    Returns a dict of what happened so the caller can surface warnings.
+    """
+    result = {
+        'containers_removed': [],
+        'container_errors': [],
+        'db_dropped': None,
+        'db_error': None,
+        'nginx_block_removed': False,
+        'nginx_reloaded': False,
+        'nginx_error': None,
+    }
+
+    # 1. Stop+remove per-project containers
+    dc = _get_docker_client()
+    if dc is not None:
+        for cname in (f"paperless-web-{slug}", f"paperless-consumer-{slug}"):
+            try:
+                c = dc.containers.get(cname)
+                try:
+                    c.stop(timeout=10)
+                except Exception:
+                    pass
+                c.remove(force=True)
+                result['containers_removed'].append(cname)
+                logger.info(f"[Deprovision:{slug}] removed container {cname}")
+            except Exception as e:
+                msg = str(e)
+                if 'Not Found' in msg or '404' in msg:
+                    continue
+                result['container_errors'].append(f"{cname}: {msg[:80]}")
+                logger.warning(f"[Deprovision:{slug}] container {cname}: {e}")
+
+    # 2. Drop the per-project postgres database
+    # Naming follows the provision path: paperless_<slug-with-dashes-as-underscores>
+    db_name = f"paperless_{slug.replace('-', '_')}"
+    if dc is not None:
+        try:
+            pg = dc.containers.get('paperless-postgres')
+            # First terminate any open connections (DROP DATABASE fails if any exist)
+            pg.exec_run([
+                'psql', '-U', 'paperless', '-d', 'postgres', '-c',
+                f"SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                f"WHERE datname='{db_name}' AND pid<>pg_backend_pid();"
+            ])
+            ec, out = pg.exec_run([
+                'psql', '-U', 'paperless', '-d', 'postgres', '-c',
+                f'DROP DATABASE IF EXISTS "{db_name}";'
+            ])
+            if ec == 0:
+                result['db_dropped'] = db_name
+                logger.info(f"[Deprovision:{slug}] dropped postgres DB {db_name}")
+            else:
+                result['db_error'] = out.decode('utf-8', errors='replace')[:200]
+        except Exception as e:
+            msg = str(e)
+            if 'Not Found' in msg or '404' in msg:
+                pass  # paperless-postgres not running — nothing to drop
+            else:
+                result['db_error'] = msg[:200]
+                logger.warning(f"[Deprovision:{slug}] postgres drop {db_name}: {e}")
+
+    # 3. Strip nginx block and reload
+    try:
+        result['nginx_block_removed'] = _remove_nginx_project_block(slug)
+        if result['nginx_block_removed'] and dc is not None:
+            try:
+                nginx_c = dc.containers.get('nginx')
+                nginx_c.exec_run(['nginx', '-s', 'reload'])
+                result['nginx_reloaded'] = True
+                logger.info(f"[Deprovision:{slug}] nginx reloaded")
+            except Exception as e:
+                result['nginx_error'] = str(e)[:200]
+                logger.warning(f"[Deprovision:{slug}] nginx reload failed (non-fatal): {e}")
+    except Exception as e:
+        result['nginx_error'] = str(e)[:200]
+        logger.warning(f"[Deprovision:{slug}] nginx block removal: {e}")
+
+    # Drop the cached project client so future calls don't reuse stale config
+    try:
+        _project_client_cache.pop(slug, None)
+    except Exception:
+        pass
+
+    return result
+
+
 def _provision_project_paperless(slug: str) -> None:
     """Daemon thread: spin up a dedicated Paperless-ngx instance for the given project."""
     import secrets as _secrets
