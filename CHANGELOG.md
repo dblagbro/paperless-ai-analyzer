@@ -4,6 +4,54 @@ All notable changes to Paperless AI Analyzer are documented here.
 
 ---
 
+## v3.9.13 — 2026-04-27
+
+### Fixes
+
+- **Project deletion now actually deletes the per-project Paperless stack.**
+  Previously `DELETE /api/projects/<slug>` removed only the analyzer DB row
+  and ChromaDB collection, leaving `paperless-web-<slug>` and
+  `paperless-consumer-<slug>` containers running, the `paperless_<slug>`
+  postgres database in place, and the auto-generated nginx location block
+  serving 502s. Across the regression test runs that load this code path
+  hardest, those orphans accumulated until the host was running 6+ stale
+  Paperless stacks.
+
+  New helper `deprovision_project_paperless(slug)` in
+  `analyzer/services/project_provisioning_service.py`. Idempotent — safe to
+  call when only some resources exist. Returns a structured summary that
+  the route surfaces in the API response under the `deprovision` key:
+
+  ```json
+  {
+    "success": true,
+    "deprovision": {
+      "containers_removed": ["paperless-web-foo", "paperless-consumer-foo"],
+      "container_errors": [],
+      "db_dropped": "paperless_foo",
+      "db_error": null,
+      "nginx_block_removed": true,
+      "nginx_reloaded": true,
+      "nginx_error": null
+    }
+  }
+  ```
+
+  The deprovision call runs *before* `project_manager.delete_project()`, so
+  if anything fails the project still removes from the analyzer DB but the
+  caller sees what was left behind.
+
+### Drive-by fix (manual, not in code)
+
+- Dev's `robinhoodproperties` project had `paperless_doc_base_url` set to
+  `https://www.voipguru.org/paperless-robinhoodproperties` — an nginx
+  location whose config file is `.disabled`. Updated to
+  `https://www.voipguru.org/paperless` (the working shared route — doc 5
+  and friends still live there with the `project:robinhoodproperties` tag).
+  Fixes the "Document not found" symptom on Search & Analysis link clicks.
+
+---
+
 ## v3.9.12 — 2026-04-27
 
 ### Fixes

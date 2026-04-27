@@ -168,12 +168,30 @@ def api_update_project(slug):
 @bp.route('/api/projects/<slug>', methods=['DELETE'])
 @login_required
 def api_delete_project(slug):
-    """Delete project."""
+    """Delete project.
+
+    v3.9.13: also tear down provisioned per-project resources (containers,
+    postgres DB, nginx block) so the host doesn't accumulate orphans across
+    test/regression runs. Previously delete only removed the analyzer DB row
+    and ChromaDB data, leaving stale `paperless-web-<slug>`,
+    `paperless-consumer-<slug>` containers, the `paperless_<slug>` postgres
+    database, and the auto-generated nginx location block — those then
+    surfaced as 502s on future curl checks and required manual cleanup.
+    """
     if not current_app.project_manager:
         return jsonify({'error': 'Project management not enabled'}), 503
 
     try:
         delete_data = request.args.get('delete_data', type=bool, default=True)
+
+        # Tear down provisioned resources first (idempotent — safe even if
+        # this project never had its own Paperless instance).
+        deprovision_summary = None
+        try:
+            from analyzer.services.project_provisioning_service import deprovision_project_paperless
+            deprovision_summary = deprovision_project_paperless(slug)
+        except Exception as e:
+            logger.warning(f"Deprovision step for {slug} failed (continuing): {e}")
 
         if delete_data:
             from analyzer.vector_store import VectorStore
@@ -185,7 +203,10 @@ def api_delete_project(slug):
 
         if success:
             logger.info(f"Deleted project: {slug}")
-            return jsonify({'success': True, 'message': f'Project {slug} deleted'})
+            payload = {'success': True, 'message': f'Project {slug} deleted'}
+            if deprovision_summary:
+                payload['deprovision'] = deprovision_summary
+            return jsonify(payload)
         else:
             return jsonify({'error': 'Failed to delete project'}), 500
 
