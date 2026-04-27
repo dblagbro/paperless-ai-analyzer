@@ -4,6 +4,25 @@ All notable changes to Paperless AI Analyzer are documented here.
 
 ---
 
+## v3.9.12 — 2026-04-27
+
+### Fixes
+
+- **`/api/system-health` no longer reports false `error` for `paperless_api`
+  and `chromadb` under load.** The per-component timeout was 1.8s — too
+  tight for a Paperless TCP+HTTP roundtrip or a Chroma `collection.count()`
+  walk on a project with thousands of rows. Probes that simply ran longer
+  than 1.8s were caught at the `future.result(timeout=…)` layer and
+  reported as `error: Check failed: …`, which lit the dashboard red even
+  though the services were healthy.
+- Bumped `HEALTH_TIMEOUT` 1.8s → 6s (real failures still surface; slow ≠
+  down).
+- Distinguish probe-timeout from probe-exception: timeouts now return
+  `warning` with detail `"Probe exceeded 6s — component slow, not down"`
+  instead of being conflated with actual exceptions.
+
+---
+
 ## v3.9.11 — 2026-04-24
 
 ### Fixes

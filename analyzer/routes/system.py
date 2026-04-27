@@ -28,7 +28,12 @@ except ImportError:
 PAPERLESS_CONTAINERS = [
     'paperless-web', 'paperless-consumer', 'paperless-redis', 'paperless-postgres',
 ]
-HEALTH_TIMEOUT = 1.8  # seconds per component
+# v3.9.12: bumped 1.8s → 6s. Paperless health_check() does a TCP+HTTP roundtrip
+# (with potential 401 retry) and chromadb count() walks sqlite — both routinely
+# exceed 1.8s under any real load and were being reported as `error` even
+# though the services were healthy. 6s gives real failures time to surface
+# while not gating the dashboard for too long.
+HEALTH_TIMEOUT = 6.0  # seconds per component
 
 _own_container_name_cache = None
 
@@ -425,6 +430,7 @@ def api_system_health():
         'projects_containers': (lambda: _check_project_containers(dc)),
     }
 
+    from concurrent.futures import TimeoutError as FuturesTimeoutError
     results = {}
     with ThreadPoolExecutor(max_workers=7) as executor:
         futures = {executor.submit(fn): name for name, fn in checks.items()}
@@ -432,6 +438,15 @@ def api_system_health():
             name = futures[future]
             try:
                 results[name] = future.result(timeout=HEALTH_TIMEOUT)
+            except FuturesTimeoutError:
+                # The probe itself didn't fail — it just exceeded HEALTH_TIMEOUT.
+                # Report `warning`, not `error`, so the dashboard doesn't paint
+                # red on a slow component that's still serving traffic.
+                results[name] = {
+                    'status': 'warning',
+                    'latency_ms': int(HEALTH_TIMEOUT * 1000),
+                    'detail': f'Probe exceeded {HEALTH_TIMEOUT:g}s — component slow, not down',
+                }
             except Exception as e:
                 results[name] = {'status': 'error', 'latency_ms': 0, 'detail': f'Check failed: {str(e)[:60]}'}
 
