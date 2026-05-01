@@ -150,23 +150,64 @@ def delete_endpoint(eid):
 @login_required
 @_admin_required
 def test_endpoint(eid):
-    """Send a minimal ping request through the endpoint. Returns ok/model/error.
-    Marks circuit-breaker success/failure."""
+    """Liveness ping for the endpoint. Returns ok + the proxy's reported
+    health summary, or ok=False with the error.
+
+    v3.9.16: switched from a 5-token chat completion to ``GET /health``
+    per the proxy team's guidance — cheaper, more informative, and
+    doesn't burn an LLM call to verify reachability. Falls back to a
+    chat completion if the endpoint URL doesn't expose /health (legacy
+    v1 endpoints).
+    """
     ep = llm_proxy_get(eid)
     if not ep:
         return jsonify({'error': 'Endpoint not found'}), 404
 
+    import requests as _rq
+    base = ep['url'].rstrip('/')
+    if base.endswith('/v1'):
+        base = base[:-3]
+    headers = {}
+    version = int(ep.get('version', 1))
+    if version == 2:
+        headers['x-api-key'] = ep['api_key']
+    else:
+        headers['Authorization'] = f"Bearer {ep['api_key']}"
+
     try:
-        client = proxy_manager.build_client(ep)
-        resp = client.chat.completions.create(
-            model='gpt-4o-mini',
-            messages=[{'role': 'user', 'content': 'ping'}],
-            max_tokens=5,
-            timeout=15.0,
-        )
-        model_used = getattr(resp, 'model', 'unknown')
-        proxy_manager.mark_success(eid)
-        return jsonify({'ok': True, 'model': model_used})
+        r = _rq.get(f"{base}/health", headers=headers, timeout=8)
+        if r.status_code == 200:
+            try:
+                payload = r.json()
+            except Exception:
+                payload = {}
+            proxy_manager.mark_success(eid)
+            return jsonify({
+                'ok': True,
+                'health': payload,
+                'status': payload.get('status', 'healthy'),
+                'version': payload.get('version'),
+                'healthy_providers': payload.get('healthyProviders'),
+                'total_providers': payload.get('totalProviders'),
+            })
+        # Some legacy endpoints don't ship /health — fall through to chat ping
+        if r.status_code == 404:
+            try:
+                client = proxy_manager.build_client(ep)
+                resp = client.chat.completions.create(
+                    model='gpt-4o-mini',
+                    messages=[{'role': 'user', 'content': 'ping'}],
+                    max_tokens=5,
+                    timeout=15.0,
+                )
+                proxy_manager.mark_success(eid)
+                return jsonify({'ok': True, 'model': getattr(resp, 'model', 'unknown'),
+                                'detail': '/health 404 — fell through to chat ping'})
+            except Exception as e2:
+                proxy_manager.mark_failure(eid)
+                return jsonify({'ok': False, 'error': str(e2)[:300]}), 200
+        proxy_manager.mark_failure(eid)
+        return jsonify({'ok': False, 'error': f'/health returned HTTP {r.status_code}'}), 200
     except Exception as e:
         proxy_manager.mark_failure(eid)
         logger.warning(f"[llm-proxy] test endpoint {eid} failed: {e}")
