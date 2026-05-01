@@ -10,6 +10,81 @@ Advanced AI-powered anomaly detection and risk analysis microservice for [Paperl
 
 ---
 
+## What's New in v3.9.10 – v3.9.17
+
+A 7-version arc focused on **operational reliability** and **LLM proxy
+integration depth**. No functional regressions; behavior preserved at
+every step.
+
+**v3.9.10 — Docker image diet (7.73 GB → 3.84 GB).** Install CPU-only
+torch first so the transitive torch dep pulled by `unstructured[pdf]`
+never fetches the default CUDA wheel. Removed: `nvidia-*` runtime
+(~2.7 GB), `triton` GPU compiler (~640 MB), torch shrinks 1.2 GB → 250 MB.
+New `.dockerignore` keeps build context lean.
+
+**v3.9.11 — Manage Projects "analyzed" count fixed.** `_embed_ci_run_findings`
+stored Case Intelligence artifacts in the same Chroma collection as
+document embeddings using string IDs like `ci:<run>:timeline:<id>`,
+which `collection.count()` was conflating with real docs (prod showed
+"6023 analyzed" with only 808 real docs). `get_statistics()` now splits
+into `document_count` + `ci_finding_count`. New "🧹 Clean Stale" admin
+button purges Chroma rows whose Paperless doc no longer exists.
+
+**v3.9.12 — `/api/system-health` no longer red-flags healthy services.**
+`HEALTH_TIMEOUT` 1.8 s → 6 s; probe timeouts now return `warning`
+("slow ≠ down") instead of being conflated with real exceptions.
+
+**v3.9.13 — Project deletion cleans up its provisioned stack.** New
+`deprovision_project_paperless()` helper removes the per-project
+`paperless-web-<slug>` + `paperless-consumer-<slug>` containers, drops
+the postgres database, strips the auto-managed nginx block, and reloads
+nginx. Idempotent. Wired into `DELETE /api/projects/<slug>`. Closes
+the regression-test orphan-accumulation hole.
+
+**v3.9.14 — LMRH dim-based routing.** Builder rewritten per the
+LMRH 1.0 spec: emits `task` + `cost` (economy/standard/premium) +
+`safety-min` + `context-length` instead of hardcoded `model-pref`.
+Proxy picks the right model+provider; if a cheaper Haiku ships,
+analyzer code doesn't change. 19 task presets covering core analysis +
+all Case Intelligence specialists. Backwards-compat: old `model_pref=`
+kwargs still accepted. New `proxy_manager.build_anthropic_client()` +
+`get_all_anthropic_clients()` returns native Anthropic SDK clients
+pre-pointed at the proxy pool — required for prompt caching with
+`cache_control` blocks.
+
+**v3.9.15 — Model-aware proxy dispatch + degraded-mode poller.**
+`call_llm()` now sends claude-* models + CI-director-tier tasks
+through native Anthropic SDK to `/v1/messages`; everything else uses
+OpenAI-compat `/v1/chat/completions`. Was needed because llm-proxy2
+routes claude-oauth (free Anthropic subscription) only via the
+Anthropic-format endpoint. Poller no longer hard-exits on initial
+Paperless health-check failure — logs `DEGRADED MODE` and proceeds
+(web UI / chat / RAG / LLM-proxy admin keep working without Paperless).
+Pool config: v2 promoted to priority 10 enabled; v1 demoted to
+priority 20 disabled (its container has been Exited for hours).
+
+**v3.9.16 — Verified gpt routes through proxy + `/health`-based test
+ping.** Per the LLM-Proxy team's confirmation, openai + google
+providers were already enabled at v3.0.26 (we were on stale info).
+End-to-end smoke confirmed: `task=classification` (gpt-4o-mini) and
+`task=extraction` (gpt-4o JSON mode) both route through the proxy
+now. All four major LLM call classes — Claude messages, GPT chat,
+Claude analysis, GPT classification — flow through llm-proxy2.
+Admin "Test endpoint" button switched from a 5-token chat completion
+to `GET /health` (cheaper, more informative — returns proxy version
+plus provider counts; falls through to chat-ping on 404 for legacy
+v1 endpoints).
+
+**v3.9.17 — docs rollup + clean Hub image rebuild.** This release.
+Documentation brought back in sync with v3.9.10 → v3.9.16.
+`architecture.md` updated with the new `analyzer/llm/` package,
+`regression/` folder, `deprovision_project_paperless` flow.
+`docker build --no-cache` so the published image picks up any base-image
+security updates that accumulated since v3.9.10. No code changes from
+v3.9.16.
+
+---
+
 ## What's New in v3.9.7 – v3.9.9
 
 Three consecutive maintainability refactor passes. No user-visible behavior
