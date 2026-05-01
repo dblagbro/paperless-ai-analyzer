@@ -4,6 +4,45 @@ All notable changes to Paperless AI Analyzer are documented here.
 
 ---
 
+## v3.9.14 — 2026-05-01
+
+### LMRH builder upgraded to dim-based routing
+
+Aligns with the LMRH 1.0 spec the proxy team finalized. Old builder
+hardcoded model names per call-site (``model-pref=claude-sonnet-4-6``)
+which forced a code change every time a new model shipped. New builder
+emits cognitive-task dims and lets the proxy pick the model:
+
+  - ``cost`` (economy / standard / premium) — per-task default in TASK_PRESETS
+  - ``safety-min`` (1-5) — set on document-analysis paths (legal docs)
+  - ``context-length`` — minimum tokens; CI director-tier hints 60k-80k
+
+19 task presets covering core analysis, chat, and all Case Intelligence
+specialists (entity / timeline / financial / contradiction / theory /
+forensic / discovery / witness / warroom / report / settlement).
+
+Backwards compatible: the old ``model_pref=`` and ``fallback_chain=``
+kwargs still work and emit the deprecated dims (proxy treats as soft
+preference). ``proxy_call.py`` call site unchanged.
+
+### New: native Anthropic SDK clients pointed at the proxy
+
+`proxy_manager.build_anthropic_client()` + `get_all_anthropic_clients()`.
+Required for callers that need Anthropic-native features the OpenAI
+compat shim can't express — primarily prompt caching with
+`cache_control` blocks, used by Case Intelligence director-tier
+(theory_planner, war_room, deep_financial_forensics) calls. The
+Anthropic SDK passes through to the proxy's `/v1/messages` endpoint.
+LMRH hint is pre-attached via `default_headers`.
+
+### New: `lmrh.get_hint(task)` convenience
+
+Operator can override any task's emitted hint at runtime by setting
+`lmrh.hint.<task>` in the settings table — tunes routing without a
+code change. Mirrors the coordinator-hub `get_lmrh_hint()` pattern.
+
+---
+
 ## v3.9.13 — 2026-04-27
 
 ### Fixes
