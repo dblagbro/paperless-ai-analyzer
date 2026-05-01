@@ -4,6 +4,48 @@ All notable changes to Paperless AI Analyzer are documented here.
 
 ---
 
+## v3.9.16 — 2026-05-01
+
+### Admin "Test" button uses /health, not a chat completion
+
+Per the LLM-Proxy team's guidance: ``GET /health`` is the canonical
+liveness probe for v2 endpoints, has been since v2.x, won't move.
+``test_endpoint()`` route now hits ``/health``, returns the proxy's
+own status payload (version, total/healthy provider counts), and
+falls through to a chat-completion ping only on 404 (legacy v1
+endpoints that don't expose ``/health``). Cheaper, more informative,
+no LLM call billed.
+
+### Verified working at the call_llm layer
+
+End-to-end smoke confirmed today after the proxy team enabled their
+openai + google providers (and answered Q3 "stale info — already
+enabled"):
+
+- ``task=classification`` → ``gpt-4o-mini`` → proxy → "Receipt." in 25→2 tokens
+- ``task=extraction`` → ``gpt-4o`` JSON mode → proxy → ``{"answer":"PONG"}``
+- ``task=chat`` / ``task=analysis`` → claude-sonnet-4-6 → proxy ``/v1/messages`` → claude-oauth (free)
+
+So all four major call classes now route through the proxy: Anthropic
+Claude via ``/v1/messages``, OpenAI GPT via ``/v1/chat/completions``.
+Direct-API fallback paths preserved for outages.
+
+### Backlog notes from the proxy team's reply
+
+- ``cache_control: ephemeral`` is forwarded by the proxy verbatim (Q2),
+  but ``claude-oauth`` subscription routing (which we use today) does
+  not return cache savings — observed both
+  ``cache_creation_input_tokens`` and ``cache_read_input_tokens`` as 0.
+  Wiring prompt-caching for CI director-tier deferred until either we
+  switch that traffic to a direct-API provider or claude-oauth gains
+  cache support.
+- ``safety-min`` is honored at routing-time (Q4); v3.9.15's
+  ``safety-min=3`` on doc analysis is enforced by the proxy scorer.
+- No rate-limit ceiling on our key today (Q5); ``rate_limit_rpm`` and
+  ``spending_cap_usd`` available if we want them.
+
+---
+
 ## v3.9.15 — 2026-05-01
 
 ### Poller no longer hard-exits on initial Paperless health-check failure
