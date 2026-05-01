@@ -166,9 +166,24 @@ paperless-ai-analyzer/
 │   │   ├── onedrive.py
 │   │   └── dropbox_adapter.py
 │   │
-│   ├── llm/                         # LLM client abstraction
+│   ├── llm/                         # LLM client abstraction (v3.9.0 + v3.9.14-15)
 │   │   ├── __init__.py
-│   │   └── llm_client.py            # Multi-provider client (Anthropic, OpenAI, Ollama, etc.)
+│   │   ├── llm_client.py            # Multi-provider client (Anthropic, OpenAI, Ollama, etc.)
+│   │   ├── proxy_manager.py         # Pool of llm-proxy endpoints (DB-backed in
+│   │   │                            # llm_proxy_endpoints), per-endpoint circuit
+│   │   │                            # breaker (3-fail / 60-s cooldown), v1=Bearer
+│   │   │                            # / v2=x-api-key auth. build_anthropic_client()
+│   │   │                            # for native /v1/messages calls (CI prompt
+│   │   │                            # caching, claude-oauth routing).
+│   │   ├── lmrh.py                  # LMRH 1.0 header builder. Dim-based routing:
+│   │   │                            # task=, cost=, safety-min=, context-length=,
+│   │   │                            # modality=. 19 task presets + get_hint()
+│   │   │                            # operator override via lmrh.hint.<task> setting.
+│   │   └── proxy_call.py            # Unified call_llm() — model-aware dispatch:
+│   │                                # claude-* + CI-director tasks via native
+│   │                                # Anthropic SDK to /v1/messages; everything
+│   │                                # else via OpenAI-compat /v1/chat/completions.
+│   │                                # Direct-provider SDK as last-resort fallback.
 │   │
 │   ├── extract/                     # Document text extraction
 │   │   └── unstructured_extract.py
@@ -232,7 +247,12 @@ paperless-ai-analyzer/
 ├── architecture.md                  # This file
 ├── design.md                        # UI/UX patterns and frontend conventions
 ├── contributing.md                  # Dev workflow, style guide, refactor rules
-└── refactor-log.md                  # Running log of architectural changes
+├── refactor-log.md                  # Running log of architectural changes
+└── regression/                      # Persistent regression test artifacts (v3.9.16+)
+    ├── README.md                    # How to run + pre-flight checklist
+    ├── full_regression_v2.py        # 712-test Playwright + API regression suite
+    ├── instance_medium.py           # 35-43 check medium-depth multi-instance smoke
+    └── run-*.log                    # Run logs (kept in git for diff/audit)
 ```
 
 ---

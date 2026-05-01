@@ -4,6 +4,31 @@ All notable changes to Paperless AI Analyzer are documented here.
 
 ---
 
+## v3.9.17 — 2026-05-01
+
+### Docs rollup + clean Hub image rebuild
+
+No code changes from v3.9.16. This release:
+
+- README "What's New" section brought back in sync — covers v3.9.10
+  through v3.9.17. Earlier section stopped at v3.9.9.
+- `architecture.md` updated:
+  - `analyzer/llm/` package now lists all 4 modules (`llm_client.py`,
+    `proxy_manager.py`, `lmrh.py`, `proxy_call.py`) with their
+    responsibilities — was just a single-file abstraction before.
+  - New top-level `regression/` folder added (was `/tmp`-only before
+    v3.9.16's commit moved scripts + logs into the repo).
+- Docker image rebuilt with ``--no-cache`` so the published image
+  picks up any base-image security updates that have accumulated since
+  v3.9.10's diet rebuild.
+
+Hub digest changes; rollback path unchanged. v3.9.16 image stays
+intact on Hub under its tag, so the existing
+``prod-rollback-pre-v3.9.17`` rollback chain remains a true v3.9.16
+rollback target.
+
+---
+
 ## v3.9.16 — 2026-05-01
 
 ### Admin "Test" button uses /health, not a chat completion
