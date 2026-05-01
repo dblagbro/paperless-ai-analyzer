@@ -305,10 +305,20 @@ class PollerMixin:
                 document_analyzer=self  # v1.5.0 - for re-analysis
             )
 
-        # Health check
+        # v3.9.15: do NOT hard-exit on initial health-check failure.
+        # When paperless-web is down (planned maintenance, OOM kill, etc.)
+        # the analyzer used to sys.exit(1), Docker would restart-policy=always
+        # us, the next start would also fail health-check, infinite loop.
+        # Web UI + chat + RAG + LLM-proxy admin all keep working without
+        # Paperless — only document polling needs it. Log loud, then proceed
+        # in degraded mode: poll loop will retry on its normal cadence.
         if not self.paperless.health_check():
-            logger.error("Paperless API health check failed, exiting")
-            sys.exit(1)
+            logger.error(
+                "Paperless API health check failed at startup — entering "
+                "DEGRADED MODE. Web UI + chat + LLM-proxy admin remain "
+                "available. Document polling will retry on its normal "
+                "interval and resume automatically when Paperless returns."
+            )
 
         # v2.0.5: On startup, automatically queue any Paperless docs not yet in processed_documents.
         # Runs once in a background thread 30 s after boot so the web UI is up first.

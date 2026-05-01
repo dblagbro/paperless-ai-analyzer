@@ -154,62 +154,123 @@ def call_llm(
     )
     send_model = model or _default_model_for_task(task)
 
+    # v3.9.15: model-aware dispatch through the proxy pool.
+    #
+    # llm-proxy2 v3.0.26 currently has only the `claude-oauth` provider
+    # enabled, which is Anthropic-format only. Hitting `/v1/chat/completions`
+    # (OpenAI-compat) returns 503 with the message "use /v1/messages or
+    # enable an openai/anthropic/google provider". We respect that:
+    #   - claude-* models  → Anthropic SDK → /v1/messages
+    #   - everything else  → OpenAI SDK    → /v1/chat/completions
+    # This gets free Claude routing through proxy's claude-oauth path
+    # while preserving the OpenAI-compat path for any future GPT calls.
+    is_anthropic = send_model.startswith("claude") or task in (
+        "reasoning", "theory", "warroom", "report", "settlement",
+        "forensic", "discovery", "witness",
+    )
+
     # ── Proxy pool path ────────────────────────────────────────────────
-    for client, eid in proxy_manager.get_all_clients():
-        label = f"proxy[{eid}]"
-        attempted.append(label)
-        started = time.time()
-        try:
-            kwargs: dict[str, Any] = {
-                "model": send_model,
-                "messages": messages,
-                "max_tokens": max_tokens,
-                "extra_headers": {"LLM-Hint": lmrh},
-                "timeout": timeout,
-            }
-            if temperature is not None:
-                kwargs["temperature"] = temperature
-            if response_format is not None:
-                kwargs["response_format"] = response_format
-            resp = client.chat.completions.create(**kwargs)
-
-            # Extract the assistant reply and usage
-            choice = resp.choices[0] if resp.choices else None
-            content = (choice.message.content or "") if choice and choice.message else ""
-            usage = getattr(resp, "usage", None)
-            in_tok = getattr(usage, "prompt_tokens", 0) if usage else 0
-            out_tok = getattr(usage, "completion_tokens", 0) if usage else 0
-            model_used = getattr(resp, "model", send_model) or send_model
-
-            proxy_manager.mark_success(eid)
-            _log_usage(usage_tracker, "llm-proxy", model_used, operation,
-                        in_tok, out_tok, document_id=document_id,
-                        success=True, endpoint_id=eid)
-            logger.info(
-                f"[llm-proxy] {eid} model={model_used} task={task} "
-                f"in={in_tok} out={out_tok} {time.time()-started:.2f}s"
-            )
-            return {
-                "content": content,
-                "provider": "llm-proxy",
-                "model": model_used,
-                "endpoint_id": eid,
-                "input_tokens": in_tok,
-                "output_tokens": out_tok,
-                "attempted": attempted,
-            }
-
-        except _CONNECTION_EXCEPTIONS as e:
-            logger.warning(f"[llm-proxy] {eid} connection error: {e} — trying next")
-            proxy_manager.mark_failure(eid)
-            continue
-        except Exception as e:
-            # Could be a 4xx/5xx from the proxy itself. Mark failure and try next,
-            # but DO NOT mark direct-provider errors as proxy failures.
-            msg = str(e)
-            logger.warning(f"[llm-proxy] {eid} call failed: {msg[:200]}")
-            proxy_manager.mark_failure(eid)
-            continue
+    if is_anthropic:
+        # Native Anthropic SDK against /v1/messages — what claude-oauth wants.
+        for ant_client, eid in proxy_manager.get_all_anthropic_clients(operation=task):
+            label = f"proxy[{eid}]:messages"
+            attempted.append(label)
+            started = time.time()
+            try:
+                ant_messages = [m for m in messages if m.get("role") != "system"]
+                system_msgs = [m["content"] for m in messages if m.get("role") == "system"]
+                ant_kwargs: dict[str, Any] = {
+                    "model": send_model,
+                    "max_tokens": max_tokens,
+                    "messages": ant_messages,
+                    "timeout": timeout,
+                }
+                if system_msgs:
+                    ant_kwargs["system"] = "\n\n".join(system_msgs)
+                if temperature is not None:
+                    ant_kwargs["temperature"] = temperature
+                resp = ant_client.messages.create(**ant_kwargs)
+                content = resp.content[0].text if resp.content else ""
+                in_tok = resp.usage.input_tokens
+                out_tok = resp.usage.output_tokens
+                model_used = getattr(resp, "model", send_model) or send_model
+                proxy_manager.mark_success(eid)
+                _log_usage(usage_tracker, "llm-proxy", model_used, operation,
+                            in_tok, out_tok, document_id=document_id,
+                            success=True, endpoint_id=eid)
+                logger.info(
+                    f"[llm-proxy] {eid} (messages) model={model_used} task={task} "
+                    f"in={in_tok} out={out_tok} {time.time()-started:.2f}s"
+                )
+                return {
+                    "content": content,
+                    "provider": "llm-proxy",
+                    "model": model_used,
+                    "endpoint_id": eid,
+                    "input_tokens": in_tok,
+                    "output_tokens": out_tok,
+                    "attempted": attempted,
+                }
+            except _CONNECTION_EXCEPTIONS as e:
+                logger.warning(f"[llm-proxy] {eid} (messages) connection error: {e}")
+                proxy_manager.mark_failure(eid)
+                continue
+            except Exception as e:
+                logger.warning(f"[llm-proxy] {eid} (messages) call failed: {str(e)[:200]}")
+                proxy_manager.mark_failure(eid)
+                continue
+    else:
+        # OpenAI-format dispatch via /v1/chat/completions — needs the proxy
+        # to have an openai/google provider enabled.
+        for client, eid in proxy_manager.get_all_clients():
+            label = f"proxy[{eid}]:chat"
+            attempted.append(label)
+            started = time.time()
+            try:
+                kwargs: dict[str, Any] = {
+                    "model": send_model,
+                    "messages": messages,
+                    "max_tokens": max_tokens,
+                    "extra_headers": {"LLM-Hint": lmrh},
+                    "timeout": timeout,
+                }
+                if temperature is not None:
+                    kwargs["temperature"] = temperature
+                if response_format is not None:
+                    kwargs["response_format"] = response_format
+                resp = client.chat.completions.create(**kwargs)
+                choice = resp.choices[0] if resp.choices else None
+                content = (choice.message.content or "") if choice and choice.message else ""
+                usage = getattr(resp, "usage", None)
+                in_tok = getattr(usage, "prompt_tokens", 0) if usage else 0
+                out_tok = getattr(usage, "completion_tokens", 0) if usage else 0
+                model_used = getattr(resp, "model", send_model) or send_model
+                proxy_manager.mark_success(eid)
+                _log_usage(usage_tracker, "llm-proxy", model_used, operation,
+                            in_tok, out_tok, document_id=document_id,
+                            success=True, endpoint_id=eid)
+                logger.info(
+                    f"[llm-proxy] {eid} model={model_used} task={task} "
+                    f"in={in_tok} out={out_tok} {time.time()-started:.2f}s"
+                )
+                return {
+                    "content": content,
+                    "provider": "llm-proxy",
+                    "model": model_used,
+                    "endpoint_id": eid,
+                    "input_tokens": in_tok,
+                    "output_tokens": out_tok,
+                    "attempted": attempted,
+                }
+            except _CONNECTION_EXCEPTIONS as e:
+                logger.warning(f"[llm-proxy] {eid} connection error: {e} — trying next")
+                proxy_manager.mark_failure(eid)
+                continue
+            except Exception as e:
+                msg = str(e)
+                logger.warning(f"[llm-proxy] {eid} call failed: {msg[:200]}")
+                proxy_manager.mark_failure(eid)
+                continue
 
     # ── Direct-provider last-resort path ───────────────────────────────
     logger.warning(

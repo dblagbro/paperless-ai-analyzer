@@ -4,6 +4,40 @@ All notable changes to Paperless AI Analyzer are documented here.
 
 ---
 
+## v3.9.15 — 2026-05-01
+
+### Poller no longer hard-exits on initial Paperless health-check failure
+
+When `paperless-web` was down and the analyzer container restarted (e.g.
+during a v3.9.14 image deploy), the poller would `sys.exit(1)`,
+docker-compose restart-policy would respawn us, the next start would
+also fail health-check — infinite restart loop. Discovered today during
+the v3.9.14 prod deploy.
+
+`analyzer/poller.py:309` now logs **"DEGRADED MODE"** and proceeds. Web
+UI, AI Chat, RAG search, LLM-proxy admin, and document upload all work
+without Paperless. Document polling retries on its normal cadence and
+resumes automatically when Paperless returns. No restart-loop.
+
+### llm-proxy2 (v2) promoted to pool primary
+
+The v2 endpoint was seeded at v3.9.0 but disabled by default. Per the
+proxy team's confirmation today, the **claude-oauth subscription path
+on v2 is free for chat-class traffic** — every call we route through
+v2 takes pressure off the depleted Anthropic direct-API key.
+
+Migration applied via SQL update on all 3 instances:
+
+  - `llm-proxy2 (v2)`        priority **10**, enabled (was: 20, disabled)
+  - `llm-proxy-manager (v1)` priority **20**, disabled (was: 10, enabled)
+
+v1's container has been Exited (0) for ~6h; demoting it removes the
+"try v1 first, fall through" 1-second tax on every LLM call. The pool's
+circuit breaker still isolates v2 if it ever misbehaves and the row can
+be re-enabled by an admin via Config → 🛰 LLM Proxy.
+
+---
+
 ## v3.9.14 — 2026-05-01
 
 ### LMRH builder upgraded to dim-based routing
