@@ -56,30 +56,40 @@ _CONNECTION_EXCEPTIONS = (
 )
 
 
-def _default_model_for_task(task: str, fallback: str = "gpt-4o") -> str:
+def _default_model_for_task(task: str, fallback: str = "claude-sonnet-4-6") -> str:
     """Pick a safe default model when caller doesn't specify one.
 
-    The proxy will re-route based on LMRH model-pref anyway, but the SDK
-    call requires *some* model name in the request body.
+    v3.9.18 emergency change: defaults flipped from gpt-4o to claude-sonnet-4-6
+    on every task. The previous gpt-4o defaults caused every uninstrumented
+    analyzer call to route through the proxy's OpenAI provider, which was
+    bound to the operator's PERSONAL OpenAI subscription. Two days of bulk
+    legal-review polling consumed 17,008 OpenAI calls / $151.43 of personal
+    credits before the proxy team flagged it (2026-05-02).
+
+    Until paperless-ai-analyzer has its own paid OpenAI key, every default
+    model here MUST be a claude-* model so the proxy can route the call to
+    its free claude-oauth subscription (Anthropic). All call sites that
+    actually need a non-Claude model must pass ``model=`` explicitly AND
+    ensure their LMRH hint allows non-Anthropic routing.
     """
     MAP = {
-        "chat":           "gpt-4o",
-        "qa":             "gpt-4o",
-        "analysis":       "gpt-4o",
-        "extraction":     "gpt-4o",
-        "classification": "gpt-4o-mini",
-        "reasoning":      "gpt-4o",
-        "entity":         "gpt-4o",
-        "timeline":       "gpt-4o",
-        "financial":      "gpt-4o",
-        "contradiction":  "gpt-4o",
-        "theory":         "gpt-4o",
-        "forensic":       "gpt-4o",
-        "discovery":      "gpt-4o",
-        "witness":        "gpt-4o",
-        "warroom":        "gpt-4o",
-        "report":         "gpt-4o",
-        "settlement":     "gpt-4o",
+        "chat":           "claude-sonnet-4-6",
+        "qa":             "claude-sonnet-4-6",
+        "analysis":       "claude-sonnet-4-6",
+        "extraction":     "claude-sonnet-4-6",
+        "classification": "claude-haiku-4-5",
+        "reasoning":      "claude-opus-4-7",
+        "entity":         "claude-sonnet-4-6",
+        "timeline":       "claude-sonnet-4-6",
+        "financial":      "claude-sonnet-4-6",
+        "contradiction":  "claude-sonnet-4-6",
+        "theory":         "claude-opus-4-7",
+        "forensic":       "claude-sonnet-4-6",
+        "discovery":      "claude-sonnet-4-6",
+        "witness":        "claude-sonnet-4-6",
+        "warroom":        "claude-opus-4-7",
+        "report":         "claude-opus-4-7",
+        "settlement":     "claude-opus-4-7",
     }
     return MAP.get(task, fallback)
 
@@ -154,20 +164,21 @@ def call_llm(
     )
     send_model = model or _default_model_for_task(task)
 
-    # v3.9.15: model-aware dispatch through the proxy pool.
+    # v3.9.18 emergency: pin EVERY call to the Anthropic /v1/messages path.
+    # Previously the model-aware dispatch routed gpt-* requests to the
+    # OpenAI-compat /v1/chat/completions endpoint, which hit the proxy's
+    # OpenAI provider — bound to the operator's personal subscription.
+    # Two days of bulk legal-review polling burned $151.43 of personal
+    # credits before the proxy team flagged it (2026-05-02).
     #
-    # llm-proxy2 v3.0.26 currently has only the `claude-oauth` provider
-    # enabled, which is Anthropic-format only. Hitting `/v1/chat/completions`
-    # (OpenAI-compat) returns 503 with the message "use /v1/messages or
-    # enable an openai/anthropic/google provider". We respect that:
-    #   - claude-* models  → Anthropic SDK → /v1/messages
-    #   - everything else  → OpenAI SDK    → /v1/chat/completions
-    # This gets free Claude routing through proxy's claude-oauth path
-    # while preserving the OpenAI-compat path for any future GPT calls.
-    is_anthropic = send_model.startswith("claude") or task in (
-        "reasoning", "theory", "warroom", "report", "settlement",
-        "forensic", "discovery", "witness",
-    )
+    # Until paperless-ai-analyzer provisions its own paid OpenAI/Google
+    # key, ALL traffic must use claude-oauth (free) via /v1/messages.
+    # `_default_model_for_task()` was also flipped to claude-* defaults
+    # so the request body's `model` field matches the routed provider.
+    # If a caller explicitly passes a gpt-* model, the LMRH
+    # `fallback-chain=anthropic;require` hint will cause the proxy to
+    # reject the call rather than route to OpenAI.
+    is_anthropic = True
 
     # ── Proxy pool path ────────────────────────────────────────────────
     if is_anthropic:

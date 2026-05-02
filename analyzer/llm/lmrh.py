@@ -93,6 +93,12 @@ def build_lmrh_header(
     context_length: Optional[int] = None,
     has_images: bool = False,
     extras: Optional[dict] = None,
+    # v3.9.18 emergency: when True (default), append `fallback-chain=anthropic
+    # ;require` so the proxy hard-rejects any routing decision that would land
+    # on a non-Anthropic provider. Prevents inadvertent OpenAI/Google billing
+    # to the operator's personal subscription. Set False ONLY if AI Analyzer
+    # has provisioned its own paid OpenAI/Google key on the proxy.
+    pin_to_anthropic: bool = True,
     # ── Backwards-compat kwargs (paperless v3.9.0 era) ──────────────
     model_pref: Optional[str] = None,
     fallback_chain: Optional[str] = None,
@@ -142,6 +148,12 @@ def build_lmrh_header(
         parts.append(f"model-pref={model_pref}")
     if fallback_chain:
         parts.append(f"fallback-chain={fallback_chain}")
+    elif pin_to_anthropic:
+        # Hard-constraint: proxy MUST route to an Anthropic provider, no
+        # exceptions. Free claude-oauth subscription only. Without this,
+        # default-model fallbacks to gpt-* would hit the operator's
+        # personal OpenAI subscription. v3.9.18 emergency.
+        parts.append("fallback-chain=anthropic;require")
     if extras:
         for k, v in extras.items():
             key = str(k).lower().replace("_", "-")

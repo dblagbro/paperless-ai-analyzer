@@ -4,6 +4,70 @@ All notable changes to Paperless AI Analyzer are documented here.
 
 ---
 
+## v3.9.18 — 2026-05-02 — EMERGENCY: stop OpenAI personal-credit burn
+
+The LLM-Proxy team flagged that paperless-ai-analyzer's bulk legal-review
+polling consumed **17,008 OpenAI calls / $151.43** in 48h through the
+proxy's "Devin Personal OpenAI ChatGPT" provider — bound to the
+operator's personal subscription, not AI Analyzer team billing. Operator
+out of personal credits. A $0.01 per-key spending cap has been recommended
+on our key going forward.
+
+### Root cause
+
+Three converging defaults sent every uninstrumented analyzer call to OpenAI:
+
+1. `proxy_call._default_model_for_task()` defaulted **every** task to
+   `gpt-4o` / `gpt-4o-mini`. Any call site that didn't pass `model=` got
+   gpt-*.
+2. `is_anthropic` model-aware dispatch only used the Anthropic
+   `/v1/messages` path when `model.startswith("claude")` OR `task` was a
+   CI-director-tier label. Default gpt-* model → OpenAI-compat
+   `/v1/chat/completions` → proxy routed to OpenAI provider.
+3. LMRH builder didn't pin provider chain. Proxy was free to pick OpenAI
+   based on cost+score even when the call could have run on Claude.
+
+### Three-layer fix
+
+1. **`_default_model_for_task` flipped to claude-* on every task.** Default
+   for analysis/chat/qa/extraction/entity/timeline/financial/contradiction/
+   forensic/discovery/witness is `claude-sonnet-4-6`. Classification gets
+   `claude-haiku-4-5`. Reasoning/theory/warroom/report/settlement get
+   `claude-opus-4-7`.
+2. **`is_anthropic` widened to always-True.** Every proxy pool call now
+   uses the native Anthropic SDK against `/v1/messages` — the path
+   `claude-oauth` (free Anthropic subscription) routes through. The
+   OpenAI-compat branch is still in code for the future when AI Analyzer
+   has its own paid OpenAI key, but it's currently unreachable from the
+   `call_llm()` entry point.
+3. **`build_lmrh_header()` adds `fallback-chain=anthropic;require` by
+   default.** Hard-constraint: proxy MUST land on an Anthropic provider.
+   Even if a future caller passes `model=gpt-4o` explicitly, the proxy
+   refuses to route to OpenAI rather than billing the operator. New
+   `pin_to_anthropic` kwarg lets callers opt out once an AI-Analyzer-paid
+   OpenAI key is provisioned.
+
+### Operational state at ship
+
+- All proxy endpoints DISABLED in DB on all 3 instances (immediate stop
+  of the burn while patches were being written).
+- After v3.9.18 deploys, v2 endpoint will be re-enabled with the new code.
+  All paperless LLM traffic will route through `proxy → claude-oauth → /v1/
+  messages → Anthropic`. Free for AI Analyzer.
+
+### Open follow-ups
+
+- [ ] Coordinate with operator on whether to provision AI Analyzer's own
+      paid OpenAI key. If yes, flip `pin_to_anthropic=False` for
+      task=extraction (gpt-4o JSON mode is meaningfully better than Claude
+      for structured-data extraction).
+- [ ] Check if the analyzer's poller has a cap on calls/min — 17,008 calls
+      in 48h is ~6 calls/min sustained, suggests no rate limiter on the
+      poll loop. If a future provider gets capped, this loop will retry
+      hard and surface as alerts.
+
+---
+
 ## v3.9.17 — 2026-05-01
 
 ### Docs rollup + clean Hub image rebuild
