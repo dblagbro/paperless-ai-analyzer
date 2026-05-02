@@ -42,44 +42,61 @@ from __future__ import annotations
 from typing import Optional
 
 
-# Per-task default preset. Picked to match the ops-recommended pattern:
-#   - Cheap classification / extraction               → economy
-#   - Doc analysis / summaries / chat (mid-volume)    → standard
-#   - Reasoning-heavy / Case Intelligence director    → premium
+# Per-task default preset.
+#
+# v3.9.19 cost-discipline rebalance after the 2026-05-02 burn incident:
+# **every task that runs in a high-volume loop is `cost=economy`**.
+# Only multi-document synthesis tasks the operator explicitly invokes
+# (Case Intelligence director-tier, Tier-5 reports) escalate to
+# `cost=standard`. No task escalates to `cost=premium` by default —
+# operators can opt in via the explicit kwarg if a specific report
+# truly needs Opus-class quality.
+#
+# Why economy is fine for analysis: the doc-analysis pipeline runs over
+# *every* document the user uploads. At 6 calls/min sustained on the
+# poller, even sonnet-class pricing is meaningful spend. Haiku-class
+# is plenty for "extract amount/date/category/tags from a financial
+# document". The LMRH `task=analysis, cost=economy` hint tells the
+# proxy "give me the cheapest provider that's solid at analysis" —
+# typically claude-haiku, which costs ~10× less than sonnet.
+#
 # safety-min=3 is set on document analysis paths — these often handle
 # legal documents and we want providers with reasonable refusal floors.
 TASK_PRESETS: dict[str, dict] = {
-    # ── Core anomaly + document analysis pipeline ────────────────────
-    "analysis":         {"cost": "standard", "safety-min": 3},
+    # ── Core anomaly + document analysis pipeline (high-volume polling) ──
+    "analysis":         {"cost": "economy", "safety-min": 3},
     "extraction":       {"cost": "economy"},
     "classification":   {"cost": "economy"},
+    "summarize":        {"cost": "economy"},
 
-    # ── Chat + Q&A ───────────────────────────────────────────────────
-    "chat":             {"cost": "premium"},
-    "qa":               {"cost": "standard"},
+    # ── Chat + Q&A (interactive, latency matters more than depth) ────
+    "chat":             {"cost": "economy"},
+    "qa":               {"cost": "economy"},
 
-    # ── Case Intelligence specialists ────────────────────────────────
-    "entity":           {"cost": "standard"},
-    "timeline":         {"cost": "standard"},
-    "financial":        {"cost": "standard"},
-    "contradiction":    {"cost": "standard"},
+    # ── Case Intelligence specialists (per-doc, high-volume) ─────────
+    "entity":           {"cost": "economy"},
+    "timeline":         {"cost": "economy"},
+    "financial":        {"cost": "economy"},
+    "contradiction":    {"cost": "economy"},
 
-    # Director / synthesis tier — premium + long context
-    "reasoning":        {"cost": "premium", "context-length": 80000},
-    "theory":           {"cost": "premium", "context-length": 60000},
-    "warroom":          {"cost": "premium", "context-length": 80000},
-    "report":           {"cost": "premium", "context-length": 60000},
-    "settlement":       {"cost": "premium"},
+    # ── Director / synthesis tier — operator-invoked, multi-doc input ─
+    # These run a small number of times per case and synthesise across
+    # everything the specialists produced. Sonnet-class quality is the
+    # right tradeoff. Long context-length tells the proxy to skip
+    # short-context models even if they'd score higher otherwise.
+    "reasoning":        {"cost": "standard", "context-length": 80000},
+    "theory":           {"cost": "standard", "context-length": 60000},
+    "warroom":          {"cost": "standard", "context-length": 80000},
+    "report":           {"cost": "standard", "context-length": 60000},
+    "settlement":       {"cost": "standard"},
 
-    # Specialist analysts (forensic/discovery/witness) — premium quality
-    "forensic":         {"cost": "premium", "context-length": 60000},
-    "discovery":        {"cost": "premium", "context-length": 60000},
-    "witness":          {"cost": "premium"},
+    # ── Specialist analysts — operator-invoked drill-downs ───────────
+    "forensic":         {"cost": "standard", "context-length": 60000},
+    "discovery":        {"cost": "standard", "context-length": 60000},
+    "witness":          {"cost": "standard"},
 
-    # Vision / image-modality calls (forensics OCR, etc.)
-    "vision":           {"cost": "standard"},
-
-    # Embeddings (Cohere/OpenAI — proxy may also route)
+    # ── Vision / embeddings ──────────────────────────────────────────
+    "vision":           {"cost": "economy"},
     "embed":            {"cost": "economy"},
 }
 

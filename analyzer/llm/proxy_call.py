@@ -56,42 +56,36 @@ _CONNECTION_EXCEPTIONS = (
 )
 
 
-def _default_model_for_task(task: str, fallback: str = "claude-sonnet-4-6") -> str:
-    """Pick a safe default model when caller doesn't specify one.
+def _default_model_for_task(task: str, fallback: str = "claude-haiku-4-5") -> str:
+    """Return the *cheapest* model name to put in the SDK request body.
 
-    v3.9.18 emergency change: defaults flipped from gpt-4o to claude-sonnet-4-6
-    on every task. The previous gpt-4o defaults caused every uninstrumented
-    analyzer call to route through the proxy's OpenAI provider, which was
-    bound to the operator's PERSONAL OpenAI subscription. Two days of bulk
-    legal-review polling consumed 17,008 OpenAI calls / $151.43 of personal
-    credits before the proxy team flagged it (2026-05-02).
+    v3.9.19 — proper LMRH integration. The previous version (v3.9.18)
+    hardcoded specific tiers per task (sonnet for analysis, opus for
+    director-tier, etc.). That's exactly the anti-pattern the LMRH 1.0
+    spec calls out: it forces a model choice in code, defeating the
+    proxy's ability to pick the cheapest model that satisfies the
+    task's actual requirements.
 
-    Until paperless-ai-analyzer has its own paid OpenAI key, every default
-    model here MUST be a claude-* model so the proxy can route the call to
-    its free claude-oauth subscription (Anthropic). All call sites that
-    actually need a non-Claude model must pass ``model=`` explicitly AND
-    ensure their LMRH hint allows non-Anthropic routing.
+    The right pattern: send the cheapest valid model in the SDK request
+    body (so if the proxy ignores LMRH for any reason we still bill
+    cheaply) and let LMRH dims (``task=``, ``cost=``, ``safety-min=``,
+    ``context-length=``) drive the actual routing decision. The proxy's
+    LMRH 1.0 scorer evaluates every available provider against those
+    dims and picks the best match — which means:
+
+      - ``cost=economy`` calls land on haiku-class models
+      - ``cost=standard`` calls land on sonnet-class models
+      - ``cost=premium`` calls land on opus-class models
+      - Cheaper haiku-class shipping tomorrow → proxy auto-picks it.
+
+    Code stays unchanged across model-tier upgrades. This is the
+    point of LMRH.
+
+    Callers that actually need a specific model can still pass
+    ``model=`` explicitly to ``call_llm()`` — that overrides this
+    default — but nothing in the AI Analyzer codebase should need to.
     """
-    MAP = {
-        "chat":           "claude-sonnet-4-6",
-        "qa":             "claude-sonnet-4-6",
-        "analysis":       "claude-sonnet-4-6",
-        "extraction":     "claude-sonnet-4-6",
-        "classification": "claude-haiku-4-5",
-        "reasoning":      "claude-opus-4-7",
-        "entity":         "claude-sonnet-4-6",
-        "timeline":       "claude-sonnet-4-6",
-        "financial":      "claude-sonnet-4-6",
-        "contradiction":  "claude-sonnet-4-6",
-        "theory":         "claude-opus-4-7",
-        "forensic":       "claude-sonnet-4-6",
-        "discovery":      "claude-sonnet-4-6",
-        "witness":        "claude-sonnet-4-6",
-        "warroom":        "claude-opus-4-7",
-        "report":         "claude-opus-4-7",
-        "settlement":     "claude-opus-4-7",
-    }
-    return MAP.get(task, fallback)
+    return fallback
 
 
 def _log_usage(usage_tracker, provider: str, model: str, operation: str,
@@ -200,7 +194,14 @@ def call_llm(
                     ant_kwargs["system"] = "\n\n".join(system_msgs)
                 if temperature is not None:
                     ant_kwargs["temperature"] = temperature
-                resp = ant_client.messages.create(**ant_kwargs)
+                # v3.9.19: capture LLM-Capability response header so we can
+                # log "what the proxy actually picked" — visibility into
+                # whether the LMRH dims got the cheapest viable model.
+                # Uses with_raw_response so we get headers without losing
+                # the parsed message.
+                raw = ant_client.messages.with_raw_response.create(**ant_kwargs)
+                resp = raw.parse()
+                cap_header = raw.headers.get("LLM-Capability") or ""
                 content = resp.content[0].text if resp.content else ""
                 in_tok = resp.usage.input_tokens
                 out_tok = resp.usage.output_tokens
@@ -209,9 +210,15 @@ def call_llm(
                 _log_usage(usage_tracker, "llm-proxy", model_used, operation,
                             in_tok, out_tok, document_id=document_id,
                             success=True, endpoint_id=eid)
+                # Cost-discipline log: the LMRH-Capability header reveals
+                # what the proxy *actually* chose. If we asked for cost=
+                # economy and got back a sonnet/opus, this is the one
+                # place to spot it. ``cap_header`` is empty when the
+                # proxy didn't return the header (older proxy versions).
                 logger.info(
                     f"[llm-proxy] {eid} (messages) model={model_used} task={task} "
                     f"in={in_tok} out={out_tok} {time.time()-started:.2f}s"
+                    + (f" capability={cap_header}" if cap_header else "")
                 )
                 return {
                     "content": content,

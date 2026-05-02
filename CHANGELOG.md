@@ -4,6 +4,80 @@ All notable changes to Paperless AI Analyzer are documented here.
 
 ---
 
+## v3.9.19 — 2026-05-02 — proper LMRH integration + cost discipline
+
+The v3.9.18 emergency stopped the burn but kept the same anti-pattern
+the LMRH 1.0 spec calls out: hardcoded model names per task. Sonnet
+for analysis, Opus for director-tier, etc. The proxy team's own
+ops directive (locked in `lmrh.py`'s docstring) is unambiguous:
+
+  > Do NOT hardcode model names per operation. Let the proxy pick the
+  > best model+provider based on `task=` + `cost=` + `safety-min=` +
+  > `context-length=`. If Anthropic ships a cheaper Haiku tomorrow,
+  > the proxy auto-picks it. AI Analyzer code does not change.
+
+This release operationalizes that.
+
+### Changes
+
+**1. `_default_model_for_task()` collapsed to a single cheap default.**
+Returns `claude-haiku-4-5` for every task. The model name in the SDK
+request body is now just "the cheapest valid Claude" so that *if*
+the proxy ignores LMRH for any reason we still get cheap routing.
+LMRH dims drive the actual choice. Callers can still pass `model=`
+explicitly to override, but no AI Analyzer code does.
+
+**2. TASK_PRESETS rebalanced for cost discipline.**
+
+  | task | before | after |
+  |---|---|---|
+  | analysis | cost=standard | cost=economy |
+  | extraction | cost=economy | cost=economy |
+  | classification | cost=economy | cost=economy |
+  | chat | cost=premium | cost=economy |
+  | qa | cost=standard | cost=economy |
+  | entity / timeline / financial / contradiction | cost=standard | cost=economy |
+  | reasoning / theory / warroom / report / settlement | cost=premium | cost=standard |
+  | forensic / discovery / witness | cost=premium | cost=standard |
+  | vision / embed | cost=standard / economy | cost=economy |
+
+  **No task gets `cost=premium` by default.** Operators who actually
+  need Opus-class quality on a specific report can pass `cost="premium"`
+  explicitly. Default state is the cheapest tier that satisfies the
+  LMRH dims, which on claude-oauth means haiku-class for nearly
+  everything.
+
+**3. LLM-Capability response header now logged.** Each proxy call
+captures the proxy's `LLM-Capability` response header (via Anthropic
+SDK's `with_raw_response.create()`) and logs it alongside the call
+summary. If we ask for `cost=economy` and the proxy lands on a
+sonnet/opus model, that one log line surfaces it. Visibility for the
+next cost-discipline audit.
+
+**4. Documented the principle.** `_default_model_for_task()` and
+`TASK_PRESETS` both carry an inline comment explaining *why* the
+hardcoded model names were removed and what to do if a future change
+tempts someone to add them back.
+
+### What this means in practice
+
+For paperless-ai-analyzer's high-volume document-analysis loop —
+historically the source of the cost spike — every call now goes:
+
+  1. Anthropic SDK request body: `model=claude-haiku-4-5`
+  2. LLM-Hint header: `task=analysis, cost=economy, safety-min=3, fallback-chain=anthropic;require`
+  3. Proxy scorer picks the cheapest provider whose declared
+     capabilities cover task=analysis and cost=economy. On the
+     current proxy fleet (claude-oauth = Anthropic subscription),
+     that's haiku-class. Free.
+
+If the proxy ever has a non-Anthropic provider configured for AI
+Analyzer's billing-of-record (a future fix), `pin_to_anthropic=False`
+on the LMRH builder lets us widen the routing pool without code
+changes elsewhere.
+
+---
+
 ## v3.9.18 — 2026-05-02 — EMERGENCY: stop OpenAI personal-credit burn
 
 The LLM-Proxy team flagged that paperless-ai-analyzer's bulk legal-review
