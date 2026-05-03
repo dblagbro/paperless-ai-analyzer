@@ -133,6 +133,15 @@ def call_llm(
     direct_api_key: Optional[str] = None,
     direct_model: Optional[str] = None,
     timeout: float = 90.0,
+    # v3.9.21: when True, wrap the joined system content with
+    # ``cache_control: {type: "ephemeral"}`` so claude-oauth caches the
+    # stable prefix between calls. Default False (no cache) preserves
+    # current semantics for callers without a stable prefix. Use this on
+    # high-volume call sites that share the same system instructions
+    # across many documents (analyze_document_integrity, etc.) — the
+    # proxy team confirmed Anthropic Pro Max OAuth honors caller-side
+    # cache_control regardless of the auto-cache token threshold.
+    cache_system: bool = False,
 ) -> dict[str, Any]:
     """Send a chat/completion request through the proxy pool.
 
@@ -191,7 +200,19 @@ def call_llm(
                     "timeout": timeout,
                 }
                 if system_msgs:
-                    ant_kwargs["system"] = "\n\n".join(system_msgs)
+                    if cache_system:
+                        # v3.9.21: emit system as a content-blocks list with
+                        # cache_control ephemeral on the joined stable prefix
+                        # so claude-oauth caches it. Anthropic SDK accepts
+                        # either a string or a list of TextBlockParam dicts
+                        # for ``system``.
+                        ant_kwargs["system"] = [{
+                            "type": "text",
+                            "text": "\n\n".join(system_msgs),
+                            "cache_control": {"type": "ephemeral"},
+                        }]
+                    else:
+                        ant_kwargs["system"] = "\n\n".join(system_msgs)
                 if temperature is not None:
                     ant_kwargs["temperature"] = temperature
                 # v3.9.19: capture LLM-Capability response header so we can

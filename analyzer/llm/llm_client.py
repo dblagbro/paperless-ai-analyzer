@@ -502,14 +502,15 @@ Return ONLY valid JSON."""
                     related_context += f"   Relevance: {int(rdoc.get('relevance_score', 0) * 100)}%\n\n"
                 related_context += "IMPORTANT: If an issue appears to be missing information or contradictory, CHECK if it's explained in one of these related documents. If so, reference that document instead of flagging it as an issue.\n"
 
-            prompt = f"""Analyze this document for integrity issues, conflicts, and quality problems.
+            # v3.9.21: split the prompt — STABLE template into ``system``
+            # (with cache_control: ephemeral so claude-oauth caches it),
+            # VARIABLE per-doc payload into ``user``. The legal-review
+            # bulk job sends ~17k of these per period and the bulk of every
+            # prompt is the same instructions + format spec; caching that
+            # prefix collapses input-token cost on every call after the first.
+            system_prompt = """Analyze this document for integrity issues, conflicts, and quality problems.
 This is for LEGAL REVIEW - be thorough and precise.
 
-Document: {doc_title}
-Type: {doc_type}
-Content Preview (first 1500 chars):
-{content_preview[:1500]}
-{related_context}
 Analyze for these issues:
 
 1. SELF-CONFLICTS (internal contradictions)
@@ -594,10 +595,21 @@ IMPORTANT:
 - Consider legal context and implications
 - If no issues found, return empty findings array"""
 
-            response = self._call_llm(
-                prompt,
+            # v3.9.21: variable per-document payload goes in ``user``. This
+            # is the only part that changes between calls — the system_prompt
+            # above is identical across the entire bulk legal-review job
+            # and gets cached on the proxy after the first call.
+            user_prompt = f"""Document: {doc_title}
+Type: {doc_type}
+Content Preview (first 1500 chars):
+{content_preview[:1500]}
+{related_context}"""
+
+            response = self._call_llm_cached(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
                 operation='integrity_check',
-                document_id=document_info.get('id')
+                document_id=document_info.get('id'),
             )
 
             # Parse response with safe JSON parser
@@ -760,6 +772,50 @@ IMPORTANT:
                 direct_provider=self.provider,
                 direct_api_key=self.api_key,
                 direct_model=self.model,
+            )
+            return result["content"]
+        except LLMUnavailableError as e:
+            logger.error(f"LLM unavailable for operation={operation}: {e} (attempted={e.attempted})")
+            raise Exception(str(e)) from e
+
+    def _call_llm_cached(self, system_prompt: str, user_prompt: str,
+                        operation: str = 'analysis', document_id: int = None,
+                        max_tokens: int = 1024) -> str:
+        """Call the LLM with the stable instruction template in ``system`` and
+        the per-call variable content in ``user``, with ``cache_control:
+        ephemeral`` on the system block.
+
+        v3.9.21: introduced after the LLM-Proxy team's Round 4 reply explained
+        why our v3.9.20 cache-token logging was always 0 — claude-oauth's
+        per-model auto-cache thresholds are ~1024 (Sonnet) / ~2048 (Haiku) /
+        ~4096 (Opus), and the proxy's auto-injection only wraps ``system`` +
+        last ``tool`` blocks. Our legal-review template lived in the user
+        message, below threshold, so neither auto-wrap nor caller-side
+        cache_control was active. This helper fixes both: caller-side wrap
+        guarantees cache regardless of threshold, and putting the stable
+        prefix in ``system`` matches the proxy's auto-inject path too.
+
+        High-volume callers should migrate to this method when the call
+        carries a stable instruction template + a variable per-call payload.
+        ``analyze_document_integrity`` is the canonical example.
+        """
+        from analyzer.llm.proxy_call import call_llm, LLMUnavailableError
+
+        try:
+            result = call_llm(
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                task="analysis",
+                max_tokens=max_tokens,
+                operation=operation,
+                document_id=document_id,
+                usage_tracker=self.usage_tracker,
+                direct_provider=self.provider,
+                direct_api_key=self.api_key,
+                direct_model=self.model,
+                cache_system=True,
             )
             return result["content"]
         except LLMUnavailableError as e:

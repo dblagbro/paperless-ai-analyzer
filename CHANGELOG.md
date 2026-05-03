@@ -4,6 +4,52 @@ All notable changes to Paperless AI Analyzer are documented here.
 
 ---
 
+## v3.9.21 — 2026-05-02 — caller-side cache_control on legal-review template
+
+The proxy team's Round 4 reply explained why our v3.9.20 cache-token
+logging was always 0: claude-oauth's auto-cache only wraps ``system`` +
+last ``tool`` blocks, with per-model token thresholds (~1024 Sonnet,
+~2048 Haiku, ~4096 Opus). Our legal-review template (~1500-2000 tokens)
+lived in the ``user`` message, so neither auto-injection nor caller-side
+cache_control was active.
+
+**Fix.** Two-part:
+
+1. New helper ``LLMClient._call_llm_cached(system_prompt, user_prompt)``
+   — splits the call into stable ``system`` + variable ``user``,
+   passes ``cache_system=True`` to ``proxy_call.call_llm()``.
+2. New ``proxy_call.call_llm(..., cache_system=True)`` kwarg — when
+   set, builds the Anthropic-SDK ``system`` field as a content-blocks
+   list with ``cache_control: {type: "ephemeral"}`` on the joined
+   prefix. Anthropic SDK accepts either a string or a list of
+   TextBlockParam dicts here; the list form is what Anthropic looks
+   at to decide caching. Caller-side wrap honored regardless of
+   per-model threshold.
+
+**Refactor.** ``analyze_document_integrity`` (the bulk legal-review
+caller — 17k calls per period in the burn incident) is split:
+- Stable instructions + format spec → ``system`` (cached)
+- Variable per-document title / type / 1500-char preview / related-doc
+  context → ``user`` (not cached)
+
+Per-document calls after the first should now hit the cache. Cache
+read tokens (proxy charges ~10% of a normal input token for these)
+land in the ``cache_read_input_tokens`` field on the Anthropic usage
+payload, already logged by the v3.9.20 instrumentation.
+
+### Migration note for future high-volume callers
+
+Any callsite that fits the pattern "stable instruction template + small
+per-call variable payload" should use ``_call_llm_cached`` instead of
+``_call_llm``. Candidates the next reviewer should consider:
+
+- ``analyze_anomalies`` (line 66) — high-volume, has stable instructions
+- ``classify_document`` flows
+- Case Intelligence specialist prompts (entity / timeline / financial /
+  contradiction extractors) — same template across every doc in a case
+
+---
+
 ## v3.9.20 — 2026-05-02 — cross-family-fallback guard + cache token logging
 
 Two follow-throughs on the LLM-Proxy team's Round 3 reply:
