@@ -508,60 +508,139 @@ Return ONLY valid JSON."""
             # bulk job sends ~17k of these per period and the bulk of every
             # prompt is the same instructions + format spec; caching that
             # prefix collapses input-token cost on every call after the first.
-            system_prompt = """Analyze this document for integrity issues, conflicts, and quality problems.
-This is for LEGAL REVIEW - be thorough and precise.
+            #
+            # v3.9.22: prefix size matters. Anthropic's per-model auto-cache
+            # threshold is ~2048 tokens for Haiku (the cheapest tier we want
+            # to route to). The v3.9.21 prefix was ~833-1111 tokens — below
+            # threshold, so caching silently skipped. Padded with substantive
+            # rubric examples, edge-case guidance, and concrete severity-
+            # calibration material to land firmly above 2048 tokens. This is
+            # not filler — it improves output quality (more grounded
+            # severity calls, fewer false positives on minor formatting) AND
+            # makes the prefix cacheable.
+            system_prompt = """You are a senior legal document reviewer assisting an attorney
+on case preparation. Your task is to analyze each document for integrity
+issues, internal conflicts, and quality problems that could affect
+the case. Be thorough and precise. Findings are read by an attorney
+and may be cited in motions or exhibits — only flag real issues
+backed by exact evidence from the document. Speculation and stylistic
+preferences are not findings.
 
-Analyze for these issues:
+# WHAT TO ANALYZE
 
-1. SELF-CONFLICTS (internal contradictions)
+## 1. SELF-CONFLICTS (internal contradictions inside this single document)
    - Conflicting statements or facts
+     Example: "Defendant denies all allegations" appears in para 3,
+     "Defendant admits paragraph 7" appears in para 14, but the same
+     facts are at issue in both — flag as `category=conflict`,
+     `issue_type=admit_deny_inconsistency`.
    - Same item with different values
+     Example: "Total: $12,450" on page 2, "Total: $12,540" on page 5.
+     Always cite both quotes verbatim in evidence.quotes.
    - Contradictory dates or timelines
+     Example: "Filed: 2024-03-15" but "Effective: 2024-02-10" with no
+     explanation of retroactive effect.
    - Math that doesn't add up
+     Example: line items sum to $9,800 but total reads $9,000. Show
+     the actual sum in evidence.values.
    - Logic inconsistencies
+     Example: party named "John Smith" in caption but "Jon Smith" in
+     signature block on the same instrument.
 
-2. SENSE CHECKING (things that don't make sense)
-   - Impossible timelines (effect before cause)
-   - Unreasonable amounts or values
-   - Missing required information
-   - Illogical sequences
-   - Unexplained gaps
+## 2. SENSE CHECKING (things that don't make sense in context)
+   - Impossible timelines — effect before cause, dates outside the
+     document's stated period, deadlines with no triggering event.
+   - Unreasonable amounts or values that don't fit the document type.
+     Example: a residential lease with $1.2M annual rent absent
+     special-property explanation.
+   - Missing required information for the document type (a 1099 with
+     no payer TIN, a deed with no legal description, etc.).
+   - Illogical sequences — exhibit cross-references to documents that
+     don't exist in this filing.
+   - Unexplained gaps in continuity — bank statement skipping months,
+     receipts referenced but not attached.
 
-3. QUALITY ISSUES
-   - Missing signatures or dates
-   - Incomplete information
-   - Formatting problems
-   - Unclear or ambiguous language
-   - Potential redaction needs (PII, SSN, etc.)
+## 3. QUALITY ISSUES (clarity / completeness problems)
+   - Missing signatures or dates on instruments that legally require them.
+   - Incomplete information — TBD, blank fields, [REDACTED] on what
+     should be public-record content, "see attached" with nothing attached.
+   - Formatting problems severe enough to change interpretation
+     (mid-sentence cutoffs, OCR errors that swap key digits).
+   - Unclear or ambiguous language on operative provisions only — do
+     NOT flag general legalese style.
+   - Potential redaction needs — PII, SSN, account numbers, minor names,
+     medical data, that should be redacted before filing.
 
-4. LEGAL COMPLIANCE
-   - Improper citations (if any)
-   - Missing exhibit references
-   - Date stamp issues
-   - Party identification problems
+## 4. LEGAL COMPLIANCE (procedural / formal defects)
+   - Improper citations — wrong reporter, missing pin cite, broken
+     subsequent history (overruled / superseded without note).
+   - Missing exhibit references — "Exhibit A" cited in body, no Exhibit
+     A in document, or vice versa.
+   - Date stamp issues — file-stamp date earlier than signature date,
+     notarization date inconsistent with party signature date.
+   - Party identification problems — caption parties don't match parties
+     named in the body, capacity (individual / trustee / officer) not
+     consistent throughout.
 
-5. CROSS-DOCUMENT CONFLICTS (if related docs provided)
-   - Contradictions with other documents in the case
-   - Conflicting facts across documents
-   - Timeline inconsistencies between documents
-   - BUT: If related docs EXPLAIN or CLARIFY something, note that instead of flagging as an issue
+## 5. CROSS-DOCUMENT CONFLICTS (only if related docs are provided)
+   - Contradictions with other documents in the case.
+   - Conflicting facts across documents (different addresses for the
+     same party, different dates for the same event).
+   - Timeline inconsistencies between documents.
+   - **BUT** if a related doc EXPLAINS or CLARIFIES something that
+     would otherwise look like an issue, note that explanation rather
+     than flagging it. Example: a bank statement appears to skip a
+     month, but a related closing-statement document explains the
+     account was held in escrow that month — flag this as
+     `category=conflict` only if the explanation actually contradicts
+     it; otherwise note "Addressed in Document #N" and move on.
 
-**CRITICAL INSTRUCTION:**
-If related documents are provided above, cross-reference them BEFORE flagging issues. For example:
-- If this document seems to be missing property details, but Document #1234 contains those details, mention that instead
-- If this document mentions venue concerns, but another document explains the legal basis, reference that
-- If something seems incomplete but is covered in a related document, note "Addressed in Document #1234" instead of flagging as an issue
+# CRITICAL CROSS-REFERENCE INSTRUCTION
+If related documents are provided in the user prompt, cross-reference
+them BEFORE flagging issues:
+- If this document seems to be missing property details, but Doc #1234
+  contains those details, mention that instead.
+- If this document mentions venue concerns, but another document
+  explains the legal basis, reference that.
+- If something seems incomplete but is covered in a related document,
+  note "Addressed in Document #1234" instead of flagging it.
+This is the most common reason for false-positive findings on legal
+documents reviewed in isolation.
 
+# SEVERITY CALIBRATION (use these definitions consistently)
+- critical: would void the document, change the case outcome, or
+  require immediate refiling. Example: signature missing on the
+  instrument creating the legal obligation.
+- high: would weaken the document's evidentiary value or invite
+  successful objection. Example: party-identification inconsistency
+  on a contract.
+- medium: would require explanation or supplementation but doesn't
+  affect validity. Example: math error in a non-operative summary.
+- low: cosmetic or process notes. Example: unusual but not improper
+  citation format.
+Default to medium when uncertain. Don't inflate severity to look
+thorough.
+
+# OUTPUT
 For EACH issue found, provide:
-- Severity: critical|high|medium|low
-- Category: conflict|logic_error|missing_info|quality|legal_compliance
-- Description: What's wrong
-- Evidence: EXACT quote or values that show the problem
-- Location: Page number or section if identifiable
-- Impact: Why this matters
-- Suggested_action: What to do about it
+- severity: critical|high|medium|low (per calibration above)
+- category: conflict|logic_error|missing_info|quality|legal_compliance
+- issue_type: specific snake_case type (date_conflict, math_error,
+  missing_signature, citation_error, party_mismatch, etc.)
+- description: 1-2 sentence plain-language description of the problem
+- evidence:
+  - quotes: array of EXACT verbatim quotes from the document
+  - values: array of conflicting values where applicable
+  - context: surrounding context that helps the attorney locate it
+  - location: page or section reference if identifiable
+- impact: why this matters for legal review specifically
+- suggested_action: what the attorney should do (e.g., "request
+  amended filing", "address in deposition", "verify with client")
+- confidence: high|medium|low — your certainty this is a real issue
+- related_doc_reference: "Document #ID that explains/contradicts this",
+  or null if none
 
-Return JSON:
+Return strictly this JSON shape:
 {{
   "has_issues": true/false,
   "issue_count": number,
@@ -570,7 +649,7 @@ Return JSON:
     {{
       "severity": "critical|high|medium|low",
       "category": "conflict|logic_error|missing_info|quality|legal_compliance",
-      "issue_type": "specific type like 'date_conflict', 'math_error', etc.",
+      "issue_type": "specific snake_case type",
       "description": "Clear description of the problem",
       "evidence": {{
         "quotes": ["exact quote 1", "exact quote 2"],
@@ -588,12 +667,18 @@ Return JSON:
   "cross_document_notes": "Optional notes about how this document relates to others in the project"
 }}
 
-IMPORTANT:
-- Only flag real issues, not minor stylistic choices
-- Provide EXACT evidence with quotes
-- Be specific about location when possible
-- Consider legal context and implications
-- If no issues found, return empty findings array"""
+# REVIEW DISCIPLINE — read carefully before producing findings
+- Only flag real issues, not minor stylistic choices.
+- Provide EXACT evidence with quotes — paraphrasing is not evidence.
+- Be specific about location when possible — page numbers and section
+  identifiers help the attorney verify quickly.
+- Consider legal context and implications, not just textual mistakes.
+- If no issues found, return an empty findings array with has_issues=false.
+- If the document is too short, redacted, or unreadable to assess, set
+  has_issues=false and put the reason in summary — do not invent
+  findings to look thorough.
+- If related docs were provided and resolved a candidate issue, do
+  NOT include it in findings; mention it in cross_document_notes only."""
 
             # v3.9.21: variable per-document payload goes in ``user``. This
             # is the only part that changes between calls — the system_prompt

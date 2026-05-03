@@ -4,6 +4,44 @@ All notable changes to Paperless AI Analyzer are documented here.
 
 ---
 
+## v3.9.22 — 2026-05-02 — expand legal-review system prompt past Haiku 2048-token threshold
+
+The proxy team's Round 5 reply pointed out three sanity checks for our
+v3.9.21 cache-zero finding. Walking through them:
+
+  - ✅ system payload is the content-blocks array form with cache_control
+    attached — verified via `with_raw_response.create()` and direct
+    inspection of `ant_kwargs["system"]` shape.
+  - ❌ cached prefix did NOT exceed the model threshold. The v3.9.21
+    legal-review template was 3,335 chars / ~833-1,111 tokens —
+    silently below Haiku's ~2,048 threshold, so Anthropic skipped
+    caching as documented.
+  - ✅ second call within ~5 min of the first.
+
+Fix #2: expanded the legal-review system prompt with substantive content
+(rubric examples per category, severity-calibration definitions,
+review-discipline guidance, edge-case handling). Prompt is now 8,148
+chars / **2,059 input tokens (verified)** — comfortably above the
+Haiku threshold. The added content isn't filler; it improves output
+quality (more grounded severity calls, fewer false positives on
+minor formatting, clearer cross-document logic).
+
+### Outstanding observation for proxy team
+
+After v3.9.22 deploy, two back-to-back smoke calls with:
+  - 2,059 input_tokens (above 2,048 Haiku threshold)
+  - cache_control: {type: ephemeral} on the system content block
+  - calls within 1 second of each other
+…still report `cache_creation_input_tokens=0` and
+`cache_read_input_tokens=0` in the Anthropic usage payload.
+
+The proxy team offered to inspect their wire payload (event_meta.
+request_body) when both sanity checks held. Filed as a follow-up
+in `feedback_lmrh_no_hardcoded_models` style — pinging them with
+our smoke data this round.
+
+---
+
 ## v3.9.21 — 2026-05-02 — caller-side cache_control on legal-review template
 
 The proxy team's Round 4 reply explained why our v3.9.20 cache-token
