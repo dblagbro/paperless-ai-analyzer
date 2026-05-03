@@ -195,10 +195,8 @@ def call_llm(
                 if temperature is not None:
                     ant_kwargs["temperature"] = temperature
                 # v3.9.19: capture LLM-Capability response header so we can
-                # log "what the proxy actually picked" — visibility into
-                # whether the LMRH dims got the cheapest viable model.
-                # Uses with_raw_response so we get headers without losing
-                # the parsed message.
+                # log what the proxy actually picked. Uses with_raw_response
+                # so we get headers without losing the parsed message.
                 raw = ant_client.messages.with_raw_response.create(**ant_kwargs)
                 resp = raw.parse()
                 cap_header = raw.headers.get("LLM-Capability") or ""
@@ -206,18 +204,46 @@ def call_llm(
                 in_tok = resp.usage.input_tokens
                 out_tok = resp.usage.output_tokens
                 model_used = getattr(resp, "model", send_model) or send_model
+
+                # v3.9.20: cross-family-fallback guard. The proxy's v3.0.36
+                # may substitute a different model family when the requested
+                # one isn't available on the chosen provider (e.g. gpt-4o →
+                # gpt-5.5 via codex-oauth). For legal-review work we cannot
+                # silently accept a different model — fail fast and let the
+                # caller decide. Detected via `chosen-because=cross-family-
+                # fallback` in LLM-Capability per the proxy team's contract.
+                if "cross-family-fallback" in cap_header:
+                    proxy_manager.mark_failure(eid)
+                    raise LLMUnavailableError(
+                        f"Proxy substituted a different model family — "
+                        f"requested={send_model}, capability={cap_header}. "
+                        f"AI Analyzer fails fast on cross-family substitution "
+                        f"so legal-review output isn't silently served by an "
+                        f"unintended model. Pass `LLM-Hint: provider-hint=...;"
+                        f"require` or provision a direct provider key.",
+                        attempted=attempted,
+                    )
+
+                # v3.9.20: parse cache token counts. The proxy's v3.0.42 auto-
+                # injects cache_control on stable system prefixes for
+                # claude-oauth, so cache_creation_input_tokens /
+                # cache_read_input_tokens land on the usage payload without
+                # us doing anything. Surface them in the log so the operator
+                # can see the savings without scraping /api/activity.
+                cache_creation = getattr(resp.usage, "cache_creation_input_tokens", 0) or 0
+                cache_read = getattr(resp.usage, "cache_read_input_tokens", 0) or 0
+
                 proxy_manager.mark_success(eid)
                 _log_usage(usage_tracker, "llm-proxy", model_used, operation,
                             in_tok, out_tok, document_id=document_id,
                             success=True, endpoint_id=eid)
-                # Cost-discipline log: the LMRH-Capability header reveals
-                # what the proxy *actually* chose. If we asked for cost=
-                # economy and got back a sonnet/opus, this is the one
-                # place to spot it. ``cap_header`` is empty when the
-                # proxy didn't return the header (older proxy versions).
+                cache_part = ""
+                if cache_creation or cache_read:
+                    cache_part = f" cache_create={cache_creation} cache_read={cache_read}"
                 logger.info(
                     f"[llm-proxy] {eid} (messages) model={model_used} task={task} "
-                    f"in={in_tok} out={out_tok} {time.time()-started:.2f}s"
+                    f"in={in_tok} out={out_tok}{cache_part} "
+                    f"{time.time()-started:.2f}s"
                     + (f" capability={cap_header}" if cap_header else "")
                 )
                 return {
@@ -227,6 +253,8 @@ def call_llm(
                     "endpoint_id": eid,
                     "input_tokens": in_tok,
                     "output_tokens": out_tok,
+                    "cache_creation_input_tokens": cache_creation,
+                    "cache_read_input_tokens": cache_read,
                     "attempted": attempted,
                 }
             except _CONNECTION_EXCEPTIONS as e:

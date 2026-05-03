@@ -4,6 +4,48 @@ All notable changes to Paperless AI Analyzer are documented here.
 
 ---
 
+## v3.9.20 — 2026-05-02 — cross-family-fallback guard + cache token logging
+
+Two follow-throughs on the LLM-Proxy team's Round 3 reply:
+
+### Cross-family-fallback guard (proxy v3.0.36 / v3.0.46)
+
+The proxy's paid-plan-preferred routing can substitute a different model
+family when the requested model isn't natively in the chosen provider's
+catalog (e.g. `gpt-4o` → `gpt-5.5` via `codex-oauth`), disclosed in the
+``LLM-Capability`` response header as
+``chosen-because=cross-family-fallback``.
+
+For legal-review traffic AI Analyzer cannot silently accept a different
+model. ``proxy_call.call_llm()`` now inspects the response header on
+every call: if ``cross-family-fallback`` appears, the call raises
+``LLMUnavailableError`` immediately with the substitution detail,
+marks the endpoint as failed (so the breaker can isolate a
+misconfigured endpoint), and surfaces a recommendation to the caller —
+either pass ``provider-hint=...;require`` to fail fast at the proxy
+layer or provision a direct provider key.
+
+### Cache token logging (proxy v3.0.42)
+
+Proxy auto-wraps stable system / tool-definition prefixes with
+``cache_control: ephemeral`` on claude-oauth when the prefix is above
+the ~1024-token threshold and no caller cache_control is present.
+``proxy_call.call_llm()`` now parses ``cache_creation_input_tokens``
+and ``cache_read_input_tokens`` off the Anthropic usage payload and
+logs them on every call. Returned dict adds those two keys so callers
+can display savings in the UI later. No code change needed to
+*benefit* — auto-injection is transparent — this is purely visibility.
+
+### What was NOT changed
+
+- Anthropic / Vertex / Cohere routing untouched.
+- LMRH presets unchanged from v3.9.19.
+- ``pin_to_anthropic=True`` default preserved — paperless still won't
+  send anything but Anthropic-format calls until AI Analyzer has its
+  own paid OpenAI key.
+
+---
+
 ## v3.9.19 — 2026-05-02 — proper LMRH integration + cost discipline
 
 The v3.9.18 emergency stopped the burn but kept the same anti-pattern
