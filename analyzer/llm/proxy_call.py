@@ -57,35 +57,43 @@ _CONNECTION_EXCEPTIONS = (
 
 
 def _default_model_for_task(task: str, fallback: str = "claude-haiku-4-5") -> str:
-    """Return the *cheapest* model name to put in the SDK request body.
+    """Return the cheapest model name to put in the SDK request body, picked
+    from the task's LMRH ``cost=`` tier.
 
-    v3.9.19 — proper LMRH integration. The previous version (v3.9.18)
-    hardcoded specific tiers per task (sonnet for analysis, opus for
-    director-tier, etc.). That's exactly the anti-pattern the LMRH 1.0
-    spec calls out: it forces a model choice in code, defeating the
-    proxy's ability to pick the cheapest model that satisfies the
-    task's actual requirements.
+    Why this looks like "hardcoding model tiers" but isn't:
 
-    The right pattern: send the cheapest valid model in the SDK request
-    body (so if the proxy ignores LMRH for any reason we still bill
-    cheaply) and let LMRH dims (``task=``, ``cost=``, ``safety-min=``,
-    ``context-length=``) drive the actual routing decision. The proxy's
-    LMRH 1.0 scorer evaluates every available provider against those
-    dims and picks the best match — which means:
+    The proxy's LMRH 1.0 scorer picks the **provider** based on dims, but
+    when the chosen provider has a valid match for the request-body
+    ``model=`` field, the proxy honors that exact model rather than
+    substituting. (Confirmed empirically 2026-05-04: with
+    ``cost=standard, fallback-chain=anthropic;require``, ``LLM-Capability``
+    reported ``model=claude-sonnet-4-6, chosen-because=score`` — proxy
+    chose Sonnet — but the actual model served was ``claude-haiku-4-5``
+    because that's what we sent in the request body.) So the SDK
+    request-body model effectively gates which model in the chosen
+    provider we land on.
 
-      - ``cost=economy`` calls land on haiku-class models
-      - ``cost=standard`` calls land on sonnet-class models
-      - ``cost=premium`` calls land on opus-class models
-      - Cheaper haiku-class shipping tomorrow → proxy auto-picks it.
+    To honor the LMRH spirit while working with how the proxy actually
+    behaves, we map the *cost-tier* (which the LMRH preset declares per
+    task) → the *cheapest model in that tier*. Code never names a model
+    per task; it names a model per cost-tier, and the cost-tier is the
+    LMRH dim. If Anthropic ships a cheaper Haiku tomorrow we update one
+    line here, not 17 task entries.
 
-    Code stays unchanged across model-tier upgrades. This is the
-    point of LMRH.
+    Cost-tier → model mapping (cheapest viable in tier):
+      economy  → claude-haiku-4-5
+      standard → claude-sonnet-4-6
+      premium  → claude-opus-4-7
 
-    Callers that actually need a specific model can still pass
-    ``model=`` explicitly to ``call_llm()`` — that overrides this
-    default — but nothing in the AI Analyzer codebase should need to.
+    Caller can still pass ``model=`` explicitly to override.
     """
-    return fallback
+    from analyzer.llm.lmrh import TASK_PRESETS
+    tier = TASK_PRESETS.get(task, {}).get("cost", "economy")
+    return {
+        "economy":  "claude-haiku-4-5",
+        "standard": "claude-sonnet-4-6",
+        "premium":  "claude-opus-4-7",
+    }.get(tier, fallback)
 
 
 def _log_usage(usage_tracker, provider: str, model: str, operation: str,

@@ -4,6 +4,72 @@ All notable changes to Paperless AI Analyzer are documented here.
 
 ---
 
+## v3.9.25 — 2026-05-04 — cache hits actually fire (Sonnet via cost-tier→model map)
+
+The proxy team's Round 8 wire-payload audit nailed it: claude-haiku-4-5
+silently drops ``cache_control`` on Pro Max OAuth tier (Anthropic-side
+limitation). claude-sonnet-4-6 caches at 97.1% on the same wire shape.
+
+The path 1 recommendation was "switch the legal-review path to Sonnet".
+v3.9.24 bumped the LMRH preset to ``cost=standard`` — but live testing
+showed the proxy still served Haiku. ``LLM-Capability`` reported
+``model=claude-sonnet-4-6, chosen-because=score`` (proxy DID score
+Sonnet best given ``cost=standard``) — but the actual served model
+was ``claude-haiku-4-5`` because we sent that in the SDK request body.
+The proxy honors the request-body model when the chosen provider has
+a valid match for it.
+
+Fix: ``_default_model_for_task()`` now maps the LMRH ``cost=`` tier to
+the cheapest model in that tier:
+
+  - ``cost=economy``  → ``claude-haiku-4-5``
+  - ``cost=standard`` → ``claude-sonnet-4-6``
+  - ``cost=premium``  → ``claude-opus-4-7``
+
+This is mapping per *cost-tier*, not per *task*. The cost-tier comes
+from the LMRH preset, so adding/changing tasks doesn't require a model
+table edit. If Anthropic ships a cheaper Haiku tomorrow we update one
+line, not 17 task entries. The "no hardcoded models per task" rule
+stays intact.
+
+### Verified live
+
+```
+Call #1: model=claude-sonnet-4-6  in=16   cache_c=2389  cache_r=0
+Call #2: model=claude-sonnet-4-6  in=16   cache_c=0     cache_r=2389
+```
+
+100% cache-hit on call #2. Stable system prefix (2389 tokens) read
+back from cache at ~10% of normal input cost. Per-call effective
+cost on the bulk legal-review pipeline drops dramatically vs Haiku's
+no-cache state.
+
+### What this means for the burn-incident comparison
+
+Previously v3.9.18 hard-pinned to Anthropic and routed all analysis
+to Haiku (no cache). v3.9.25 routes to Sonnet which caches.
+Subscription quota burn per call:
+
+| | Sonnet base | Sonnet cached | Haiku no-cache |
+|---|---|---|---|
+| Input tokens charged | 2389 | ~239 (cache read) | 2389 |
+| Quality on legal review | high | high | medium |
+
+Cached Sonnet costs ~10% of un-cached Sonnet. After cache write
+(call #1 only), every subsequent call lands at ~239 effective input
+tokens vs 2389 for Haiku. Plus quality boost.
+
+---
+
+## v3.9.24 — 2026-05-02 — bump analysis to cost=standard
+
+Followup on the Round 8 path 1 recommendation. Bumped ``analysis``
+LMRH preset from ``cost=economy`` to ``cost=standard`` so the proxy
+scores Sonnet over Haiku. Live test showed proxy scored Sonnet but
+served Haiku (request-body model honored). v3.9.25 finishes the fix.
+
+---
+
 ## v3.9.23 — 2026-05-02 — extra system-prompt margin past Haiku threshold
 
 Proxy team's Round 6 reply identified our v3.9.22 size (2052 input

@@ -64,7 +64,20 @@ from typing import Optional
 # legal documents and we want providers with reasonable refusal floors.
 TASK_PRESETS: dict[str, dict] = {
     # ── Core anomaly + document analysis pipeline (high-volume polling) ──
-    "analysis":         {"cost": "economy", "safety-min": 3},
+    #
+    # v3.9.24: bumped analysis from cost=economy to cost=standard. This
+    # looks counterintuitive — economy is haiku-class, standard is sonnet-
+    # class, sonnet is more expensive per token. But the LLM-Proxy team's
+    # 8-hour wire-payload audit (2026-05-04) found claude-haiku-4-5
+    # silently drops `cache_control: ephemeral` on Pro Max OAuth tier,
+    # while claude-sonnet-4-6 caches at 97.1% on the same wire shape.
+    # Our legal-review pipeline has a stable ~2400-token system prefix
+    # repeated across ~17k calls per period — caching that prefix at
+    # ~90% discount makes Sonnet *effectively cheaper* than Haiku-no-cache.
+    # Plus the quality boost on legal review. When/if Anthropic enables
+    # Haiku caching on Pro Max OAuth (proxy team raising upstream), drop
+    # this back to economy.
+    "analysis":         {"cost": "standard", "safety-min": 3},
     "extraction":       {"cost": "economy"},
     "classification":   {"cost": "economy"},
     "summarize":        {"cost": "economy"},
