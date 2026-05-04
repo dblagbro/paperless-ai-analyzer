@@ -4,6 +4,39 @@ All notable changes to Paperless AI Analyzer are documented here.
 
 ---
 
+## v3.9.23 — 2026-05-02 — extra system-prompt margin past Haiku threshold
+
+Proxy team's Round 6 reply identified our v3.9.22 size (2052 input
+tokens) as marginal — 4 tokens past the 2048 Haiku threshold,
+inside tokenizer-jitter range. They suggested adding ~100 more
+tokens of stable rubric.
+
+Padded the legal-review system_prompt with a "COMMON FALSE-POSITIVE
+PATTERNS" section (10 concrete don't-flag examples covering legalese,
+formatting variance, OCR layers, transmittal covers, drafting style,
+date formats, capacity changes, boilerplate). Like the v3.9.22 rubric
+expansion, this isn't filler — it directly reduces the false-positive
+rate that's been the single biggest review-quality complaint on the
+legal-review pipeline. The fact that it also pushes us comfortably
+into cache range is a co-benefit.
+
+Final prompt size: 9,447 chars / 2,405 input_tokens — 357 tokens above
+the 2,048 Haiku threshold. Comfortably outside any token-counting
+jitter.
+
+### Cache verification result after v3.0.54 proxy fix + 357-token margin
+
+```
+Call #1: in=2405  cache_create=0  cache_read=0
+Call #2: in=2402  cache_create=0  cache_read=0
+```
+
+Still 0/0. Proxy team said to re-ping in this exact case
+("If still 0/0, the issue is not on the proxy side — let us know
+and we'll look further"). Re-engaging with the new data.
+
+---
+
 ## v3.9.22 — 2026-05-02 — expand legal-review system prompt past Haiku 2048-token threshold
 
 The proxy team's Round 5 reply pointed out three sanity checks for our

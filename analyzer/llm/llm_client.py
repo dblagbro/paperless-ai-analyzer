@@ -678,7 +678,30 @@ Return strictly this JSON shape:
   has_issues=false and put the reason in summary — do not invent
   findings to look thorough.
 - If related docs were provided and resolved a candidate issue, do
-  NOT include it in findings; mention it in cross_document_notes only."""
+  NOT include it in findings; mention it in cross_document_notes only.
+
+# COMMON FALSE-POSITIVE PATTERNS — do NOT flag these
+- Standard legalese phrasing (e.g. "whereas", "heretofore", "the
+  party of the first part") is style, not a quality issue.
+- Different fonts or spacing across pages of a multi-source filing
+  bundle — that's how filings come together, not a defect.
+- Rounded vs precise dollar amounts when both are stated (e.g.
+  summary uses $12,500 and detail uses $12,487.34) UNLESS the doc
+  explicitly claims the summary is exact.
+- Formatting differences between original and OCR layer of the same
+  document — flag only if the OCR layer's text differs in substance.
+- Missing exhibit attachments when the doc is a transmittal cover
+  page — body should call out what's attached, but if the file
+  contains only that cover, the missing exhibit is expected.
+- Phrasing that uses both "shall" and "will" interchangeably —
+  modern drafting style varies, not an inconsistency.
+- Date format variance (2024-01-15 vs January 15, 2024) inside
+  the same document if the meaning is unambiguous.
+- Pronoun/role inconsistencies that are explained by capacity
+  changes (e.g. "Mr. Smith" earlier, "Trustee" later, when the
+  doc establishes Smith IS the trustee).
+- Boilerplate clauses repeated verbatim across sections — that's
+  template reuse, not duplication."""
 
             # v3.9.21: variable per-document payload goes in ``user``. This
             # is the only part that changes between calls — the system_prompt
