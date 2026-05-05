@@ -21,7 +21,10 @@ Routing strategy (proxy-first, direct-provider as absolute last resort):
 """
 from __future__ import annotations
 
+import collections
 import logging
+import os
+import threading
 import time
 from typing import Optional, Any
 
@@ -31,6 +34,69 @@ from analyzer.llm import proxy_manager
 from analyzer.llm.lmrh import build_lmrh_header
 
 logger = logging.getLogger(__name__)
+
+
+# ─── Module-level rate limiter (v3.9.26) ────────────────────────────────
+#
+# Background: the 2026-05-02 burn incident saw ~6 LLM calls/min sustained
+# for 48h. The proxy team flagged that the next provider with hard rate
+# limits will see this poll loop hammer + retry hard. This rate-limiter
+# is a token-bucket / sliding-window hybrid that gates EVERY LLM call
+# through ``call_llm()`` — covers the poller, CI runs, chat, and any
+# future call site without per-site instrumentation.
+#
+# Default: 60 calls/min (~1/sec). Configurable via ``LLM_CALLS_PER_MIN``
+# env var. Set to 0 to disable (only do that if a downstream provider
+# already enforces the cap, e.g. proxy team has set ``rate_limit_rpm``).
+#
+# Burst tolerance: 2× the per-minute rate, with a fixed-window count
+# (we record timestamps of recent calls and sleep until the oldest in
+# the window expires). Simpler than a continuous-time token bucket and
+# good enough for the call rates AI Analyzer sees.
+
+_RATE_LOCK = threading.Lock()
+_RATE_RECENT_CALLS: "collections.deque[float]" = collections.deque()
+
+
+def _rate_limit_acquire() -> float:
+    """Block until a call is allowed under the per-minute cap.
+
+    Returns the number of seconds spent waiting (0.0 if no wait was
+    needed). Logs a warning if the wait exceeded 1s — useful for
+    detecting backlog conditions where the poller is hitting the cap
+    repeatedly.
+    """
+    cap = int(os.environ.get("LLM_CALLS_PER_MIN", "60") or 0)
+    if cap <= 0:
+        return 0.0  # disabled
+
+    started = time.time()
+    while True:
+        with _RATE_LOCK:
+            now = time.time()
+            cutoff = now - 60.0
+            # Drop expired entries
+            while _RATE_RECENT_CALLS and _RATE_RECENT_CALLS[0] < cutoff:
+                _RATE_RECENT_CALLS.popleft()
+            if len(_RATE_RECENT_CALLS) < cap:
+                _RATE_RECENT_CALLS.append(now)
+                waited = now - started
+                if waited > 1.0:
+                    logger.warning(
+                        f"[llm-rate] held call {waited:.1f}s under "
+                        f"{cap}/min cap (window had {len(_RATE_RECENT_CALLS)} "
+                        f"entries)"
+                    )
+                return waited
+            # Sleep until the oldest entry exits the window
+            sleep_for = _RATE_RECENT_CALLS[0] + 60.0 - now
+        time.sleep(max(0.05, min(sleep_for, 5.0)))
+
+
+def _rate_limit_reset() -> None:
+    """Wipe the recent-calls window. Used by tests; not normally called."""
+    with _RATE_LOCK:
+        _RATE_RECENT_CALLS.clear()
 
 
 class LLMUnavailableError(Exception):
@@ -164,6 +230,12 @@ def call_llm(
             "attempted":    list[str],   # diagnostic trail
         }
     """
+    # v3.9.26: gate on the global rate limiter before doing any work.
+    # All LLM call paths (poller, CI runs, chat, codegen) flow through
+    # this function, so the cap protects every site without per-site
+    # instrumentation. Default 60 calls/min, env-tunable.
+    _rate_limit_acquire()
+
     attempted: list[str] = []
     lmrh = build_lmrh_header(
         task,

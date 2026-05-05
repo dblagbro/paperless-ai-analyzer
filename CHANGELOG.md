@@ -4,6 +4,50 @@ All notable changes to Paperless AI Analyzer are documented here.
 
 ---
 
+## v3.9.26 — 2026-05-05 — global LLM-call rate limiter
+
+The 2026-05-02 burn-incident background was the analyzer poller running
+~6 LLM calls/min sustained for 48h with no per-minute cap. The proxy
+team flagged that the next provider with hard rate limits will see this
+loop hammer + retry hard. Adding a token-bucket here protects every
+LLM call site (poller, CI runs, chat, codegen) without per-site
+instrumentation.
+
+### What changed
+
+`analyzer/llm/proxy_call.py`:
+
+  - New `_RateLimiter` (sliding-window deque + threading.Lock).
+  - New `_rate_limit_acquire()` blocks until a call is allowed under the
+    `LLM_CALLS_PER_MIN` cap (default **60/min**, env-tunable, 0 disables).
+  - `call_llm()` now calls `_rate_limit_acquire()` before doing any work.
+
+When the cap is hit, the limiter sleeps until the oldest entry exits
+the rolling 60-second window (i.e. drains rather than rejects). Logs
+a `[llm-rate]` warning when it had to wait > 1s, so backlog conditions
+surface in operator monitoring.
+
+### Verified live
+
+```
+LLM_CALLS_PER_MIN=5
+calls 1-5: 0.0s wait  (instant — cap not reached)
+call  6:   60.0s wait (oldest entry exited window)
+call  7:   0.0s wait  (slot freed)
+```
+
+### Operational notes
+
+- Default 60/min is intentionally conservative — well under Anthropic
+  Pro Max OAuth's actual ceiling. Bump via env var if a future workload
+  needs higher.
+- Bursts up to 60 calls clear instantly; only sustained > 60/min get
+  paced. Matches AI Analyzer's "bursty-then-quiet" polling pattern.
+- Set `LLM_CALLS_PER_MIN=0` only if a downstream provider already
+  enforces the cap (e.g. proxy team has set `rate_limit_rpm`).
+
+---
+
 ## v3.9.25 — 2026-05-04 — cache hits actually fire (Sonnet via cost-tier→model map)
 
 The proxy team's Round 8 wire-payload audit nailed it: claude-haiku-4-5
